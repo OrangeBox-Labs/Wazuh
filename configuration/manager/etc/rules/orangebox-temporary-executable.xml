@@ -1,0 +1,145 @@
+<!--
+    ORANGEBOX - Deteccion de archivos ejecutables en directorios temporales
+
+    Objetivo
+    Detectar archivos ejecutables en /tmp/, /var/tmp/ y /dev/shm/.
+
+    Eventos FIM utilizados:
+        554 = File added
+
+    Politica OrangeBox:
+        Las alertas FIM por modificacion requieren evidencia de cambio
+        de contenido. Los cambios exclusivos de permisos, mtime, inode u
+        otros metadatos no generan alertas personalizadas.
+        Los archivos nuevos son la excepcion y se detectan por 554.
+
+    Convencion de IDs OrangeBox:
+        10000 - 19999 = Reglas de deteccion
+        20000 - 29999 = Excepciones y whitelists
+
+    Excepcion operacional:
+        dracut utiliza /var/tmp/dracut.* durante la construccion de initramfs.
+        Esos arboles pueden generar gran cantidad de eventos FIM legitimos.
+        La excepcion 20040 se mantiene para los archivos nuevos detectados
+        por 10410. Los cambios de permisos ya no tienen una alerta OrangeBox.
+
+    IMPORTANTE:
+        Las reglas y excepciones deben permanecer dentro del elemento group.
+        Los comentarios XML no deben contener dobles guiones.
+-->
+
+<group name="orangebox_temporary_executable">
+
+    <!--
+        10410 - ARCHIVO CREADO YA EJECUTABLE
+
+        Detecta archivos que aparecen en el sistema con algun permiso
+        de ejecucion desde el momento en que FIM los registra.
+
+        Ejemplo:
+            install -m 755 /dev/null /var/tmp/test.sh
+
+        Flujo FIM:
+            554  = File added
+            10410 = alerta OrangeBox
+    -->
+    <rule id="10410" level="15">
+        <if_sid>554</if_sid>
+        <field name="file" type="pcre2">^/tmp/|^/var/tmp/|^/dev/shm/</field>
+        <field name="perm" type="pcre2">\w\wx</field>
+        <description>
+            ORANGEBOX: Executable file created in temporary directory.
+        </description>
+        <mitre>
+            <id>T1105</id>
+        </mitre>
+    </rule>
+
+
+    <!--
+        20040 - EXCEPCION DRACUT PARA 10410
+
+        dracut genera arboles temporales bajo /var/tmp/dracut.* durante
+        la construccion de initramfs.
+
+        Esta excepcion solamente actua sobre eventos que ya fueron
+        identificados por la regla 10410 y cuyo path comienza exactamente
+        con /var/tmp/dracut.
+
+        El resto de /tmp, /var/tmp y /dev/shm continua bajo deteccion.
+    -->
+    <rule id="20040" level="0">
+        <if_sid>10410</if_sid>
+        <field name="file" type="pcre2">^/var/tmp/dracut\.</field>
+        <description>
+            EXCEPCION ORANGEBOX: archivo ejecutable generado por dracut.
+        </description>
+        <group>orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+
+    <!--
+        20053 - EXCEPCION cPANEL / SPAMASSASSIN
+
+        SpamAssassin compila expresiones bajo el arbol temporal de cPanel:
+        /var/tmp/cpanel.TMP.work.*/.spamassassin*/Mail-SpamAssassin-CompiledRegexps-*/
+
+        La excepcion se limita a este arbol de trabajo y parte de 10410.
+        No se excluye /var/tmp en general.
+    -->
+    <rule id="20053" level="0">
+        <if_sid>10410</if_sid>
+        <field name="file" type="pcre2">^/var/tmp/cpanel\.TMP\.work\.[^/]+/\.spamassassin[^/]+/Mail-SpamAssassin-CompiledRegexps-[^/]+/.*$</field>
+        <description>EXCEPCION ORANGEBOX: archivo temporal compilado por SpamAssassin/cPanel.</description>
+        <group>orangebox_exception,orangebox_whitelist,cpanel,spamassassin,</group>
+    </rule>
+
+
+    <!--
+        20042 - EXCEPCION CLAMAV PARA 10410
+
+        ClamAV genera repetidamente archivos temporales bajo /var/tmp con
+        el patron:
+            /var/tmp/clamav-<32 hex>.tmp
+            /var/tmp/clamav-<32 hex>.tmp/...
+
+        La excepcion se limita al patron de ruta propio de estos temporales
+        y parte de 10410. No se excluye /var/tmp completo.
+
+        IMPORTANTE:
+        La condicion de propietario se elimina deliberadamente. En la regla
+        FIM, "uname_after" pertenece al objeto syscheck y no debe utilizarse
+        como campo estatico de regla para esta excepcion. El path patronizado
+        de ClamAV ya proporciona el alcance necesario para evitar este falso
+        positivo recurrente.
+    -->
+    <rule id="20042" level="0">
+        <if_sid>10410</if_sid>
+        <field name="file" type="pcre2">^/var/tmp/clamav-[0-9a-f]{32}\.tmp(?:/.*)?$</field>
+        <description>
+            EXCEPCION ORANGEBOX: archivo temporal generado por ClamAV bajo su arbol /var/tmp/clamav-*.tmp.
+        </description>
+        <group>orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!--
+        20043 - EXCEPCION MYSQL SOCKET
+
+        Los sockets Unix pueden aparecer con permisos rwxrwxrwx. La regla
+        10410 detecta actualmente el bit de ejecucion a partir de "perm",
+        por lo que un socket Unix puede ser interpretado como archivo
+        ejecutable aunque no sea un archivo ejecutable real.
+
+        Se limita exclusivamente al socket MySQL validado:
+            /var/tmp/mysql.sock
+    -->
+    <rule id="20043" level="0">
+        <if_sid>10410</if_sid>
+        <field name="file" type="pcre2">^/var/tmp/mysql\.sock$</field>
+        <description>
+            EXCEPCION ORANGEBOX: socket Unix de MySQL creado en /var/tmp.
+        </description>
+        <group>orangebox_exception,orangebox_whitelist,mysql,socket,</group>
+    </rule>
+
+</group>

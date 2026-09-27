@@ -1,0 +1,252 @@
+<!-- ================================================================
+     ATAQUES WEB / FUERZA BRUTA / RECONOCIMIENTO
+     ================================================================
+
+     Convencion de IDs OrangeBox:
+         10000 - 19999 = Reglas de deteccion.
+         20000 - 29999 = Excepciones / whitelists.
+
+     IMPORTANTE:
+         Las reglas de deteccion se definen primero.
+         Las excepciones / whitelists se encuentran EXCLUSIVAMENTE
+         al FINAL de este archivo.
+
+         Las reglas que utilizan <if_sid> o <if_matched_sid> deben
+         referenciar reglas definidas previamente cuando corresponda.
+
+         Las expresiones sobre <url> utilizan PCRE2 de forma explicita.
+================================================================ -->
+
+<!-- ================================================================
+     REGLAS DE DETECCION
+     ================================================================ -->
+
+<group name="orangebox,web,authentication,attack,">
+
+    <!--
+        10024
+        ------------------------------------------------------------
+        Regla BASE de autenticacion web.
+
+        Cada respuesta HTTP 401 o 403 genera este evento.
+        31101 identifica las respuestas HTTP 4xx.
+    -->
+
+    <rule id="10024" level="5">
+        <if_sid>31101</if_sid>
+        <id>^401$|^403$</id>
+        <description>HTTP 401/403 detectado contra servidor web.</description>
+        <group>web,authentication,orangebox_web,</group>
+    </rule>
+
+    <!--
+        10023
+        ------------------------------------------------------------
+        DETECCION DE URL SENSIBLE.
+
+        Esta regla NO depende de 10024.
+
+        Un scanner puede recibir diferentes respuestas al probar una
+        ruta sensible:
+            401 = protegido
+            403 = prohibido
+            404 = no existe
+
+        Un 404 sigue siendo relevante para detectar reconocimiento
+        automatizado de rutas conocidas de credenciales o secretos.
+
+        31101 representa cualquier HTTP 4xx, por lo que 10023 tambien
+        puede detectar respuestas 404.
+    -->
+
+    <rule id="10023" level="5">
+        <if_sid>31101</if_sid>
+        <url type="pcre2">^/\.env|^/\.aws/|^/\.config/gcloud/|^/\.oci/|^/\.openai/|^/wp-config\.php|^/@fs/.*(\.env|\.aws/|\.config/gcloud/|\.oci/|\.openai/|wp-config\.php)</url>
+        <description>HTTP 4xx contra archivo sensible o credencial potencial.</description>
+        <group>web,reconnaissance,credential_discovery,sensitive_file,orangebox_web,</group>
+    </rule>
+
+    <!--
+        10025
+        ------------------------------------------------------------
+        FUERZA BRUTA WEB.
+
+        Correlaciona multiples respuestas HTTP 401/403 desde la misma
+        IP dentro de 15 segundos.
+
+        Las rutas de reconocimiento de archivos sensibles se excluyen
+        para no clasificarlas como brute force.
+
+        Nivel 11:
+        se mantiene como alerta relevante, pero queda por debajo del
+        severidad de detección independiente de la política de correo.
+
+        Active Response:
+        firewall-drop bloquea el origen durante 24 horas.
+    -->
+
+    <rule id="10025" level="11" frequency="10" timeframe="15">
+        <if_matched_sid>10024</if_matched_sid>
+        <id>^401$|^403$</id>
+        <url type="pcre2" negate="yes">^/\.env|^/\.aws/|^/\.config/gcloud/|^/\.oci/|^/\.openai/|^/wp-config\.php|^/@fs/.*(\.env|\.aws/|\.config/gcloud/|\.oci/|\.openai/|wp-config\.php)</url>
+        <same_srcip />
+        <description>ALERTA CRITICA: Posible fuerza bruta web. Multiples respuestas HTTP 401/403 desde la misma IP.</description>
+        <mitre>
+            <id>T1110</id>
+        </mitre>
+        <group>web,authentication,brute_force,attack,orangebox_web,</group>
+    </rule>
+
+    <!--
+        10461
+        ------------------------------------------------------------
+        IOC DE FUERZA BRUTA WEB.
+
+        10025 ya realiza la correlacion de 10 respuestas HTTP 401/403
+        desde la misma IP dentro de 15 segundos.
+
+        Esta regla solo comprueba si esa IP esta presente en la lista
+        malicious-ip y eleva el evento a nivel 14.
+
+        Se define inmediatamente despues de 10025 para garantizar que
+        el parent exista cuando Wazuh carga este archivo.
+    -->
+
+    <rule id="10461" level="14">
+        <if_sid>10025</if_sid>
+        <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
+        <description>ORANGEBOX IOC: Fuerza bruta web desde IP maliciosa conocida $(srcip).</description>
+        <mitre>
+            <id>T1110</id>
+        </mitre>
+        <group>web,brute_force,attack,orangebox_ioc,orangebox_web,</group>
+    </rule>
+
+    <!--
+        10026
+        ------------------------------------------------------------
+        DESCUBRIMIENTO AUTOMATIZADO DE ARCHIVOS SENSIBLES / CREDENCIALES.
+
+        Correlaciona 2 eventos 10023 desde la misma IP dentro de
+        30 segundos.
+
+        Como 10023 acepta cualquier HTTP 4xx, se incluyen respuestas
+        401, 403 y 404.
+
+        Nivel 11:
+        se mantiene como alerta relevante, pero queda por debajo del
+        umbral de la integracion de correo OrangeBox.
+
+        Active Response:
+        firewall-drop bloquea el origen durante 24 horas.
+    -->
+
+    <rule id="10026" level="11" frequency="2" timeframe="30">
+        <if_matched_sid>10023</if_matched_sid>
+        <same_srcip />
+        <description>ALERTA CRITICA: Posible reconocimiento automatizado de archivos sensibles o credenciales web. Multiples intentos desde la misma IP.</description>
+        <mitre>
+            <id>T1083</id>
+            <id>T1552</id>
+        </mitre>
+        <group>web,reconnaissance,credential_discovery,sensitive_file,attack,orangebox_web,</group>
+    </rule>
+
+</group>
+
+
+<!-- ================================================================
+     CORRELACION ORANGEBOX - EXPLOTACION WEB AUTOMATIZADA
+     ================================================================
+
+     Señales auxiliares de nivel 1 para correlación. No son hijas de
+     las reglas nativas de Wazuh y por lo tanto no reemplazan sus alertas.
+
+       10027 = Shellshock
+       10028 = inyección/reconocimiento/explotación web
+       10029 = 3 señales desde la misma IP en 180 segundos
+================================================================ -->
+
+<group name="orangebox,web,correlation,attack,">
+
+    <!-- Señal auxiliar de Shellshock -->
+    <rule id="10027" level="1">
+        <regex type="pcre2">"\(\)\s*\{\s*\w*:;\s*\}\s*;|"\(\)\s*\{\s*\w*;\s*\}\s*;</regex>
+        <options>no_log</options>
+        <description>ORANGEBOX: Señal auxiliar de Shellshock.</description>
+        <group>orangebox_web_attack_signal,orangebox_shellshock,</group>
+    </rule>
+
+    <!-- Señal auxiliar para SQLi, XSS, traversal/LFI, RCE y SSRF -->
+    <rule id="10028" level="1">
+        <regex type="pcre2">(?i)(?:%27\s*(?:%20)?(?:or|and)|(?:^|[?&\s])(?:or|and)(?:%20|\+|\s)+['"]?\d+['"]?(?:=|%3d)|(?:union|select|insert|where|order(?:%20|\+|\s)+by)(?:%20|\+|\s)|%3c(?:script|img|svg)|(?:javascript:|onerror\s*=|onload\s*=|svg/onload)|(?:\.\./|\.\.%2f|%2e%2e(?:%2f|/)|%5c\.\.|/etc/passwd|win\.ini|php://filter)|(?:[;&|](?:%20|\+|\s)*(?:id|echo|curl|wget|bash|sh)\b|\$\{(?:echo|phpinfo)\}|(?:system|shell_exec|passthru|proc_open|phpinfo)\s*\()|(?:https?://[^\s"]*(?:oob|probe|inexistent)|(?:file|gopher)://))</regex>
+        <options>no_log</options>
+        <description>ORANGEBOX: Señal auxiliar de búsqueda de vulnerabilidades, inyección o explotación web.</description>
+        <group>orangebox_web_attack_signal,orangebox_web_exploit,</group>
+    </rule>
+
+    <!-- 3 señales de ataque web + misma IP + 180 segundos -->
+    <rule id="10029" level="14" frequency="3" timeframe="180" ignore="300">
+        <if_matched_group>orangebox_web_attack_signal,</if_matched_group>
+        <same_srcip />
+        <description>ALERTA CRITICA: Actividad web maliciosa correlacionada. La misma IP ejecuto multiples tecnicas de reconocimiento, inyeccion o explotacion en una ventana corta.</description>
+        <mitre>
+            <id>T1190</id>
+            <id>T1595</id>
+        </mitre>
+        <group>orangebox,web,attack,exploitation,web_scan,orangebox_web,orangebox_web_correlation,</group>
+    </rule>
+
+</group>
+
+<!-- =================================================================
+     EXCEPCIONES / WHITELIST - ESTA SECCION SIEMPRE VA AL FINAL
+     =================================================================
+
+     Convencion de IDs:
+         20000 - 29999 = Excepciones / whitelists.
+     ================================================================= -->
+
+<group name="orangebox,web,authentication,whitelist,">
+
+    <!-- Reverse proxy legitimo IP_DE_PROXY -->
+    <rule id="20024" level="0">
+        <if_sid>10025</if_sid>
+        <srcip>IP_DE_PROXY</srcip>
+        <description>EXCEPCION: Rafaga HTTP 401/403 proveniente del reverse proxy legitimo IP_DE_PROXY.</description>
+        <group>web,authentication,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!-- Reverse proxy legitimo IP_DE_PROXY -->
+    <rule id="20025" level="0">
+        <if_sid>10025</if_sid>
+        <srcip>IP_DE_PROXY</srcip>
+        <description>EXCEPCION: Rafaga HTTP 401/403 proveniente del reverse proxy legitimo IP_DE_PROXY.</description>
+        <group>web,authentication,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!-- Reverse proxy legitimo IP_DE_PROXY - reconocimiento de archivos -->
+    <rule id="20026" level="0">
+        <if_sid>10026</if_sid>
+        <srcip>IP_DE_PROXY</srcip>
+        <description>EXCEPCION: Reconocimiento de archivos proveniente del reverse proxy legitimo IP_DE_PROXY; el backend aun registra la IP del proxy.</description>
+        <group>web,reconnaissance,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!-- Reverse proxy legitimo IP_DE_PROXY - reconocimiento de archivos -->
+    <rule id="20027" level="0">
+        <if_sid>10026</if_sid>
+        <srcip>IP_DE_PROXY</srcip>
+        <description>EXCEPCION: Reconocimiento de archivos proveniente del reverse proxy legitimo IP_DE_PROXY; el backend aun registra la IP del proxy.</description>
+        <group>web,reconnaissance,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!-- Reverse proxy legitimo IP_DE_PROXY - reconocimiento de archivos -->
+    <rule id="20028" level="0">
+        <if_sid>10026</if_sid>
+        <srcip>IP_DE_PROXY</srcip>
+        <description>EXCEPCION: Reconocimiento de archivos proveniente del reverse proxy legitimo IP_DE_PROXY; el backend aun registra la IP del proxy.</description>
+        <group>web,reconnaissance,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+</group>

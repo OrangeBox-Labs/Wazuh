@@ -1,0 +1,80 @@
+<!--
+    OrangeBox Wazuh - Integracion FIM -> YARA
+    ================================================================
+
+    Politica:
+        - YARA se ejecuta solamente sobre archivos nuevos o modificados
+          que pertenezcan a extensiones de script/webshell en zonas
+          de alto riesgo ya monitorizadas por FIM.
+        - No se escanean todos los eventos FIM.
+        - Las firmas son EXCLUSIVAMENTE las oficiales de Yara-Rules/rules.
+        - YARA funciona solo en deteccion. No existe Active Response
+          destructivo ni eliminacion automatica.
+
+    Flujo:
+        FIM 554/550
+          ->
+        10420/10421 = candidato YARA
+          ->
+        Active Response local
+          ->
+        orangebox-yara.sh
+          ->
+        Yara-Rules/rules:
+            webshells_index.yar
+            malware_index.yar
+          ->
+        active-responses.log
+          ->
+        decoder
+          ->
+        10501
+    ================================================================
+-->
+
+<group name="orangebox,yara,syscheck,">
+
+    <!--
+        Archivos nuevos en zonas temporales globales y de producto.
+
+        YARA no se dispara sobre webroots ni sobre arboles permanentes de
+        aplicaciones; el alcance queda deliberadamente limitado a temporales
+        donde la aparicion de codigo ejecutable es de alto interes.
+    -->
+    <rule id="10420" level="3">
+        <if_sid>554</if_sid>
+        <field name="file" type="pcre2">^/(?:tmp|var/tmp|dev/shm)/.*\.(?:jsp|jspx|php|phtml|phar|php[0-9]*|asp|aspx|cgi|pl|py|rb|sh|bash|zsh|war|class)$|^/opt/(?:zimbra|zextras)/data/tmp/.*\.(?:jsp|jspx|php|phtml|phar|php[0-9]*|asp|aspx|cgi|pl|py|rb|sh|bash|zsh|war|class)$</field>
+        <description>ORANGEBOX: Archivo ejecutable nuevo en zona temporal critica candidato para YARA.</description>
+        <group>orangebox_yara,</group>
+    </rule>
+
+    <!-- Archivo de script/webshell modificado en las mismas zonas. -->
+    <rule id="10421" level="3">
+        <if_sid>550</if_sid>
+        <field name="file" type="pcre2">^/(?:tmp|var/tmp|dev/shm)/.*\.(?:jsp|jspx|php|phtml|phar|php[0-9]*|asp|aspx|cgi|pl|py|rb|sh|bash|zsh|war|class)$|^/opt/(?:zimbra|zextras)/data/tmp/.*\.(?:jsp|jspx|php|phtml|phar|php[0-9]*|asp|aspx|cgi|pl|py|rb|sh|bash|zsh|war|class)$</field>
+        <description>ORANGEBOX: Archivo ejecutable modificado en zona temporal critica candidato para YARA.</description>
+        <group>orangebox_yara,</group>
+    </rule>
+
+</group>
+
+<!-- RESULTADOS YARA -->
+<group name="orangebox,yara,">
+
+    <rule id="10500" level="0">
+        <decoded_as>orangebox_yara</decoded_as>
+        <description>ORANGEBOX: Resultado de analisis YARA.</description>
+        <group>orangebox_yara,</group>
+    </rule>
+
+    <rule id="10501" level="14">
+        <if_sid>10500</if_sid>
+        <field name="yara_rule" type="pcre2">.+</field>
+        <description>ALERTA YARA: $(yara_rule) detectado en $(yara_scanned_file) [$(yara_category)].</description>
+        <mitre>
+            <id>T1505.003</id>
+        </mitre>
+        <group>malware,webshell,yara,orangebox_malware,orangebox_webshell,</group>
+    </rule>
+
+</group>
