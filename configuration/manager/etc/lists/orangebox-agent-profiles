@@ -1,2 +1,2 @@
-TU_HOSTNAME:cpanel
-TU_HOSTNAME:zimbra
+cpanel.example.test:cpanel
+mail.example.test:zimbra
