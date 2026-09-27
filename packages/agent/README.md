@@ -45,6 +45,16 @@ No hay trucos ni symlinks. No hacemos esto:
 
 El RPM instala directamente en `/opt/ossec`.
 
+## ¿Cuándo usar este paquete?
+
+Este RPM está pensado para servidores que ya tienen **Imunify** u otro software de seguridad que utilice el componente o árbol `/var/ossec` y pueda entrar en conflicto con la instalación estándar del agente Wazuh.
+
+El paquete instala el agente en **`/opt/ossec`** en lugar de `/var/ossec`, aislando la instalación de Wazuh del componente `ossec` que ya utiliza el software de seguridad existente.
+
+Esto es especialmente útil en servidores con cPanel/CloudLinux y otras plataformas donde Imunify u otra solución de seguridad ya administra su propio entorno `ossec`. La separación de rutas evita que ambos productos intenten administrar los mismos archivos y directorios.
+
+> **Importante:** el conflicto concreto depende del software y de su configuración. Antes de instalar, revise qué servicio utiliza `/var/ossec` y valide el despliegue en un servidor de prueba.
+
 ## Importante
 
 El RPM sale del empaquetado oficial de Wazuh. Así mantenemos los scripts del servicio, dependencias, SELinux y estructura del agente alineados con la versión de Wazuh que estamos construyendo.
