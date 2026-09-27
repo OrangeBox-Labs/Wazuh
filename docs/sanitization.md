@@ -8,13 +8,21 @@ Este repositorio deriva de una implementación real de Wazuh. La versión públi
 |---|---|---|
 | `IP_DE_WAZUH` | Wazuh Manager | IP o nombre del Manager |
 | `IP_DE_INDEXER` | Wazuh Indexer | IP o nombre del Indexer |
-| `IP_DE_PROXY` | Reverse proxy | IP del proxy que origina conexiones hacia el backend |
+| `IP_DE_PROXY` | Reverse proxy | IP del proxy que recibe conexiones externas y las reenvía al backend |
+| `IP_DE_MONITOREO` | Servidor de monitoreo (ej. Zabbix Server) | IP del sistema de monitoreo |
+| `IP_DE_ZABBIX_PROXY` | Zabbix Proxy | IP del Zabbix Proxy correspondiente |
 | `IP_DE_BACKEND` | Servidor backend | IP del servicio protegido |
 | `IP_DE_AGENTE` | Host monitorizado | IP del servidor con Wazuh Agent |
 | `IP_DE_SERVIDOR` | Servidor genérico | IP correspondiente al entorno |
 | `TU_HOSTNAME` | Nombre DNS de un host | FQDN del entorno |
 | `TU_DOMINIO` | Dominio de la organización | Dominio real |
 | `TU_EMAIL` | Correo de ejemplo | Dirección de correo real |
+
+## Separación de roles de infraestructura
+
+Los placeholders representan roles distintos y no deben intercambiarse. `IP_DE_WAZUH` identifica exclusivamente al Wazuh Manager; `IP_DE_INDEXER` al Wazuh Indexer; `IP_DE_PROXY` a un reverse proxy; `IP_DE_BACKEND` al backend protegido; `IP_DE_MONITOREO` al servidor de monitoreo; y `IP_DE_ZABBIX_PROXY` a un Zabbix Proxy.
+
+Una etiqueta debe conservar el significado del valor que reemplaza. No se debe usar `IP_DE_PROXY` para representar al Wazuh Manager, al Indexer, a Zabbix ni a un servidor genérico.
 
 ## Por qué existen IP_DE_PROXY e IP_DE_BACKEND
 
