@@ -71,7 +71,7 @@
     <rule id="10450" level="1">
         <if_sid>4100</if_sid>
         <regex type="pcre2">RES=0x00 SYN URGP=0</regex>
-        <description>ORANGEBOX: TCP SYN connection attempt</description>
+        <description>ORANGEBOX: INTENTO DE CONEXION TCP SYN.</description>
         <options>no_log</options>
         <group>connection_attempt,</group>
     </rule>
@@ -97,7 +97,7 @@
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
         <different_dstport />
-        <description>ORANGEBOX: Possible TCP port scan from same source IP.</description>
+        <description>ALERTA: POSIBLE ESCANEO DE PUERTOS TCP DESDE LA MISMA IP DE ORIGEN.</description>
         <mitre>
             <id>T1046</id>
         </mitre>
@@ -121,7 +121,7 @@
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
         <same_dstport />
-        <description>ORANGEBOX: Possible TCP SYN flood from same source IP.</description>
+        <description>ALERTA: POSIBLE SYN FLOOD DESDE LA MISMA IP DE ORIGEN.</description>
         <mitre>
             <id>T1499</id>
         </mitre>
@@ -139,7 +139,7 @@
     <rule id="10456" level="11">
         <if_sid>10453</if_sid>
         <list field="srcip" lookup="not_address_match_key">etc/lists/orangebox-private-networks</list>
-        <description>ORANGEBOX: Public source port scan - eligible for automatic blocking.</description>
+        <description>ALERTA: ESCANEO DE PUERTOS DESDE IP PUBLICA $(srcip).</description>
         <group>orangebox,firewall,network_scan,active_response,</group>
     </rule>
 
@@ -154,7 +154,7 @@
     <rule id="10457" level="11">
         <if_sid>10454</if_sid>
         <list field="srcip" lookup="not_address_match_key">etc/lists/orangebox-private-networks</list>
-        <description>ORANGEBOX: Public source SYN flood - eligible for automatic blocking.</description>
+        <description>ALERTA: SYN FLOOD DESDE IP PUBLICA $(srcip).</description>
         <group>orangebox,firewall,flood,denial_of_service,active_response,</group>
     </rule>
 
@@ -175,7 +175,7 @@
         <if_matched_sid>10450</if_matched_sid>
         <different_srcip />
         <same_dstport />
-        <description>ORANGEBOX: Possible distributed denial of service attack.</description>
+        <description>ALERTA: POSIBLE ATAQUE DE DENEGACION DE SERVICIO DISTRIBUIDO.</description>
         <mitre>
             <id>T1498</id>
         </mitre>
