@@ -5,9 +5,9 @@
     para resaltar intentos repetidos de autenticacion contra servicios
     de correo.
 
-    No bloquea automaticamente el origen. Primero detectamos y alertamos;
-    la contencion se puede agregar despues de validar el comportamiento
-    real de cada servidor.
+    Las detecciones 10700/10701 ejecutan firewall-drop durante 24 horas.
+    La integracion de correo suprime el envio individual porque es un evento
+    recurrente; la alerta permanece registrada en Wazuh.
 -->
 
 <group name="orangebox,mail,email,authentication,">
