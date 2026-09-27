@@ -18,9 +18,7 @@ except ImportError:
 import ipaddress
 import json
 import os
-import re
-import smtplib
-import subprocess
+import reimport subprocess
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
@@ -31,8 +29,6 @@ ALERTS_ROOT = "/var/ossec/logs/alerts"
 ALERTS_FILE = f"{ALERTS_ROOT}/alerts.json"
 ARCHIVE_DIR = "/var/ossec/reports/archive"
 DEFAULT_FROM = "TU_EMAIL"
-SMTP_HOST = "localhost"
-SMTP_PORT = 25
 AGENT_GROUPS_BIN = "/var/ossec/bin/agent_groups"
 INDEXER_CONFIG = "/var/ossec/etc/orangebox-indexer.conf"
 FIREWALL_RULE = "651"
@@ -874,7 +870,10 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
 
 def send_email(subject,body,recipient):
     msg=MIMEMultipart("alternative"); msg["Subject"]=subject; msg["From"]=f"Wazuh SOC <{DEFAULT_FROM}>"; msg["To"]=recipient; msg.attach(MIMEText("OrangeBox Wazuh Security Activity Report.","plain","utf-8")); msg.attach(MIMEText(body,"html","utf-8"))
-    with smtplib.SMTP(SMTP_HOST,SMTP_PORT,timeout=30) as smtp: smtp.sendmail(DEFAULT_FROM,[recipient],msg.as_string())
+    result = subprocess.run(["/usr/sbin/sendmail","-t","-i"], input=msg.as_string(), text=True, capture_output=True, timeout=10, check=False)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or f"sendmail exit={result.returncode}").strip()
+        raise RuntimeError(f"Postfix maildrop: {detail}")
 
 def archive_html(body,label):
     os.makedirs(ARCHIVE_DIR,mode=0o750,exist_ok=True); safe=re.sub(r"[^A-Za-z0-9_.-]+","_",label); path=f"{ARCHIVE_DIR}/security-report-{safe}.html"
