@@ -26,11 +26,11 @@ evento sudo
               |
               +--> perfil cPanel + comando WP Toolkit
               |        |
-              |        +--> 20031, 20035..20052 / level 0
+              |        +--> 20031, 20035 / level 0
               |
               +--> perfil Zimbra + comando Zimbra/Carbonio
               |        |
-              |        +--> 20110 / level 0
+              |        +--> 110100 / level 0
               |
               +--> sin excepción válida
                        |
@@ -96,7 +96,6 @@ El perfil se resuelve mediante `configuration/lists/orangebox-agent-profiles`.
 Ejemplo:
 
 ```text
-srv27:cpanel
 TU_HOSTNAME:cpanel
 ```
 
@@ -149,14 +148,11 @@ Hosts actualmente registrados en la CDB:
 
 ```text
 TU_HOSTNAME:zimbra
-TU_HOSTNAME:zimbra
-TU_HOSTNAME:zimbra
-mail.appnexit.cl:zimbra
 ```
 
-### 20110 — Comandos Zimbra/Carbonio autorizados
+### 110100 — Comandos Zimbra/Carbonio autorizados
 
-`20110` es hija de `10005` y exige:
+`110100` es hija de `10005` y exige:
 
 1. hostname incluido en la CDB con perfil `zimbra`;
 2. comando perteneciente a la allowlist histórica.
@@ -175,15 +171,28 @@ El perfil identifica al endpoint y el comando identifica la operación. Esto es 
 
 ### BackupPC
 
-`20001`, `20002`, `20003` y `20006` dependen de `srcip` porque identifican al sistema autorizado como origen del SSH.
+`20001` consulta la CDB `etc/lists/orangebox-backuppc`. Todas las IP autorizadas para los servidores BackupPC comparten una sola regla.
+
+Para agregar otro BackupPC, agregar una nueva línea `<IP>:` en la CDB y reiniciar el Wazuh Manager. No crear otra regla por cada servidor.
+
+La cantidad de servidores no está fija: la lista puede contener uno, tres o más orígenes sin duplicar reglas.
 
 ### SFTP certcoopeuch
 
-`20004` y `20005` dependen de IP de origen + usuario. Tampoco representan un perfil del agente receptor.
+`20004` valida el usuario `certcoopeuch` y consulta las IP de origen en `etc/lists/orangebox-sftp-certcoopeuch`.
+
+Para agregar otro origen autorizado, agregar una nueva línea `<IP>:` a la CDB y reiniciar el Manager. No se crea una regla adicional por cada IP.
 
 ### Reverse proxies
 
-`20024` a `20028` dependen de IP de origen porque el backend puede registrar la IP del proxy.
+Las excepciones se separan por tipo de detección:
+
+- `20024` + `etc/lists/orangebox-web-auth-proxies` para `10025`;
+- `20026` + `etc/lists/orangebox-web-discovery-proxies` para `10026`.
+
+Las listas son independientes porque el alcance validado puede ser distinto para cada detección.
+
+Para agregar otro proxy, agregar su IP a la lista correspondiente y reiniciar el Manager. No crear una regla por cada proxy.
 
 ### systemd-user
 
@@ -204,8 +213,8 @@ Dentro de este archivo:
 
 ```text
 20001-20009 = excepciones genéricas de autenticación
-20031-20053 = perfil cPanel / WP Toolkit
-20110       = perfil Zimbra / Carbonio
+20031, 20035 = perfil cPanel / WP Toolkit
+110100      = perfil Zimbra / Carbonio
 ```
 
 Los huecos numéricos corresponden a IDs utilizados por otros archivos del ruleset.
@@ -232,8 +241,18 @@ Cada nuevo wrapper debe probarse también con una variante que agregue `;`, `&&`
 
 - reglas nativas de Wazuh para SSH, PAM y sudo;
 - CDB `etc/lists/orangebox-agent-profiles`;
-- entrada de la CDB declarada en `manager/ossec.conf`;
+- CDB `etc/lists/orangebox-backuppc`;
+- CDB `etc/lists/orangebox-sftp-certcoopeuch`;
+- CDB `etc/lists/orangebox-web-auth-proxies`;
+- CDB `etc/lists/orangebox-web-discovery-proxies`;
+- entrada de las CDB declarada en `manager/ossec.conf`;
 - grupos Wazuh para distribuir configuración y etiquetas;
 - integración `custom-orangebox-email.py` para el tratamiento posterior de las alertas.
 
 Cuando se modifica una CDB, el Manager debe reiniciarse para cargar la lista actualizada.
+
+### Convención al crear una excepción
+
+Una IP adicional dentro de una excepción existente se agrega a la CDB correspondiente; no requiere un nuevo SID.
+
+Cuando realmente se necesita una regla nueva, utilizar un ID libre dentro de `20000-29999` y comprobar que no exista en ningún otro archivo del ruleset. Nunca reutilizar ni duplicar un ID.
