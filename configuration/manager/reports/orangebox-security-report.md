@@ -57,7 +57,7 @@ orangebox-security-report.py --thismonth --group <grupo_cliente> --email <destin
 orangebox-security-report.py --lastyear --group all --email <destinatario> --lang en
 ```
 
-El correo se entrega mediante Postfix/SMTP local (`localhost:25`) y utiliza:
+El correo se entrega mediante la cola local de Postfix usando `/usr/sbin/sendmail -t -i`. Esto permite que el reporte quede en la cola aunque Postfix esté detenido temporalmente y sea entregado cuando el servicio vuelva.
 
 ```text
 From: Wazuh SOC <TU_EMAIL>
