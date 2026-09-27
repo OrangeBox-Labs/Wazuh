@@ -8,3 +8,8 @@ Scripts operativos para instalar y validar componentes.
 - `verify-deployed-config.sh`: valida el espejo del Manager o, con `--agent`, el runtime YARA del agente.
 
 El índice manual de YARA está en `tools/yara/webshells_index.yar`.
+
+
+## Documentación
+
+Cada herramienta funcional debe mantener su documentación junto al script, con el mismo nombre base: `script.sh` + `script.md` o `script.py` + `script.md`.
