@@ -22,7 +22,7 @@ Las reglas consideradas inmediatas se definen explícitamente por ID:
 - `5715` - login SSH exitoso nativo.
 - `10001` - login SSH exitoso OrangeBox.
 - `10004` - `su` hacia root.
-- `10005` - `sudo` hacia root sin excepción válida **no es inmediato**; se agrupa durante 10 minutos para absorber ráfagas de aplicaciones automatizadas como WP Toolkit.
+- `10005` - `sudo` hacia root sin excepción válida.
 - `10008` - sudo exitoso.
 - `10009` - sudo exitoso.
 
@@ -86,7 +86,7 @@ También quedan separados dos agentes aunque tengan la misma regla.
 
 El primer evento crea el buffer y genera un proceso hijo que espera los 10 minutos.
 
-El proceso principal termina inmediatamente. Esto es importante porque no queremos que Wazuh quede esperando un `sleep()` mientras la integración está procesando eventos.
+El proceso principal termina inmediatamente. El hijo desacopla `stdin`, `stdout` y `stderr` mediante `/dev/null` antes de dormir. Esto es **obligatorio** porque `wazuh-integratord` ejecuta la integración con esos descriptores conectados a un pipe y espera EOF; si el hijo heredara el pipe, la ventana de 10 minutos bloquearía el procesamiento de alertas posteriores.
 
 Además, la creación del buffer usa `O_EXCL`. Así, cuando llegan muchas alertas simultáneamente, solamente un proceso puede declararse dueño del buffer.
 
@@ -155,15 +155,41 @@ El encabezado clasifica visualmente el correo según el nivel máximo:
 
 No cambia el nivel real de Wazuh; solamente cambia la presentación del correo.
 
-## SMTP
+## Entrega de correo resiliente
 
-El script entrega el correo a:
+El script **no abre una conexión SMTP TCP contra `localhost:25`**.
+
+Entrega el mensaje mediante:
 
 ```text
-localhost
+/usr/sbin/sendmail -t -i
 ```
 
-El relay SMTP local se encarga de la entrega posterior.
+En Postfix, esta vía coloca el mensaje en el `maildrop` local. Por eso una caída temporal del daemon Postfix no provoca `ECONNREFUSED` ni descarta la alerta: el mensaje queda persistente para que Postfix lo procese cuando vuelva a estar activo.
+
+### Motivo del cambio
+
+La implementación anterior usaba `smtplib.SMTP("localhost")`. Si Postfix estaba detenido o reiniciándose justo en el instante del envío, Python recibía `Connection refused` y la alerta no tenía una segunda oportunidad.
+
+El cambio mueve la responsabilidad de cola y reintento al MTA, donde corresponde.
+
+### Prueba de resiliencia
+
+Se validó operacionalmente con Postfix completamente detenido:
+
+```text
+custom-orangebox-email.py
+        -> /usr/sbin/sendmail
+        -> maildrop Postfix
+        -> mensaje queda en cola
+
+Postfix vuelve a iniciar
+        -> pickup
+        -> queue
+        -> entrega SMTP
+```
+
+La prueba real dejó un mensaje en cola con Postfix detenido y la cola quedó vacía después de volver a iniciar el servicio.
 
 El remitente usado por el HTML es:
 
