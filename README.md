@@ -35,7 +35,6 @@ La explicación completa está en [docs/architecture.md](docs/architecture.md).
 ## Estructura
 
 ```text
-articles/                         # Artículos y casos técnicos
 configuration/
 ├── manager/
 │   ├── etc/
@@ -46,7 +45,7 @@ configuration/
 │   ├── integrations/
 │   └── reports/
 docs/                             # Documentación técnica
-packages/agent/                   # Material relacionado con el agente
+packages/agent/                   # RPM y builder del agente Wazuh
 tools/                            # Instaladores y herramientas auxiliares
 ```
 
