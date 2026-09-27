@@ -3,10 +3,13 @@
     ================================================================
 
     Politica:
-        - YARA se ejecuta solamente sobre archivos nuevos o modificados
-          que pertenezcan a extensiones de script/webshell en zonas
-          de alto riesgo ya monitorizadas por FIM.
-        - No se escanean todos los eventos FIM.
+        - YARA se ejecuta sobre archivos nuevos o modificados dentro de
+          los directorios delicados definidos por OrangeBox.
+        - En /tmp, /var/tmp, /dev/shm y temporales de Zimbra/Carbonio
+          se analiza cualquier archivo nuevo o modificado, sin exigir
+          extension ni permiso de ejecucion.
+        - En webroots se mantienen extensiones de alto interes para evitar
+          analizar innecesariamente archivos estaticos o multimedia.
         - Las firmas son EXCLUSIVAMENTE las oficiales de Yara-Rules/rules.
         - YARA funciona solo en deteccion. No existe Active Response
           destructivo ni eliminacion automatica.
@@ -37,14 +40,16 @@
     <!--
         Archivos nuevos en zonas temporales globales y de producto.
 
-        YARA no se dispara sobre webroots ni sobre arboles permanentes de
-        aplicaciones; el alcance queda deliberadamente limitado a temporales
-        donde la aparicion de codigo ejecutable es de alto interes.
+        En estos directorios no exigimos permiso de ejecucion ni extension:
+        un payload puede estar recien creado, tener otro nombre o haber
+        sido descargado antes de recibir chmod +x. Todo archivo nuevo o
+        modificado en estas zonas pasa por el analisis YARA, respetando
+        el limite de tamano del runtime.
     -->
     <rule id="10420" level="3">
         <if_sid>554</if_sid>
-        <field name="file" type="pcre2">^/(?:tmp|var/tmp|dev/shm)/.*\.(?:jsp|jspx|php|phtml|phar|php[0-9]*|asp|aspx|cgi|pl|py|rb|sh|bash|zsh|war|class)$|^/opt/(?:zimbra|zextras)/data/tmp/.*\.(?:jsp|jspx|php|phtml|phar|php[0-9]*|asp|aspx|cgi|pl|py|rb|sh|bash|zsh|war|class)$</field>
-        <description>ORANGEBOX: Archivo ejecutable nuevo en zona temporal critica candidato para YARA.</description>
+        <field name="file" type="pcre2">^/(?:tmp|var/tmp|dev/shm)/.+$|^/opt/(?:zimbra|zextras)/data/tmp/.+$</field>
+        <description>ORANGEBOX: Archivo nuevo en zona temporal critica candidato para YARA.</description>
         <group>orangebox_yara,</group>
     </rule>
 
@@ -52,7 +57,7 @@
     <rule id="10421" level="3">
         <if_sid>550</if_sid>
         <field name="file" type="pcre2">^/(?:tmp|var/tmp|dev/shm)/.*\.(?:jsp|jspx|php|phtml|phar|php[0-9]*|asp|aspx|cgi|pl|py|rb|sh|bash|zsh|war|class)$|^/opt/(?:zimbra|zextras)/data/tmp/.*\.(?:jsp|jspx|php|phtml|phar|php[0-9]*|asp|aspx|cgi|pl|py|rb|sh|bash|zsh|war|class)$</field>
-        <description>ORANGEBOX: Archivo ejecutable modificado en zona temporal critica candidato para YARA.</description>
+        <description>ORANGEBOX: Archivo modificado en zona temporal critica candidato para YARA.</description>
         <group>orangebox_yara,</group>
     </rule>
 
