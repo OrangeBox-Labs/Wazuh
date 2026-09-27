@@ -35,7 +35,7 @@ Zimbra     -> /opt/zimbra
 Carbonio   -> /opt/zextras
 ```
 
-La regla `20110` reconoce ambas rutas, pero solamente cuando el hostname pertenece al perfil `zimbra`.
+La regla `110100` reconoce ambas rutas, pero solamente cuando el hostname pertenece al perfil `zimbra`.
 
 ## Comandos autorizados
 
@@ -90,9 +90,6 @@ Ejemplo:
 
 ```text
 TU_HOSTNAME:zimbra
-TU_HOSTNAME:zimbra
-TU_HOSTNAME:zimbra
-mail.appnexit.cl:zimbra
 ```
 
 ## Carbonio CE
@@ -103,12 +100,12 @@ Para un servidor Carbonio, registrar el hostname observado en los eventos y util
 <hostname>:zimbra
 ```
 
-Esto permite reutilizar la misma regla `20110` sin duplicar una segunda familia de reglas.
+Esto permite reutilizar la misma regla `110100` sin duplicar una segunda familia de reglas.
 
 ## Validacion
 
 Antes de usar el perfil en producción, probar como minimo:
 
-- un comando autorizado en un hostname con perfil `zimbra` -> `20110`, nivel 0;
+- un comando autorizado en un hostname con perfil `zimbra` -> `110100`, nivel 0;
 - el mismo comando en un hostname sin perfil -> `10005`, nivel 13;
 - un comando no autorizado en un hostname con perfil -> `10005`, nivel 13.
