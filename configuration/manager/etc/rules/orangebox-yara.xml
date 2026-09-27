@@ -68,14 +68,14 @@
 
     <rule id="10500" level="0">
         <decoded_as>orangebox_yara</decoded_as>
-        <description>ORANGEBOX: Resultado de analisis YARA.</description>
+        <description>ORANGEBOX: RESULTADO DE ANALISIS YARA.</description>
         <group>orangebox_yara,</group>
     </rule>
 
     <rule id="10501" level="14">
         <if_sid>10500</if_sid>
         <field name="yara_rule" type="pcre2">.+</field>
-        <description>ALERTA YARA: $(yara_rule) detectado en $(yara_scanned_file) [$(yara_category)].</description>
+        <description>ALERTA: YARA DETECTO "$(yara_rule)" EN "$(yara_scanned_file)" [$(yara_category)].</description>
         <mitre>
             <id>T1505.003</id>
         </mitre>
