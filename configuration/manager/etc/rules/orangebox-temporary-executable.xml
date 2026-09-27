@@ -90,7 +90,7 @@
     <rule id="20053" level="0">
         <if_sid>10410</if_sid>
         <field name="file" type="pcre2">^/var/tmp/cpanel\.TMP\.work\.[^/]+/\.spamassassin[^/]+/Mail-SpamAssassin-CompiledRegexps-[^/]+/.*$</field>
-        <description>EXCEPCION ORANGEBOX: archivo temporal compilado por SpamAssassin/cPanel.</description>
+        <description>EXCEPCION: ARCHIVO TEMPORAL COMPILADO POR SPAMASSASSIN/CPANEL.</description>
         <group>orangebox_exception,orangebox_whitelist,cpanel,spamassassin,</group>
     </rule>
 
