@@ -52,7 +52,7 @@ Detecciones sobre archivos ejecutables creados en ubicaciones temporales o de al
 
 ### `orangebox-yara.xml`
 
-Integra FIM con YARA mediante Active Response. `10420/10421` seleccionan archivos web/script nuevos o modificados en las zonas de alto riesgo ya monitorizadas; `10501` alerta coincidencias YARA oficiales.
+Integra FIM con YARA mediante Active Response. `10420/10421` envían a YARA todos los archivos nuevos o modificados de las zonas temporales delicadas, sin exigir extensión ni permiso de ejecución. `10501` alerta coincidencias YARA.
 
 Las firmas ejecutables se mantienen en los archivos `.yar` del mismo directorio y el decoder asociado vive en `configuration/decoders/orangebox-yara.xml`.
 
@@ -85,3 +85,7 @@ No convertir una excepción puntual en una whitelist de directorio, usuario o sh
 ## Regla de oro
 
 **Detectar primero, perfilar después, excepcionar con el mínimo alcance posible y automatizar la contención al final.**
+
+### `orangebox-mail.xml`
+
+Detecta fuerza bruta contra autenticación de correo usando correlaciones nativas de Wazuh. `10700` cubre Postfix y `10701` cubre Exim/Dovecot. Ambas alertas son inmediatas y no ejecutan bloqueo automático.
