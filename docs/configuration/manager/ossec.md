@@ -48,17 +48,20 @@ Se considera desconectado un agente que lleva más de `10m` sin conexión.
 
 ## 4. Whitelist global
 
-Se incluyen IPs conocidas de infraestructura:
+La whitelist global queda reservada para infraestructura necesaria para el funcionamiento general del Manager:
 
 - localhost;
-- reverse proxies;
-- Zabbix;
-- BackupPC;
-- Wazuh.
+- Wazuh Manager;
+- servidor de monitoreo/Zabbix;
+- Zabbix Proxy.
 
-Esta whitelist no significa que esas IP sean mágicamente inmunes a todas las detecciones. Las reglas OrangeBox pueden aplicar sus propias excepciones cuando corresponde.
+**Reverse proxies y BackupPC no se incluyen en la whitelist global.** Sus excepciones son específicas de cada detección y se gestionan mediante CDB:
 
-La idea es evitar ruido conocido sin apagar el detector completo.
+- `orangebox-backuppc` para SSH;
+- `orangebox-web-auth-proxies` para brute force web;
+- `orangebox-web-discovery-proxies` para discovery web.
+
+Así una excepción operacional no silencia otras categorías de seguridad del Manager.
 
 ## 5. Recepción de agentes
 
