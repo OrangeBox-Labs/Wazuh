@@ -1152,7 +1152,7 @@ def main():
                 detail = (result.stderr or result.stdout or f"sendmail exit={result.returncode}").strip()
                 raise RuntimeError(f"Postfix maildrop: {detail}")
             sent += 1
-        except (OSError, smtplib.SMTPException) as exc:
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
             print(f"ERROR enviando a {recipient}: {exc}", flush=True)
 
     if sent == 0:
