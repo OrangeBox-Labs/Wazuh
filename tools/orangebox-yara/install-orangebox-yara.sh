@@ -146,7 +146,7 @@ WAZUH_HOME="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 LOG_FILE="${WAZUH_HOME}/logs/active-responses.log"
 RULES_DIR="${SCRIPT_DIR}/yara/rules"
 RULESET_DIR="${RULES_DIR}/yara-rules"
-MAX_FILE_SIZE="${ORANGEBOX_YARA_MAX_FILE_SIZE:-52428800}"
+MAX_FILE_SIZE="${ORANGEBOX_YARA_MAX_FILE_SIZE:-5242880}"
 
 log_info() {
     printf 'wazuh-yara: INFO - %s\n' "$*" >> "${LOG_FILE}"
