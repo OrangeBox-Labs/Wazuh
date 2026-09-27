@@ -116,7 +116,7 @@ elif command -v service >/dev/null 2>&1; then
 fi
 
 echo "=== OrangeBox behavior monitoring ==="
-auditctl -l | grep -F -- '-k audit-wazuh-c' || {
+auditctl -l | grep -E -- '(-k[[:space:]]+|-F[[:space:]]+key=)audit-wazuh-c' || {
     echo "ERROR: las reglas de reconocimiento/escaneo no quedaron cargadas." >&2
     exit 1
 }
