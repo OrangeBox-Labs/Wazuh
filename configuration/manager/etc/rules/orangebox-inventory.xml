@@ -21,7 +21,7 @@
     <rule id="100310" level="3">
         <if_sid>221</if_sid>
         <field name="type">dbsync_ports</field>
-        <description>OrangeBox: Cambio de inventario de puertos de red.</description>
+        <description>ORANGEBOX: Cambio de inventario de puertos de red.</description>
         <group>inventory,network,</group>
     </rule>
 
@@ -36,7 +36,7 @@
     <rule id="100312" level="3">
         <if_sid>221</if_sid>
         <field name="type">dbsync_services</field>
-        <description>OrangeBox: Cambio de inventario de servicios.</description>
+        <description>ORANGEBOX: Cambio de inventario de servicios.</description>
         <group>inventory,service,</group>
     </rule>
 
@@ -52,21 +52,21 @@
     <rule id="100314" level="3">
         <if_sid>221</if_sid>
         <field name="type">dbsync_users</field>
-        <description>OrangeBox: Cambio de inventario de usuarios.</description>
+        <description>ORANGEBOX: Cambio de inventario de usuarios.</description>
         <group>inventory,identity,</group>
     </rule>
 
     <rule id="100315" level="12">
         <if_sid>100314</if_sid>
         <field name="operation_type">INSERTED</field>
-        <description>OrangeBox: Nuevo usuario detectado en el endpoint.</description>
+        <description>ORANGEBOX: Nuevo usuario detectado en el endpoint.</description>
         <group>inventory,identity,account_manipulation,</group>
     </rule>
 
     <rule id="100316" level="15">
         <if_sid>100315</if_sid>
         <field name="user.user_uid_signed">^0$</field>
-        <description>OrangeBox: Nuevo usuario con UID 0 detectado en el endpoint.</description>
+        <description>ORANGEBOX: Nuevo usuario con UID 0 detectado en el endpoint.</description>
         <group>inventory,identity,privilege_escalation,privilege_escalation_root,orangebox_immediate,</group>
     </rule>
 
@@ -74,7 +74,7 @@
     <rule id="100317" level="3">
         <if_sid>221</if_sid>
         <field name="type">dbsync_groups</field>
-        <description>OrangeBox: Cambio de inventario de grupos.</description>
+        <description>ORANGEBOX: Cambio de inventario de grupos.</description>
         <group>inventory,identity,</group>
     </rule>
 
@@ -82,7 +82,7 @@
         <if_sid>100317</if_sid>
         <field name="operation_type">MODIFIED</field>
         <field name="group.group_name" type="pcre2">^(?:wheel|sudo)$</field>
-        <description>OrangeBox: Grupo privilegiado wheel/sudo modificado.</description>
+        <description>ORANGEBOX: Grupo privilegiado wheel/sudo modificado.</description>
         <group>inventory,identity,privilege_escalation,</group>
     </rule>
 
@@ -90,7 +90,7 @@
         <if_sid>100317</if_sid>
         <field name="operation_type">INSERTED</field>
         <field name="group.group_name" type="pcre2">^(?:wheel|sudo)$</field>
-        <description>OrangeBox: Grupo privilegiado wheel/sudo creado.</description>
+        <description>ORANGEBOX: Grupo privilegiado wheel/sudo creado.</description>
         <group>inventory,identity,privilege_escalation,</group>
     </rule>
 
