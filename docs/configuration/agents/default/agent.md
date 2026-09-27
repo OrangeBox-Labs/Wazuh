@@ -136,7 +136,7 @@ Este archivo no contiene detecciones. Produce eventos FIM que luego son interpre
 
 - `10030`–`10038` para modificaciones críticas.
 - `10040`–`10047` para eliminaciones críticas.
-- `10410` y `10432` para ejecutables en directorios temporales.
+- `10410` para archivos ejecutables nuevos en directorios temporales.
 
 La separación es deliberada: **el agente recopila, las reglas piensan**.
 
