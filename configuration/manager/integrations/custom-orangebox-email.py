@@ -2,7 +2,6 @@
 
 import sys
 import json
-import smtplib
 import os
 import time
 import fcntl
@@ -1228,6 +1227,25 @@ else:
         # ----------------------------------------------------
 
         os.setsid()
+
+        # wazuh-integratord mantiene stdout/stderr conectados a un pipe
+        # y espera EOF antes de procesar la siguiente alerta.
+        #
+        # El proceso hijo NO debe heredar esos descriptores mientras
+        # espera la ventana de agrupacion, porque eso bloquearia al
+        # integrador durante los 10 minutos.
+        #
+        # Desacoplamos stdin/stdout/stderr usando /dev/null antes
+        # de dormir.
+        devnull_fd = os.open(os.devnull, os.O_RDWR)
+
+        try:
+            os.dup2(devnull_fd, sys.stdin.fileno())
+            os.dup2(devnull_fd, sys.stdout.fileno())
+            os.dup2(devnull_fd, sys.stderr.fileno())
+        finally:
+            os.close(devnull_fd)
+
         time.sleep(WINDOW_SECONDS)
 
         # ----------------------------------------------------
@@ -2129,20 +2147,48 @@ msg.attach(
 
 
 # ============================================================
-# ENVIO SMTP
+# ENTREGA LOCAL RESILIENTE MEDIANTE POSTFIX MAILDROP
 # ============================================================
-
+#
+# No usamos SMTP TCP contra localhost:25.
+#
+# /usr/sbin/sendmail entrega el mensaje al maildrop local de
+# Postfix. Esto permite aceptar la alerta aunque el daemon
+# Postfix este temporalmente detenido.
+#
+# Postfix procesa posteriormente el mensaje desde su cola
+# cuando vuelve a estar activo.
+#
 try:
 
-    s = smtplib.SMTP("localhost")
-
-    s.sendmail(
-        msg["From"],
-        final_recipients,
-        msg.as_string()
+    sendmail = subprocess.run(
+        ["/usr/sbin/sendmail", "-t", "-i"],
+        input=msg.as_string(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=10,
+        check=False,
     )
 
-    s.quit()
+    if sendmail.returncode != 0:
+
+        detail = (
+            sendmail.stderr.strip()
+            or sendmail.stdout.strip()
+            or f"sendmail exit={sendmail.returncode}"
+        )
+
+        with open(
+            "/var/ossec/logs/integrations.log",
+            "a"
+        ) as logf:
+
+            logf.write(
+                "ERROR entregando correo al maildrop Postfix "
+                "en custom-orangebox-email: "
+                f"{detail}\n"
+            )
 
 except Exception as e:
 
@@ -2154,9 +2200,9 @@ except Exception as e:
         ) as logf:
 
             logf.write(
-                "Error enviando correo en "
-                "custom-orangebox-email: "
-                f"{str(e)}\n"
+                "ERROR entregando correo al maildrop Postfix "
+                "en custom-orangebox-email: "
+                f"{type(e).__name__}: {e}\n"
             )
 
     except Exception:
