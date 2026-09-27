@@ -330,53 +330,25 @@
     </rule>
 
 
-    <!-- SSH exitoso legitimo desde BackupPC IP_DE_SERVIDOR -->
-    <rule id="20001" level="0">
-        <if_sid>10001</if_sid>
-        <srcip>IP_DE_SERVIDOR</srcip>
-        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (IP_DE_SERVIDOR).</description>
-        <group>authentication_success,orangebox_exception,orangebox_whitelist,</group>
-    </rule>
+    <!--
+        SFTP certcoopeuch - origenes autorizados.
 
-    <!-- SSH exitoso legitimo desde BackupPC IP_DE_SERVIDOR -->
-    <rule id="20002" level="0">
-        <if_sid>10001</if_sid>
-        <srcip>IP_DE_SERVIDOR</srcip>
-        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (IP_DE_SERVIDOR).</description>
-        <group>authentication_success,orangebox_exception,orangebox_whitelist,</group>
-    </rule>
+        Las IP de origen se mantienen en la CDB
+        "etc/lists/orangebox-sftp-certcoopeuch".
 
-    <!-- SSH exitoso legitimo desde BackupPC IP_DE_SERVIDOR -->
-    <rule id="20006" level="0">
-        <if_sid>10001</if_sid>
-        <srcip>IP_DE_SERVIDOR</srcip>
-        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (IP_DE_SERVIDOR).</description>
-        <group>authentication_success,orangebox_exception,orangebox_whitelist,</group>
-    </rule>
+        Para agregar otro origen autorizado se agrega una nueva línea
+        "<IP>:" a esa CDB. No se debe crear una regla 200xx adicional
+        solo por una IP nueva.
 
-    <!-- SSH exitoso legitimo desde BackupPC IP_DE_SERVIDOR -->
-    <rule id="20003" level="0">
-        <if_sid>10001</if_sid>
-        <srcip>IP_DE_SERVIDOR</srcip>
-        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (IP_DE_SERVIDOR).</description>
-        <group>authentication_success,orangebox_exception,orangebox_whitelist,</group>
-    </rule>
-
-    <!-- SFTP automatizado de certcoopeuch -->
+        Reemplaza el ejemplo de la CDB por la IP real de tu entorno.
+        La condición de usuario "certcoopeuch" se conserva para limitar
+        la excepción al servicio esperado.
+    -->
     <rule id="20004" level="0">
         <if_sid>10001</if_sid>
-        <srcip>IP_DE_SERVIDOR</srcip>
+        <list field="srcip" lookup="address_match_key">etc/lists/orangebox-sftp-certcoopeuch</list>
         <user>certcoopeuch</user>
-        <description>EXCEPCION: Acceso SFTP automatizado legitimo de certcoopeuch.</description>
-        <group>authentication_success,orangebox_exception,orangebox_whitelist,sftp,</group>
-    </rule>
-
-    <!-- SFTP automatizado de certcoopeuch - IP adicional -->
-    <rule id="20005" level="0">
-        <if_sid>10001</if_sid>
-        <srcip>IP_DE_SERVIDOR</srcip>
-        <user>certcoopeuch</user>
-        <description>EXCEPCION: Acceso SFTP automatizado de certcoopeuch desde IP adicional autorizada.</description>
+        <description>EXCEPCION: Acceso SFTP automatizado legitimo de certcoopeuch desde origen autorizado.</description>
         <group>authentication_success,orangebox_exception,orangebox_whitelist,sftp,</group>
     </rule>
 
