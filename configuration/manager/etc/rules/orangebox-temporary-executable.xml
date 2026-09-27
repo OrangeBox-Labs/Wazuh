@@ -142,4 +142,22 @@
         <group>orangebox_exception,orangebox_whitelist,mysql,socket,</group>
     </rule>
 
+
+    <!--
+        20054 - EXCEPCION WEAK-MODULES / INITRAMFS
+
+        weak-modules crea arboles temporales bajo /tmp/weak-modules.* durante
+        la reconstruccion/preparacion de initramfs. Estos objetos pueden tener
+        permisos de ejecucion legitimos y generar falsos positivos en 10410.
+
+        La excepcion se limita exclusivamente al arbol old_initramfs. No se
+        excluye /tmp en general.
+    -->
+    <rule id="20054" level="0">
+        <if_sid>10410</if_sid>
+        <field name="file" type="pcre2">^/tmp/weak-modules\.[^/]+/old_initramfs(?:/.*)?$</field>
+        <description>EXCEPCION ORANGEBOX: arbol temporal old_initramfs generado por weak-modules.</description>
+        <group>orangebox_exception,orangebox_whitelist,weak_modules,initramfs,</group>
+    </rule>
+
 </group>
