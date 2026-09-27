@@ -37,8 +37,8 @@ Autenticación, escalamiento de privilegios y correlaciones SSH/SUDO/SU.
 
 Las excepciones de aplicación están separadas por perfil:
 
-- `cpanel` / WP Toolkit: `20031`, `20035`–`20052`.
-- `zimbra` / Carbonio CE: `20110`.
+- `cpanel` / WP Toolkit: `20031`, `20035`.
+- `zimbra` / Carbonio CE: `110100`.
 
 Las excepciones de SSH conservan condiciones por IP de origen cuando el sistema autorizado es el origen y no el agente receptor.
 
@@ -52,7 +52,7 @@ Detecciones sobre archivos ejecutables creados en ubicaciones temporales o de al
 
 ### `orangebox-yara.xml`
 
-Integra FIM con YARA mediante Active Response. `10420/10421` seleccionan archivos web/script nuevos o modificados en las zonas de alto riesgo ya monitorizadas; `10501` alerta coincidencias CORE y `10502` registra coincidencias EXTENDED para hunting.
+Integra FIM con YARA mediante Active Response. `10420/10421` seleccionan archivos web/script nuevos o modificados en las zonas de alto riesgo ya monitorizadas; `10501` alerta coincidencias YARA oficiales.
 
 Las firmas ejecutables se mantienen en los archivos `.yar` del mismo directorio y el decoder asociado vive en `configuration/decoders/orangebox-yara.xml`.
 
