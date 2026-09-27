@@ -30,6 +30,12 @@ No se utiliza el grupo `privilege_escalation_root` como criterio genérico de in
 
 Las reglas `10025`, `10026`, `10453` y `10454` permanecen fuera del correo individual porque tienen Active Response `firewall-drop`. `10455` tampoco genera correo individual.
 
+## Fuerza bruta de correo
+
+Las reglas OrangeBox `10700` y `10701` representan correlaciones de múltiples fallos de autenticación en servicios de correo. Ambas se envían de inmediato y no pasan por la ventana de agrupación.
+
+La integración usa el mismo mecanismo de entrega resiliente mediante `/usr/sbin/sendmail -t -i`.
+
 ## Deduplicación de 5715 / 10001
 
 `5715` y `10001` pueden representar el mismo login SSH.
