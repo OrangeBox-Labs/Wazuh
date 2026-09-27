@@ -27,7 +27,7 @@
             <id>T1204.002</id>
             <id>T1059</id>
         </mitre>
-        <group>execution,command_execution,attack,orangebox_execution,orangebox_audit,</group>
+        <group>execution,command_execution,attack,orangebox_execution,orangebox_audit,orangebox_behavior,</group>
     </rule>
 
     <!--
@@ -42,7 +42,7 @@
         <mitre>
             <id>T1059</id>
         </mitre>
-        <group>execution,command_execution,script,attack,orangebox_execution,orangebox_audit,</group>
+        <group>execution,command_execution,script,attack,orangebox_execution,orangebox_audit,orangebox_behavior,</group>
     </rule>
 
 </group>
