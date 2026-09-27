@@ -41,7 +41,7 @@ DEFAULT_ALERT_RECIPIENT = "TU_EMAIL"
 # Estas opciones solamente controlan destinatarios adicionales.
 #
 # La comparacion de grupos es CASE-INSENSITIVE:
-#   CloudLatam == CLOUDLATAM == cloudlatam
+#   CLIENTE_03 == CLIENTE_03 == cloudlatam
 #
 # Para agregar un cliente nuevo solamente hay que agregar una entrada
 # aqui. No es necesario modificar ninguna otra parte del script.
@@ -51,14 +51,14 @@ DEFAULT_ALERT_RECIPIENT = "TU_EMAIL"
 # ============================================================
 
 CLIENT_GROUPS = {
-    "CTS": {
+    "CLIENTE_01": {
         "enabled": 0,
         "emails": [
             "TU_EMAIL",
         ],
     },
 
-    "OLC": {
+    "CLIENTE_02": {
         "enabled": 0,
         "emails": [
             "TU_EMAIL",
@@ -66,21 +66,21 @@ CLIENT_GROUPS = {
         ],
     },
 
-    "CLOUDLATAM": {
+    "CLIENTE_03": {
         "enabled": 0,
         "emails": [
             "TU_EMAIL",
         ],
     },
 
-    "NEXIT": {
+    "CLIENTE_04": {
         "enabled": 1,
         "emails": [
             "TU_EMAIL",
         ],
     },
 
-    "JHG": {
+    "CLIENTE_05": {
         "enabled": 0,
         "emails": [
             "TU_EMAIL",
@@ -278,9 +278,9 @@ def get_agent_groups_from_manager(agent_id):
     output = result.stdout or ""
 
     # Formato habitual:
-    #   has the group: '[u'Nexit', u'default']'
+    #   has the group: '[u'CLIENTE_04', u'default']'
     # y versiones:
-    #   belongs to groups: default, Nexit
+    #   belongs to groups: default, CLIENTE_04
     import re
 
     match = re.search(r"\[([^\]]*)\]", output)
