@@ -117,6 +117,10 @@ Esto mantiene ambos reportes alineados en cuanto a qué se considera una detecci
 
 Los logs de alertas son la fuente habitual de los eventos generados por Wazuh. citeturn251854search5
 
+## Entrega de correo
+
+El reporte usa `/usr/sbin/sendmail -t -i` para entregar el mensaje a la cola local de Postfix. Así, una detención temporal de Postfix no elimina el reporte: el mensaje queda encolado y se entrega cuando el servicio vuelve.
+
 ## Archivo HTML
 
 Cada ejecución se archiva en:
