@@ -6,19 +6,15 @@ Documentación de `webshells_index.yar`.
 
 Este archivo es el **punto de entrada** de las reglas YARA de webshell.
 
-No contiene detecciones propias. Solo incluye:
+No contiene detecciones propias. El índice pertenece al ruleset oficial de Yara-Rules/rules y agrupa las firmas de webshell distribuidas por ese proyecto.
 
-```text
-orangebox-webshell-core.yar
-orangebox-webshell-extended.yar
-```
+OrangeBox no mantiene copias locales de `orangebox-webshell-core.yar` ni `orangebox-webshell-extended.yar`; el instalador las elimina si quedaron de una implementación anterior.
 
 ## Por qué existe
 
 Mantener un archivo índice evita tener que cargar cada conjunto de reglas por separado y, al mismo tiempo, conserva la separación entre:
 
-- **Core:** detecciones de mayor confianza, integradas al pipeline y asociadas a la regla Wazuh `10501`;
-- **Extended:** detecciones heurísticas para hunting, asociadas a `10502`.
+- las firmas oficiales de webshell; la coincidencia es procesada por la regla Wazuh `10501`.
 
 Así la política de producción puede decidir qué grupo genera alertas críticas o correo sin mezclar las firmas.
 
