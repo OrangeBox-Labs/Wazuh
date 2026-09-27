@@ -41,7 +41,7 @@ DEFAULT_ALERT_RECIPIENT = "TU_EMAIL"
 # Estas opciones solamente controlan destinatarios adicionales.
 #
 # La comparacion de grupos es CASE-INSENSITIVE:
-#   CLIENTE_03 == CLIENTE_03 == cloudlatam
+#   CLIENTE_03 == cliente_03
 #
 # Para agregar un cliente nuevo solamente hay que agregar una entrada
 # aqui. No es necesario modificar ninguna otra parte del script.
@@ -87,7 +87,7 @@ CLIENT_GROUPS = {
         ],
     },
 
-    "CASAPIEDRA": {
+    "CLIENTE_06": {
         "enabled": 0,
         "emails": [
             "TU_EMAIL",
