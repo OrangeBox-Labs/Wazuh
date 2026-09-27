@@ -26,6 +26,10 @@ Cuando un servicio está publicado detrás de un reverse proxy, el backend puede
 
 Estas excepciones deben adaptarse a la arquitectura real y no deben copiarse sin revisión.
 
+## Grupos de clientes
+
+Los grupos específicos de la implementación privada también se anonimizaron en la versión pública. Valores como `CLIENTE_01`, `CLIENTE_02` y `CLIENTE_03` son identificadores genéricos y deben reemplazarse por los grupos que utilice cada organización.
+
 ## Regla de publicación
 
 Nunca agregue al repositorio público:
