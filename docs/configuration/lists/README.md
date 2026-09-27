@@ -23,7 +23,6 @@ Una misma máquina puede necesitar hostname corto y FQDN cuando ambas representa
 cPanel / WHM / WP Toolkit.
 
 ```text
-srv27:cpanel
 TU_HOSTNAME:cpanel
 ```
 
@@ -38,7 +37,7 @@ Perfil funcional compartido por Zimbra y Carbonio CE.
 /opt/zextras
 ```
 
-Hosts registrados actualmente para el perfil `zimbra`: ninguno en la CDB por ahora.
+La CDB utiliza entradas `hostname:perfil`; la versión pública mantiene un ejemplo genérico y la implementación privada registra los hostnames reales.
 
 Un servidor Carbonio nuevo debe registrarse como `<hostname-observado>:zimbra` después de validar sus eventos reales.
 
@@ -59,6 +58,38 @@ comando o condición exacta
 =
 excepción
 ```
+
+## `orangebox-backuppc`
+
+Contiene las IP de los servidores BackupPC autorizados para la excepción SSH `20001`.
+
+Formato:
+
+```text
+<IP>:
+```
+
+Todas las IP autorizadas usan la misma regla `20001`. Para agregar otro BackupPC, agregue una línea a esta CDB y reinicie el Manager. No cree una regla nueva por cada servidor.
+
+## `orangebox-sftp-certcoopeuch`
+
+Contiene los orígenes autorizados para el SFTP del usuario `certcoopeuch`. La regla `20004` combina esta lista con la condición de usuario.
+
+Agregar una IP nueva significa agregar una línea `<IP>:` y reiniciar el Manager.
+
+## `orangebox-web-auth-proxies`
+
+Contiene los reverse proxies autorizados para la correlación `10025` de brute force web. La regla `20024` consulta esta lista.
+
+## `orangebox-web-discovery-proxies`
+
+Contiene los reverse proxies autorizados para la correlación `10026` de reconocimiento de archivos sensibles. La regla `20026` consulta esta lista.
+
+Estas dos listas se mantienen separadas porque su alcance puede ser diferente. No se debe asumir que todos los proxies necesitan ambas excepciones.
+
+## IDs de reglas
+
+Agregar una IP a una CDB existente no requiere un nuevo SID. Cuando realmente haga falta una regla nueva, utilizar un ID libre del rango `20000-29999` y verificar que no exista en ningún otro archivo del ruleset.
 
 ## Sincronización
 
