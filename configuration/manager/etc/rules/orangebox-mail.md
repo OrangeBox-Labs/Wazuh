@@ -7,13 +7,11 @@ Este componente agrega una capa OrangeBox sobre las reglas nativas de Wazuh para
 - `10700`: Postfix detectó múltiples fallos de autenticación SASL. Se basa en la regla nativa `3357`.
 - `10701`: Exim/Dovecot detectó múltiples fallos de autenticación. Se basa en la regla nativa `87507`.
 
-Las dos reglas quedan en nivel 13 y se envían inmediatamente por la integración OrangeBox.
+Las dos reglas quedan en nivel 13 y disparan `firewall-drop` durante 24 horas. La integración OrangeBox NO envía correo individual para estos eventos porque son recurrentes.
 
 ## Contención
 
-No se aplica `firewall-drop` automáticamente.
-
-La razón es simple: una IP puede representar una red corporativa, NAT, cliente legítimo o servicio compartido. Primero se registra y alerta la actividad; la contención queda para una fase posterior basada en pruebas reales.
+`firewall-drop` se aplica automáticamente en el mismo servidor que generó el evento, con un bloqueo de 24 horas. La alerta sigue quedando en Wazuh; solo se suprime el correo individual para evitar ruido.
 
 ## Dependencias
 
@@ -28,7 +26,7 @@ Antes de desplegar a todos los servidores de correo:
 1. Validar la regla con `wazuh-logtest`.
 2. Generar varios fallos controlados.
 3. Confirmar `10700` o `10701` en `alerts.json`.
-4. Confirmar que llega un único correo inmediato.
-5. Verificar que no existe `firewall-drop`.
+4. Confirmar la ejecución de `firewall-drop` mediante la regla `651`.
+5. Confirmar que NO llega correo individual por la integración OrangeBox.
 
 Si un formato real de Dovecot o Exim no entrega correctamente `srcip`, se debe corregir primero la extracción antes de automatizar contención.
