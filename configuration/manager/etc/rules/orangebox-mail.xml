@@ -1,0 +1,35 @@
+<!--
+    OrangeBox Wazuh - Deteccion de autenticacion de correo
+
+    Usa reglas nativas de Wazuh como fuente y agrega una capa OrangeBox
+    para resaltar intentos repetidos de autenticacion contra servicios
+    de correo.
+
+    No bloquea automaticamente el origen. Primero detectamos y alertamos;
+    la contencion se puede agregar despues de validar el comportamiento
+    real de cada servidor.
+-->
+
+<group name="orangebox,mail,email,authentication,">
+
+    <!-- Postfix: Wazuh nativo 3357 ya correlaciona multiples fallos SASL. -->
+    <rule id="10700" level="13">
+        <if_sid>3357</if_sid>
+        <description>ALERTA: Posible fuerza bruta contra autenticacion SMTP.</description>
+        <mitre>
+            <id>T1110</id>
+        </mitre>
+        <group>authentication_failed,brute_force,mail,attack,orangebox_mail,</group>
+    </rule>
+
+    <!-- Exim/Dovecot: Wazuh nativo 87507 ya correlaciona multiples fallos. -->
+    <rule id="10701" level="13">
+        <if_sid>87507</if_sid>
+        <description>ALERTA: Posible fuerza bruta contra autenticacion de correo Exim/Dovecot.</description>
+        <mitre>
+            <id>T1110</id>
+        </mitre>
+        <group>authentication_failed,brute_force,mail,attack,orangebox_mail,</group>
+    </rule>
+
+</group>
