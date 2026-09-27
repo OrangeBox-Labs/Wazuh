@@ -19,7 +19,6 @@ configuration/lists/orangebox-agent-profiles
 Ejemplo:
 
 ```text
-srv27:cpanel
 TU_HOSTNAME:cpanel
 ```
 
@@ -33,8 +32,7 @@ El perfil `cpanel` se consume desde las reglas del Manager mediante la CDB `oran
 Actualmente condiciona:
 
 - `20031`: comandos directos de WP Toolkit;
-- `20035` y `20036`: wrappers de logrotate;
-- `20037`–`20052`: wrappers operacionales de WP Toolkit validados en producción;
+- `20035`: contexto operacional validado de WP Toolkit;
 - `20032`: regeneración esperada de `cpanel_ssl_reissue` en hardening.
 
 No existe una whitelist genérica de `/bin/sh -c`. Cada wrapper se valida por operación completa para impedir que una excepción legítima sea reutilizada para ejecutar un segundo comando.
