@@ -113,7 +113,7 @@
         <field name="changed_fields" type="pcre2">\b(?:md5|sha1|sha256|size)\b</field>
         <field name="file">^/etc/systemd/system/|^/etc/systemd/user/</field>
         <description>ALERTA: Unidad o configuracion persistente de SYSTEMD modificada.</description>
-        <group>systemd,persistence,</group>
+        <group>systemd,persistence,orangebox_behavior,</group>
     </rule>
 
     <!-- Configuracion CRON / ANACRON -->
@@ -128,7 +128,7 @@
         <field name="changed_fields" type="pcre2">\b(?:md5|sha1|sha256|size)\b</field>
         <field name="file">^/etc/cron\.d/|^/etc/crontab$|^/etc/anacrontab$</field>
         <description>ALERTA: Configuracion de CRON o ANACRON modificada.</description>
-        <group>cron,persistence,</group>
+        <group>cron,persistence,orangebox_behavior,</group>
     </rule>
 
     <!-- Configuracion de red, DNS y montajes -->
@@ -251,7 +251,7 @@
         <field name="changed_fields" type="pcre2">\b(?:md5|sha1|sha256|size)\b</field>
         <field name="file" type="pcre2">^/root/\.ssh/authorized_keys$|^/home/[^/]+/\.ssh/authorized_keys$</field>
         <description>ALERTA: Archivo SSH authorized_keys modificado. Posible persistencia de credenciales.</description>
-        <group>authentication,persistence,credential_persistence,orangebox_auth,</group>
+        <group>authentication,persistence,credential_persistence,orangebox_auth,orangebox_behavior,</group>
     </rule>
 
 </group>
@@ -300,7 +300,7 @@
         <if_sid>553</if_sid>
         <field name="file">^/etc/systemd/system/|^/etc/systemd/user/</field>
         <description>ALERTA CRITICA: Unidad o configuracion persistente de SYSTEMD eliminada.</description>
-        <group>systemd,persistence,</group>
+        <group>systemd,persistence,orangebox_behavior,</group>
     </rule>
 
     <!-- Configuracion CRON / ANACRON -->
@@ -308,7 +308,7 @@
         <if_sid>553</if_sid>
         <field name="file">^/etc/cron\.d/|^/etc/crontab$|^/etc/anacrontab$</field>
         <description>ALERTA CRITICA: Configuracion de CRON o ANACRON eliminada.</description>
-        <group>cron,persistence,</group>
+        <group>cron,persistence,orangebox_behavior,</group>
     </rule>
 
     <!-- Eliminacion de un comando autorizado para SUDO -> ROOT. -->
@@ -329,7 +329,7 @@
         <if_sid>553</if_sid>
         <field name="file" type="pcre2">^/root/\.ssh/authorized_keys$|^/home/[^/]+/\.ssh/authorized_keys$</field>
         <description>ALERTA CRITICA: Archivo SSH authorized_keys eliminado. Posible manipulacion de persistencia de credenciales.</description>
-        <group>authentication,persistence,credential_persistence,orangebox_auth,</group>
+        <group>authentication,persistence,credential_persistence,orangebox_auth,orangebox_behavior,</group>
     </rule>
 
 </group>
