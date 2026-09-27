@@ -115,7 +115,7 @@
     <rule id="10461" level="14">
         <if_sid>10025</if_sid>
         <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
-        <description>ORANGEBOX IOC: Fuerza bruta web desde IP maliciosa conocida $(srcip).</description>
+        <description>ALERTA IOC: FUERZA BRUTA WEB DESDE IP MALICIOSA CONOCIDA $(srcip).</description>
         <mitre>
             <id>T1110</id>
         </mitre>
