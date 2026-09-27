@@ -28,7 +28,7 @@ Wazuh documenta este patrón: FIM detecta archivos nuevos/modificados, Active Re
 
 ## Alcance inicial
 
-El disparador YARA está deliberadamente acotado a archivos con extensiones habituales de scripts/webshell y solo en las zonas que OrangeBox ya monitoriza en tiempo real:
+El disparador YARA esta acotado a las zonas que OrangeBox ya monitoriza en tiempo real y analiza cualquier archivo nuevo o modificado:
 
 - `/tmp`
 - `/var/tmp`
@@ -36,7 +36,7 @@ El disparador YARA está deliberadamente acotado a archivos con extensiones habi
 - `/opt/zimbra/data/tmp`
 - `/opt/zextras/data/tmp`
 
-Esto evita disparar YARA sobre todos los eventos FIM.
+No depende de la extension ni del permiso de ejecucion. El runtime omite por defecto archivos mayores a 5 MiB.
 
 Las firmas actuales del repositorio son principalmente de webshell JSP. La capa YARA se considera de mayor confianza y la YARA se considera heurística.
 
@@ -80,7 +80,7 @@ yara -r /var/ossec/active-response/bin/yara/rules/orangebox-webshell-core.yar /r
 
 En cPanel sustituir `/var/ossec` por `/opt/ossec`.
 
-Para probar el trigger FIM sin utilizar malware real, crear un archivo de laboratorio con contenido que reproduzca una firma YARA conocida y usar una extension monitorizada.
+Para probar el trigger FIM sin utilizar malware real, crear un archivo de laboratorio con contenido que reproduzca una firma YARA conocida; no se requiere una extension especial.
 
 No descargar muestras de malware reales en un servidor de produccion.
 
