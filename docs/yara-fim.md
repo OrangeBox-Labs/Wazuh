@@ -111,10 +111,12 @@ YARA-RULES-BRANCH
 
 El .git del checkout no se conserva en el agente.
 
-También elimina restos de los archivos históricos de reglas propias:
+También elimina restos de los archivos históricos de reglas propias que ya no forman parte del despliegue:
 
 orangebox-webshell-core.yar
 orangebox-webshell-extended.yar
+
+El runtime actual utiliza únicamente los índices oficiales de Yara-Rules/rules: `webshells_index.yar` y `malware_index.yar`.
 
 ## Formato del resultado
 
