@@ -119,7 +119,7 @@
         <mitre>
             <id>T1110</id>
         </mitre>
-        <group>web,brute_force,attack,orangebox_ioc,orangebox_web,</group>
+        <group>web,brute_force,attack,orangebox_ioc,orangebox_web,orangebox_behavior,</group>
     </rule>
 
     <!--
