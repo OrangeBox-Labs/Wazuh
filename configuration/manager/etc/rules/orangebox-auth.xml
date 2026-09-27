@@ -207,7 +207,7 @@
         <mitre>
             <id>T1021.004</id>
         </mitre>
-        <group>authentication_success,lateral_movement,attack,orangebox_ssh,orangebox_auth,</group>
+        <group>authentication_success,lateral_movement,attack,orangebox_ssh,orangebox_auth,orangebox_behavior,</group>
     </rule>
 
 </group>
