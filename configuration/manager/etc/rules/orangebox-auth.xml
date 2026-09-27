@@ -329,6 +329,33 @@
         <group>authentication,orangebox_exception,orangebox_whitelist,</group>
     </rule>
 
+    <!--
+        BackupPC - SSH automatizado autorizado.
+
+        La excepción representa la función "servidor BackupPC autorizado",
+        no una cantidad fija de servidores. Las IP permitidas se mantienen
+        en la CDB "etc/lists/orangebox-backuppc".
+
+        Para agregar otro servidor BackupPC:
+          1. Agregar su IP como una nueva línea en la CDB:
+             <IP>:
+          2. Reiniciar el Wazuh Manager para recargar la CDB.
+          3. No crear otra regla 200xx por cada servidor.
+
+        En la versión pública la CDB contiene una IP de documentación
+        como ejemplo. Sustitúyela por las IP reales de tu entorno.
+
+        Si en el futuro se necesita una excepción que requiera una regla
+        distinta, usar un ID libre dentro de 20000-29999 y verificar que
+        no esté utilizado por ninguna otra regla del ruleset.
+    -->
+    <rule id="20001" level="0">
+        <if_sid>10001</if_sid>
+        <list field="srcip" lookup="address_match_key">etc/lists/orangebox-backuppc</list>
+        <description>EXCEPCION: SSH exitoso legitimo desde servidor BackupPC autorizado.</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,backuppc,</group>
+    </rule>
+
 
     <!--
         SFTP certcoopeuch - origenes autorizados.
