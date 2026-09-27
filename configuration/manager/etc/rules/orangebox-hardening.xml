@@ -1,0 +1,454 @@
+<!--
+    OrangeBox - Hardening / File Integrity Monitoring
+    Wazuh 4.14.x
+
+    550 = syscheck_integrity_changed
+    553 = syscheck_deleted
+
+    NOTA SOBRE IPTABLES:
+    /etc/sysconfig/iptables.save puede ser regenerado por servicios de
+    persistencia de iptables. En ese proceso cambian normalmente la fecha
+    de generacion y los contadores de paquetes/bytes, aunque ninguna regla
+    del firewall haya sido modificada.
+
+    Por este motivo iptables.save NO se utiliza como disparador de la alerta
+    de hardening 10037. El archivo puede seguir siendo monitoreado por FIM,
+    pero sus cambios normales no se elevan a una alerta de configuracion.
+
+    La configuracion efectiva de iptables (/etc/sysconfig/iptables) sigue
+    protegida. Los cambios reales de firewall se tratan mediante el contenido
+    reportado por FIM (changed_content), sin depender de UID o proceso.
+
+    IMPORTANTE:
+        La regla 10038 genera alerta cuando el diff de /etc/sysconfig/iptables
+        contiene cambios sobre reglas iptables (-A/-C/-D/-I/-R/-F/-N/-X/-P).
+        Un service iptables save que solamente regenera timestamps y/o
+        contadores no contiene estas lineas y no dispara la regla.
+
+    Convencion de IDs OrangeBox:
+        10000 - 19999 = Reglas de deteccion.
+        20000 - 29999 = Excepciones / whitelists.
+
+    IMPORTANTE:
+        Las reglas de deteccion se definen primero.
+        Las excepciones / whitelists se encuentran EXCLUSIVAMENTE
+        al FINAL de este archivo.
+-->
+
+<!-- ================================================================
+     REGLAS DE DETECCION - MODIFICACIONES
+     ================================================================ -->
+
+<group name="orangebox,hardening,fim,">
+
+    <!-- Archivos de identidad y control de acceso -->
+    <rule id="10030" level="13">
+        <if_sid>550</if_sid>
+        <!--
+            Solo se considera una modificacion FIM cuando cambio el contenido.
+            Wazuh expone los hashes modificados en changed_fields. El mtime,
+            inode, permisos u otros metadatos por si solos no generan esta
+            alerta. Esto evita falsos positivos por regeneraciones rutinarias.
+        -->
+        <field name="changed_fields" type="pcre2">\b(?:md5|sha1|sha256|size)\b</field>
+        <field name="file">^/etc/passwd$|^/etc/shadow$|^/etc/group$|^/etc/gshadow$|^/etc/securetty$|^/etc/security/limits\.conf$</field>
+        <description>ALERTA: Archivo critico de identidad o control de acceso modificado.</description>
+        <group>identity,authentication,</group>
+    </rule>
+
+    <!-- Configuracion SSH -->
+    <rule id="10031" level="13">
+        <if_sid>550</if_sid>
+        <!--
+            Solo se considera una modificacion FIM cuando cambio el contenido.
+            Wazuh expone los hashes modificados en changed_fields. El mtime,
+            inode, permisos u otros metadatos por si solos no generan esta
+            alerta. Esto evita falsos positivos por regeneraciones rutinarias.
+        -->
+        <field name="changed_fields" type="pcre2">\b(?:md5|sha1|sha256|size)\b</field>
+        <field name="file">^/etc/ssh/|^/etc/sshd/</field>
+        <description>ALERTA: Configuracion o archivo critico de SSH modificado.</description>
+        <group>ssh,authentication,</group>
+    </rule>
+
+    <!-- Configuracion SUDO -->
+    <rule id="10032" level="13">
+        <if_sid>550</if_sid>
+        <!--
+            Solo se considera una modificacion FIM cuando cambio el contenido.
+            Wazuh expone los hashes modificados en changed_fields. El mtime,
+            inode, permisos u otros metadatos por si solos no generan esta
+            alerta. Esto evita falsos positivos por regeneraciones rutinarias.
+        -->
+        <field name="changed_fields" type="pcre2">\b(?:md5|sha1|sha256|size)\b</field>
+        <field name="file">^/etc/sudoers$|^/etc/sudoers\.d/|^/etc/sudoers\.conf$</field>
+        <description>ALERTA: Configuracion de SUDO modificada.</description>
+        <group>sudo,privilege_escalation,</group>
+    </rule>
+
+    <!-- Configuracion PAM -->
+    <rule id="10033" level="13">
+        <if_sid>550</if_sid>
+        <!--
+            Solo se considera una modificacion FIM cuando cambio el contenido.
+            Wazuh expone los hashes modificados en changed_fields. El mtime,
+            inode, permisos u otros metadatos por si solos no generan esta
+            alerta. Esto evita falsos positivos por regeneraciones rutinarias.
+        -->
+        <field name="changed_fields" type="pcre2">\b(?:md5|sha1|sha256|size)\b</field>
+        <field name="file">^/etc/pam\.d/</field>
+        <description>ALERTA: Configuracion PAM modificada.</description>
+        <group>pam,authentication,</group>
+    </rule>
+
+    <!-- Configuracion y unidades SYSTEMD -->
+    <rule id="10034" level="13">
+        <if_sid>550</if_sid>
+        <!--
+            Solo se considera una modificacion FIM cuando cambio el contenido.
+            Wazuh expone los hashes modificados en changed_fields. El mtime,
+            inode, permisos u otros metadatos por si solos no generan esta
+            alerta. Esto evita falsos positivos por regeneraciones rutinarias.
+        -->
+        <field name="changed_fields" type="pcre2">\b(?:md5|sha1|sha256|size)\b</field>
+        <field name="file">^/etc/systemd/system/|^/etc/systemd/user/</field>
+        <description>ALERTA: Unidad o configuracion persistente de SYSTEMD modificada.</description>
+        <group>systemd,persistence,</group>
+    </rule>
+
+    <!-- Configuracion CRON / ANACRON -->
+    <rule id="10035" level="13">
+        <if_sid>550</if_sid>
+        <!--
+            Solo se considera una modificacion FIM cuando cambio el contenido.
+            Wazuh expone los hashes modificados en changed_fields. El mtime,
+            inode, permisos u otros metadatos por si solos no generan esta
+            alerta. Esto evita falsos positivos por regeneraciones rutinarias.
+        -->
+        <field name="changed_fields" type="pcre2">\b(?:md5|sha1|sha256|size)\b</field>
+        <field name="file">^/etc/cron\.d/|^/etc/crontab$|^/etc/anacrontab$</field>
+        <description>ALERTA: Configuracion de CRON o ANACRON modificada.</description>
+        <group>cron,persistence,</group>
+    </rule>
+
+    <!-- Configuracion de red, DNS y montajes -->
+    <rule id="10036" level="13">
+        <if_sid>550</if_sid>
+        <!--
+            Solo se considera una modificacion FIM cuando cambio el contenido.
+            Wazuh expone los hashes modificados en changed_fields. El mtime,
+            inode, permisos u otros metadatos por si solos no generan esta
+            alerta. Esto evita falsos positivos por regeneraciones rutinarias.
+        -->
+        <field name="changed_fields" type="pcre2">\b(?:md5|sha1|sha256|size)\b</field>
+        <field name="file">^/etc/hosts$|^/etc/resolv\.conf$|^/etc/nsswitch\.conf$|^/etc/fstab$</field>
+        <description>ALERTA: Configuracion critica de red, DNS o montaje modificada.</description>
+        <group>network,dns,</group>
+    </rule>
+
+    <!--
+        Configuracion de firewall, excepto /etc/sysconfig/iptables.
+        iptables tiene una regla especifica debajo porque puede ser
+        regenerado automaticamente por iptables-save cambiando solamente
+        timestamps y contadores.
+
+        IMPORTANTE SOBRE IMUNIFY360:
+        /etc/sysconfig/imunify360/ contiene tanto configuracion efectiva
+        del firewall como archivos internos generados por el malware scanner.
+        Los arboles:
+            malware-filters-admin-conf/processed/
+            malware-filters-admin-conf/processed.tmp/
+        no son configuracion de firewall y quedan fuera del alcance de
+        esta regla.
+
+        La configuracion de firewall de Imunify360 se almacena en:
+            /etc/sysconfig/imunify360/imunify360.config
+            /etc/sysconfig/imunify360/imunify360.config.d/
+    -->
+    <rule id="10037" level="13">
+        <if_sid>550</if_sid>
+        <!--
+            Solo se considera una modificacion FIM cuando cambio el contenido.
+            Wazuh expone los hashes modificados en changed_fields. El mtime,
+            inode, permisos u otros metadatos por si solos no generan esta
+            alerta. Esto evita falsos positivos por regeneraciones rutinarias.
+        -->
+        <field name="changed_fields" type="pcre2">\b(?:md5|sha1|sha256|size)\b</field>
+        <field name="file">^/etc/shorewall/|^/etc/firewalld/|^/etc/ufw/|^/etc/csf/|^/etc/sysconfig/iptables-config$|^/etc/sysconfig/nftables$|^/etc/sysconfig/nftables\.conf$|^/etc/nftables\.conf$|^/etc/imunify360/|^/etc/sysconfig/imunify360/imunify360\.config$|^/etc/sysconfig/imunify360/imunify360\.config\.d/</field>
+        <description>ALERTA: Configuracion de FIREWALL modificada.</description>
+        <group>firewall,network,</group>
+    </rule>
+
+    <!--
+        /etc/sysconfig/iptables.
+
+        'service iptables save' regenera el archivo mediante iptables-save.
+        En un guardado sin cambios de reglas, el diff puede contener solo
+        timestamps y contadores. Esos cambios no deben generar una alerta.
+
+        En cambio, cuando una regla del ruleset cambia, iptables-save expone
+        las entradas de reglas en formato -A/-C/-D/-I/-R/-F/-N/-X/-P. La
+        regla 10038 busca esas lineas en changed_content.
+
+        No se utiliza UID, usuario, proceso ni una whitelist ciega del
+        archivo. La deteccion depende del contenido efectivo del diff.
+    -->
+    <rule id="10038" level="13">
+        <if_sid>550</if_sid>
+        <field name="file">^/etc/sysconfig/iptables$</field>
+        <field name="changed_content" type="pcre2">(?m)^(?:&lt;|&gt;)\s+-[ACDIFNRXP]\b</field>
+        <description>ALERTA: Configuracion de FIREWALL modificada.</description>
+        <group>firewall,network,</group>
+    </rule>
+
+    <!--
+        Integridad de comandos autorizados para SUDO -> ROOT.
+
+        Estos archivos forman parte de la whitelist de orangebox-auth.xml.
+        Si un atacante modifica uno de ellos, podria transformar un comando
+        aparentemente permitido en una herramienta de escalamiento.
+
+        La regla es deliberadamente de nivel 15 e incluye
+        privilege_escalation_root para que la integracion de correo la trate
+        como alerta inmediata.
+
+        Zimbra y Carbonio CE mantienen la misma politica:
+            /opt/zimbra/...
+            /opt/zextras/...
+    -->
+    <rule id="10046" level="15">
+        <if_sid>550</if_sid>
+        <!--
+            Solo se considera una modificacion FIM cuando cambio el contenido.
+            Wazuh expone los hashes modificados en changed_fields. El mtime,
+            inode, permisos u otros metadatos por si solos no generan esta
+            alerta. Esto evita falsos positivos por regeneraciones rutinarias.
+        -->
+        <field name="changed_fields" type="pcre2">\b(?:md5|sha1|sha256|size)\b</field>
+        <field name="file" type="pcre2">^/opt/(?:zimbra|zextras)/(?:libexec/zmstat-fd|common/sbin/postfix|common/sbin/postalias|common/sbin/qshape\.pl|common/sbin/postconf|common/sbin/postsuper|common/sbin/postcat|libexec/zmqstat|libexec/zmmtastatus|libexec/zmmailboxdmgr)$</field>
+        <description>ALERTA CRITICA: Comando autorizado para SUDO -> ROOT fue modificado.</description>
+        <group>sudo,privilege_escalation,privilege_escalation_root,integrity,orangebox_sudo_command_integrity,</group>
+    </rule>
+
+    <!--
+        Persistencia de credenciales mediante claves SSH.
+
+        El agente monitoriza /root/.ssh y /home/*/.ssh con Who-Data y sin
+        report_changes, para detectar cambios sin exponer contenido sensible.
+
+        Esta regla se limita a authorized_keys: agregar, modificar o
+        reemplazar una clave autorizada puede crear persistencia de acceso
+        aun cuando el resto del sistema permanezca intacto.
+    -->
+    <rule id="10048" level="13">
+        <if_sid>550</if_sid>
+        <!--
+            Solo se considera una modificacion FIM cuando cambio el contenido.
+            Wazuh expone los hashes modificados en changed_fields. El mtime,
+            inode, permisos u otros metadatos por si solos no generan esta
+            alerta. Esto evita falsos positivos por regeneraciones rutinarias.
+        -->
+        <field name="changed_fields" type="pcre2">\b(?:md5|sha1|sha256|size)\b</field>
+        <field name="file" type="pcre2">^/root/\.ssh/authorized_keys$|^/home/[^/]+/\.ssh/authorized_keys$</field>
+        <description>ALERTA: Archivo SSH authorized_keys modificado. Posible persistencia de credenciales.</description>
+        <group>authentication,persistence,credential_persistence,orangebox_auth,</group>
+    </rule>
+
+</group>
+
+
+<!-- ================================================================
+     REGLAS DE DETECCION - ELIMINACIONES
+     ================================================================ -->
+
+<group name="orangebox,hardening,fim,file_deletion,">
+
+    <!-- Archivos de identidad y control de acceso -->
+    <rule id="10040" level="15">
+        <if_sid>553</if_sid>
+        <field name="file">^/etc/passwd$|^/etc/shadow$|^/etc/group$|^/etc/gshadow$|^/etc/securetty$|^/etc/security/limits\.conf$</field>
+        <description>ALERTA CRITICA: Archivo de identidad o control de acceso eliminado.</description>
+        <group>identity,authentication,</group>
+    </rule>
+
+    <!-- Archivos y configuracion SSH -->
+    <rule id="10041" level="15">
+        <if_sid>553</if_sid>
+        <field name="file">^/etc/ssh/|^/etc/sshd/</field>
+        <description>ALERTA CRITICA: Archivo o configuracion de SSH eliminado.</description>
+        <group>ssh,authentication,</group>
+    </rule>
+
+    <!-- Configuracion SUDO -->
+    <rule id="10042" level="15">
+        <if_sid>553</if_sid>
+        <field name="file">^/etc/sudoers$|^/etc/sudoers\.d/|^/etc/sudoers\.conf$</field>
+        <description>ALERTA CRITICA: Configuracion de SUDO eliminada.</description>
+        <group>sudo,privilege_escalation,</group>
+    </rule>
+
+    <!-- Configuracion PAM -->
+    <rule id="10043" level="15">
+        <if_sid>553</if_sid>
+        <field name="file">^/etc/pam\.d/</field>
+        <description>ALERTA CRITICA: Configuracion PAM eliminada.</description>
+        <group>pam,authentication,</group>
+    </rule>
+
+    <!-- Unidades y configuracion SYSTEMD -->
+    <rule id="10044" level="15">
+        <if_sid>553</if_sid>
+        <field name="file">^/etc/systemd/system/|^/etc/systemd/user/</field>
+        <description>ALERTA CRITICA: Unidad o configuracion persistente de SYSTEMD eliminada.</description>
+        <group>systemd,persistence,</group>
+    </rule>
+
+    <!-- Configuracion CRON / ANACRON -->
+    <rule id="10045" level="15">
+        <if_sid>553</if_sid>
+        <field name="file">^/etc/cron\.d/|^/etc/crontab$|^/etc/anacrontab$</field>
+        <description>ALERTA CRITICA: Configuracion de CRON o ANACRON eliminada.</description>
+        <group>cron,persistence,</group>
+    </rule>
+
+    <!-- Eliminacion de un comando autorizado para SUDO -> ROOT. -->
+    <rule id="10047" level="15">
+        <if_sid>553</if_sid>
+        <field name="file" type="pcre2">^/opt/(?:zimbra|zextras)/(?:libexec/zmstat-fd|common/sbin/postfix|common/sbin/postalias|common/sbin/qshape\.pl|common/sbin/postconf|common/sbin/postsuper|common/sbin/postcat|libexec/zmqstat|libexec/zmmtastatus|libexec/zmmailboxdmgr)$</field>
+        <description>ALERTA CRITICA: Comando autorizado para SUDO -> ROOT fue eliminado.</description>
+        <group>sudo,privilege_escalation,privilege_escalation_root,integrity,orangebox_sudo_command_integrity,</group>
+    </rule>
+
+    <!--
+        Eliminacion de authorized_keys.
+
+        La eliminacion de la clave puede utilizarse para destruir o
+        modificar mecanismos de acceso existentes durante una intrusion.
+    -->
+    <rule id="10049" level="15">
+        <if_sid>553</if_sid>
+        <field name="file" type="pcre2">^/root/\.ssh/authorized_keys$|^/home/[^/]+/\.ssh/authorized_keys$</field>
+        <description>ALERTA CRITICA: Archivo SSH authorized_keys eliminado. Posible manipulacion de persistencia de credenciales.</description>
+        <group>authentication,persistence,credential_persistence,orangebox_auth,</group>
+    </rule>
+
+</group>
+
+
+<!-- =================================================================
+     EXCEPCIONES / WHITELIST - ESTA SECCION SIEMPRE VA AL FINAL
+     =================================================================
+
+     Las excepciones activas documentadas en este archivo son:
+         20032 = regeneracion automatica del cron cPanel cpanel_ssl_reissue
+                    (requiere perfil CDB cpanel)
+
+     IMPORTANTE SOBRE FIM:
+         Las reglas de modificacion 10030-10037, 10046 y 10048 solo generan
+         alerta cuando Wazuh reporta evidencia de cambio de contenido en
+         changed_fields (size/md5/sha1/sha256).
+
+     Cuando sea necesario agregar una nueva excepcion, debe utilizar un ID
+     entre 20000 y 29999 y referenciar explicitamente la regla OrangeBox
+     correspondiente mediante <if_sid>.
+
+     IMPORTANTE:
+         - No agregar excepciones sin validar previamente el cambio.
+         - Las excepciones deben ser lo mas especificas posible.
+         - Esta seccion debe permanecer despues de TODAS las reglas de deteccion.
+         - Una excepcion por no-cambio de contenido NO cubre cambios reales
+           de contenido: si el archivo cambia su contenido, 10037 sigue
+           generando la alerta.
+     ================================================================= -->
+
+<group name="orangebox,hardening,fim,whitelist,">
+    <!--
+        cPanel mantiene y regenera este cron automaticamente durante
+        las tareas de renovacion/reemision SSL.
+        La modificacion del contenido es esperada y no representa una
+        alteracion de persistencia maliciosa.
+    -->
+    <rule id="20032" level="0">
+        <!--
+            cPanel mantiene y regenera este cron durante tareas normales de
+            renovacion o reemision SSL.
+
+            La excepcion requiere dos condiciones:
+              1) el evento pertenece al perfil funcional "cpanel";
+              2) el archivo afectado es exactamente cpanel_ssl_reissue.
+
+            De esta forma una ruta con el mismo nombre en otro tipo de
+            servidor no queda globalmente autorizada.
+        -->
+        <if_sid>10035</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-agent-profiles</list>
+        <field name="file" type="pcre2">^/etc/cron\.d/cpanel_ssl_reissue$</field>
+        <description>EXCEPCION: Cron cPanel cpanel_ssl_reissue regenerado automaticamente.</description>
+        <group>orangebox_exception,orangebox_whitelist,cpanel,cron,</group>
+    </rule>
+</group>
+
+
+<!--
+     EXCEPCIONES cPanel - CAMBIOS OPERACIONALES ESPERADOS
+
+     cPanel modifica /etc/passwd, /etc/shadow, /etc/group y /etc/gshadow
+     al crear o actualizar cuentas. CSF/LFD modifica /etc/csf/csf.deny al
+     bloquear automaticamente una IP despues de intentos fallidos.
+     cPanel/Imunify puede regenerar /etc/sysconfig/nftables.conf; en los
+     eventos validados de este entorno el cambio corresponde a counters.
+
+     Estas excepciones estan condicionadas al perfil funcional cpanel y
+     solamente afectan las rutas concretas observadas. No se desactiva
+     10030/10037 para el resto de servidores ni para otras rutas.
+-->
+<group name="orangebox,hardening,fim,whitelist,cpanel,">
+    <rule id="20050" level="0">
+        <if_sid>10030</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-agent-profiles</list>
+        <field name="file" type="pcre2">^/etc/passwd$|^/etc/shadow$|^/etc/group$|^/etc/gshadow$</field>
+        <description>EXCEPCION: cPanel modifica archivos de cuentas durante operaciones normales.</description>
+        <group>orangebox_exception,orangebox_whitelist,cpanel,identity,</group>
+    </rule>
+
+    <rule id="20051" level="0">
+        <if_sid>10037</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-agent-profiles</list>
+        <field name="file">^/etc/csf/csf\.deny$</field>
+        <description>EXCEPCION: CSF/LFD actualiza csf.deny como parte de su operacion normal.</description>
+        <group>orangebox_exception,orangebox_whitelist,cpanel,firewall,</group>
+    </rule>
+
+    <rule id="20052" level="0">
+        <if_sid>10037</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-agent-profiles</list>
+        <field name="file">^/etc/sysconfig/nftables\.conf$</field>
+        <description>EXCEPCION: cPanel/Imunify regenera nftables.conf con cambios operacionales de counters.</description>
+        <group>orangebox_exception,orangebox_whitelist,cpanel,firewall,</group>
+    </rule>
+</group>
+
+<!--
+    WHITELIST ACTUAL:
+        - cpanel_ssl_reissue, condicionada al perfil CDB cpanel
+
+    NOTA:
+        Los archivos internos generados por Imunify360 bajo
+        malware-filters-admin-conf/ no requieren whitelist porque
+        10037 ya no incluye ese arbol dentro de la configuracion
+        de firewall.
+
+    POLITICA FIM:
+        Las modificaciones se alertan solo cuando existe evidencia de
+        cambio de contenido. Cambios exclusivos de inode, mtime o permisos
+        no disparan estas reglas.
+
+    Ejemplo de estructura para una futura excepcion:
+
+    <rule id="20030" level="3">
+        <if_sid>10030</if_sid>
+        <field name="file">^/ruta/validada$</field>
+        <description>EXCEPCION: Cambio autorizado previamente validado.</description>
+        <group>orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+-->

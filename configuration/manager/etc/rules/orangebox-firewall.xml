@@ -1,0 +1,185 @@
+<!--
+    ORANGEBOX - Deteccion de actividad de reconocimiento de red
+    ============================================================
+
+    Objetivo
+    --------
+    Utilizar el decoder "kernel" de Wazuh para identificar intentos TCP
+    entrantes y correlacionarlos como posible escaneo de puertos.
+
+    Flujo
+    -----
+        firewall LOG
+            |
+            v
+        regla nativa 4100
+            |
+            v
+        10450 - TCP SYN / connection_attempt
+            |
+            v
+        10453 - misma IP origen + puertos destino diferentes
+                  12 eventos en 90 segundos
+
+    Importante
+    ----------
+    10450 tiene nivel 1 + no_log.
+
+    No genera alertas visibles ni llena alerts.json, pero permanece
+    disponible para correlaciones posteriores mediante if_matched_sid.
+
+    Esto permite alimentar 10453 sin convertir cada SYN en una alerta.
+
+    La correlacion utiliza if_matched_sid en lugar de if_matched_group
+    porque las pruebas sobre la instalacion Wazuh de OrangeBox demostraron
+    que same_srcip funciona correctamente cuando se referencia directamente
+    el SID 10450.
+
+    La deteccion de port scan se endurece con different_dstport para evitar
+    tratar multiples intentos contra un unico servicio como escaneo de puertos.
+
+    El match de 10450 exige "RES=0x00 SYN URGP=0". Esto evita contar eventos
+    "ACK SYN" como nuevos intentos de conexion.
+
+    El firewall debe generar los eventos solamente para trafico que nos
+    interese registrar. No habilitar un LOG global de todos los paquetes.
+-->
+
+<group name="orangebox,firewall,network_scan,">
+
+    <!--
+        10450 - INTENTO TCP SYN
+
+        Regla de soporte para correlaciones.
+
+        level=1:
+            Permite que la regla participe en if_matched_sid.
+
+        no_log:
+            Evita generar una alerta por cada SYN.
+
+        4100:
+            Regla base de Wazuh para eventos de firewall.
+
+        El patron exige:
+            RES=0x00 SYN URGP=0
+
+        Por lo tanto:
+            SYN       -> coincide
+            ACK SYN   -> no coincide
+    -->
+    <rule id="10450" level="1">
+        <if_sid>4100</if_sid>
+        <regex type="pcre2">RES=0x00 SYN URGP=0</regex>
+        <description>ORANGEBOX: TCP SYN connection attempt</description>
+        <options>no_log</options>
+        <group>connection_attempt,</group>
+    </rule>
+
+    <!--
+        10453 - POSIBLE ESCANEO DE PUERTOS
+
+        12 intentos TCP SYN en 90 segundos
+        +
+        misma IP origen
+        +
+        diferentes puertos destino
+
+        El umbral conserva la idea de la regla nativa de Wazuh 40601,
+        pero hace la correlacion desde nuestro SID 10450 y agrega
+        diversidad de puerto destino.
+
+        level=11:
+            Se mantiene como una alerta relevante. La política de correo
+            se decide de forma independiente en la integración.
+    -->
+    <rule id="10453" level="11" frequency="12" timeframe="90" ignore="90">
+        <if_matched_sid>10450</if_matched_sid>
+        <same_srcip />
+        <different_dstport />
+        <description>ORANGEBOX: Possible TCP port scan from same source IP.</description>
+        <mitre>
+            <id>T1046</id>
+        </mitre>
+        <group>orangebox,firewall,network_scan,</group>
+    </rule>
+
+    
+    <!--
+        10454 - SYN FLOOD DESDE UNA MISMA IP HACIA UN MISMO SERVICIO
+
+        60 TCP SYN en 10 segundos
+        +
+        misma IP origen
+        +
+        mismo puerto destino
+
+        Es una condicion de volumen sobre un unico servicio y no una
+        deteccion de port scan. Usa la misma señal 10450.
+    -->
+    <rule id="10454" level="11" frequency="60" timeframe="10" ignore="60">
+        <if_matched_sid>10450</if_matched_sid>
+        <same_srcip />
+        <same_dstport />
+        <description>ORANGEBOX: Possible TCP SYN flood from same source IP.</description>
+        <mitre>
+            <id>T1499</id>
+        </mitre>
+        <group>orangebox,firewall,flood,denial_of_service,</group>
+    </rule>
+
+    <!--
+        10456 - ACTIVE RESPONSE SOLO PARA ORIGENES PUBLICOS / PORT SCAN
+
+        10453 sigue siendo la deteccion principal y permanece visible para
+        toda IP. Esta regla es exclusivamente el disparador del bloqueo
+        automatico y exige que srcip NO pertenezca a las redes privadas
+        definidas en orangebox-private-networks.
+    -->
+    <rule id="10456" level="11">
+        <if_sid>10453</if_sid>
+        <list field="srcip" lookup="not_address_match_key">etc/lists/orangebox-private-networks</list>
+        <description>ORANGEBOX: Public source port scan - eligible for automatic blocking.</description>
+        <group>orangebox,firewall,network_scan,active_response,</group>
+    </rule>
+
+    <!--
+        10457 - ACTIVE RESPONSE SOLO PARA ORIGENES PUBLICOS / SYN FLOOD
+
+        10454 sigue siendo la deteccion principal y permanece visible para
+        toda IP. Esta regla es exclusivamente el disparador del bloqueo
+        automatico y exige que srcip NO pertenezca a las redes privadas
+        definidas en orangebox-private-networks.
+    -->
+    <rule id="10457" level="11">
+        <if_sid>10454</if_sid>
+        <list field="srcip" lookup="not_address_match_key">etc/lists/orangebox-private-networks</list>
+        <description>ORANGEBOX: Public source SYN flood - eligible for automatic blocking.</description>
+        <group>orangebox,firewall,flood,denial_of_service,active_response,</group>
+    </rule>
+
+    <!--
+        10455 - POSIBLE DENEGACION DE SERVICIO DISTRIBUIDA
+
+        200 IPs origen diferentes
+        +
+        mismo puerto destino
+        +
+        10 segundos
+
+        No activa firewall-drop por si misma porque una deteccion
+        distribuida no identifica una unica IP que represente al
+        conjunto completo del trafico.
+    -->
+    <rule id="10455" level="12" frequency="200" timeframe="10">
+        <if_matched_sid>10450</if_matched_sid>
+        <different_srcip />
+        <same_dstport />
+        <description>ORANGEBOX: Possible distributed denial of service attack.</description>
+        <mitre>
+            <id>T1498</id>
+        </mitre>
+        <group>orangebox,firewall,flood,denial_of_service,ddos,</group>
+    </rule>
+
+</group>

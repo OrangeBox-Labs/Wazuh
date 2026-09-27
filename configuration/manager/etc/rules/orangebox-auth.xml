@@ -1,0 +1,502 @@
+<!--
+    OrangeBox Wazuh - Reglas de autenticacion
+    ================================================================
+
+    Proposito:
+        - Inicios de sesion SSH exitosos.
+        - Uso de sudo.
+        - Elevacion mediante su a root.
+        - Fuerza bruta SSH seguida de login exitoso.
+        - Movimiento lateral dentro de redes internas.
+        - Control de sudo -> root mediante whitelist de comandos.
+
+    Convencion de IDs OrangeBox:
+        10000 - 19999 = Reglas de deteccion.
+        20000 - 29999 = Excepciones / whitelists.
+
+    IMPORTANTE:
+        Las reglas de deteccion se definen primero.
+        Las excepciones / whitelists se encuentran EXCLUSIVAMENTE
+        al FINAL de este archivo.
+
+        No mover la seccion de whitelist antes de las reglas de deteccion.
+
+    No sobrescribimos reglas nativas de Wazuh.
+    Las reglas OrangeBox se construyen como reglas hijas cuando corresponde.
+-->
+
+<!-- ================================================================
+     REGLAS DE DETECCION
+     ================================================================ -->
+
+<!-- ================================================================
+     SSH - AUTENTICACION EXITOSA
+     ================================================================ -->
+<group name="orangebox,authentication,ssh,">
+
+    <!--
+        Regla basada en el grupo/decoder SSH nativo (5700).
+        Se conserva el criterio original de autenticacion exitosa y
+        solamente se escala el nivel para que OrangeBox pueda tratar
+        el evento como alerta de SOC.
+    -->
+    <rule id="10001" level="13">
+        <if_sid>5715</if_sid>
+        <description>ALERTA: Inicio de sesion SSH exitoso.</description>
+        <group>authentication_success,orangebox_auth,orangebox_ssh,</group>
+    </rule>
+
+</group>
+
+
+<!-- ================================================================
+     ELEVACION DE PRIVILEGIOS - SU / SUDO
+     ================================================================
+
+     IMPORTANTE:
+         Toda elevacion exitosa a root mediante los mecanismos
+         detectados por estas reglas pertenece al grupo
+         privilege_escalation_root.
+
+         La integracion de correo utiliza este grupo para enviar la
+         alerta inmediatamente, sin pasar por el buffer.
+     ================================================================ -->
+<group name="orangebox,authentication,privilege_escalation,">
+
+    <!--
+        Regla basada en el grupo PAM nativo (5500).
+
+        IMPORTANTE:
+          - Esta alerta representa una elevacion a root mediante su/su-l.
+          - Un evento "su -> root" iniciado por UID 0 NO es una elevacion
+            de privilegios: el proceso ya tenia privilegios root.
+          - Esto ocurre de forma automatizada en servicios como
+            google-guest-agent-manager.service, que ejecuta comprobaciones
+            puntuales usando "su ... root -c ...".
+          - La recoleccion journald de Wazuh transforma el evento a syslog
+            usando _HOSTNAME, SYSLOG_IDENTIFIER, PID y MESSAGE; por lo tanto
+            _SYSTEMD_UNIT no queda disponible para una regla del manager.
+            Por ese motivo filtramos aqui por el UID iniciador y no por el
+            servicio systemd, manteniendo la deteccion de elevaciones reales.
+
+        SEGURIDAD:
+          - UID distinto de 0 => se considera una elevacion a root y alerta.
+          - UID 0 => se descarta porque el proceso ya era root.
+          - Un root comprometido que ejecute su -> root no constituye una
+            escalada de privilegios; otras reglas/FIM/auditd deben detectar
+            la actividad maliciosa del proceso root.
+    -->
+    <rule id="10004" level="13">
+        <if_sid>5500</if_sid>
+        <regex type="pcre2">su(?:-l)?:session\):\s+session\s+opened\s+for\s+user\s+root\b.*\bby\s+\S+\(uid=(?!0\b)\d+\)</regex>
+        <user>root</user>
+        <description>ALERTA: Usuario cambio de sesion a ROOT mediante comando SU.</description>
+        <group>authentication_success,privilege_escalation,privilege_escalation_root,orangebox_auth,</group>
+    </rule>
+
+    <!--
+        5402 = Successful sudo to ROOT executed.
+
+        La whitelist se mantiene dentro de esta misma regla mediante
+        una expresion negativa sobre el campo dinamico "command".
+
+        IMPORTANTE PARA ZIMBRA / CARBONIO:
+          - Zimbra usa /opt/zimbra.
+          - Carbonio CE usa /opt/zextras.
+          - Ambos representan la misma familia de componentes y deben
+            tener la misma politica de sudo.
+
+        Los binarios autorizados son los mismos en ambos arboles.
+        postconf se permite con sus argumentos porque Carbonio/Zimbra lo
+        utiliza para regenerar la configuracion completa de Postfix.
+
+        SEGURIDAD:
+          - Solo se aceptan los ejecutables definidos explicitamente aqui.
+          - No se acepta un binario arbitrario por pertenecer a /opt/zimbra
+            o /opt/zextras.
+          - La integridad de estos ejecutables se controla adicionalmente
+            mediante FIM en agent.conf.
+          - Cualquier otro sudo -> root dispara esta regla.
+    -->
+    <rule id="10005" level="13">
+        <!--
+            10005 = SUDO -> ROOT EXITOSO.
+
+            La regla nativa 5402 identifica el formato de sudo hacia ROOT,
+            pero tambien puede quedar satisfecha por un evento que contiene
+            "incorrect password attempt". Por eso 10005 exige ademas que el
+            log NO contenga ese texto, evitando alertas por autenticaciones
+            fallidas.
+
+            El evento FTS 5403 tampoco debe convertirse en alerta.
+
+            IMPORTANTE:
+              - Esta regla NO contiene whitelists de aplicaciones.
+              - Las excepciones se evaluan despues mediante reglas level 0.
+              - Las excepciones de aplicaciones requieren perfil CDB y,
+                cuando corresponde, usuario y comando/wrapper validado.
+              - Un sudo -> root que no tenga una excepcion valida permanece
+                como alerta critica.
+
+            Esto permite agregar cPanel, Zimbra, Carbonio u otras plataformas
+            sin modificar el detector universal.
+        -->
+        <if_sid>5402</if_sid>
+        <user>root</user>
+        <regex type="pcre2">^(?!.*incorrect password attempt).*$</regex>
+        <description>ALERTA CRITICA: SUDO hacia ROOT sin excepcion operacional validada.</description>
+        <group>syslog,sudo,privilege_escalation,privilege_escalation_root,orangebox_auth,orangebox_sudo_whitelist_enforced,</group>
+    </rule>
+
+</group>
+
+
+<!-- ================================================================
+     SSH - FUERZA BRUTA COMPLETADA CON EXITO
+     ================================================================ -->
+<group name="orangebox,authentication,ssh,attack,">
+
+    <rule id="10006" level="13">
+        <if_sid>10001</if_sid>
+        <if_matched_sid>5763</if_matched_sid>
+        <same_source_ip/>
+        <description>ALERTA: Fuerza Bruta SSH COMPLETADA CON EXITO. Login exitoso posterior a multiples fallos de autenticacion.</description>
+        <group>authentication_success,authentication_failures,brute_force,attack,orangebox_ssh,orangebox_auth,</group>
+    </rule>
+
+</group>
+
+
+<!-- ================================================================
+     MOVIMIENTO LATERAL - SSH DESDE RED INTERNA
+     ================================================================ -->
+<group name="orangebox,authentication,lateral_movement,attack,">
+
+    <rule id="10007" level="13">
+        <if_sid>5712</if_sid>
+        <match>from 192.168.|from 10.8.</match>
+        <description>ALERTA: Posible movimiento lateral. Rafaga de fallos SSH desde la red interna.</description>
+        <group>authentication_failed,lateral_movement,attack,orangebox_auth,privilege_escalation_root,</group>
+    </rule>
+
+</group>
+
+
+<!-- ================================================================
+     MOVIMIENTO LATERAL - SSH EXITOSO EN MULTIPLES SERVIDORES
+     ================================================================
+
+     10008 correlaciona logins SSH exitosos desde la misma IP origen
+     hacia diferentes ubicaciones/agentes dentro de 5 minutos.
+
+     global_frequency permite correlacionar eventos de distintos agentes.
+     different_location evita que varios logins del mismo origen sobre
+     un unico servidor disparen la regla.
+
+     No existe Active Response: una IP administrativa/jump host puede
+     generar este patron de forma legitima. Se alerta para investigacion.
+     ================================================================ -->
+<group name="orangebox,authentication,lateral_movement,attack,">
+
+    <rule id="10008" level="13" frequency="3" timeframe="300">
+        <if_matched_sid>10001</if_matched_sid>
+        <same_srcip />
+        <different_location />
+        <global_frequency />
+        <description>ALERTA: Posible movimiento lateral SSH. La misma IP obtuvo multiples logins exitosos en diferentes servidores dentro de 5 minutos.</description>
+        <mitre>
+            <id>T1021.004</id>
+        </mitre>
+        <group>authentication_success,lateral_movement,attack,orangebox_ssh,orangebox_auth,</group>
+    </rule>
+
+</group>
+
+
+<!-- =================================================================
+     EXCEPCIONES / WHITELIST - ESTA SECCION SIEMPRE VA AL FINAL
+     ================================================================= -->
+
+<!-- =================================================================
+     SUPRESION DE FALSO POSITIVO - SYSTEMD USER
+     =================================================================
+
+     40101 identifica sesiones PAM abiertas como "System user
+     successfully logged to the system". Las sesiones creadas por
+     systemd-user no representan un login interactivo.
+
+     Ejemplo:
+         pam_unix(systemd-user:session): session opened for user apache
+
+     Este evento es habitual para cron/systemd y no debe llegar al SOC
+     como autenticacion/ataque.
+     ================================================================= -->
+<!--
+    20044 - EXCEPCION: SU automatizado iniciado por ROOT
+
+    La regla nativa 40101 clasifica sesiones PAM abiertas mediante su como
+    "System user successfully logged to the system". En cPanel, servicios,
+    cron y otras tareas del sistema pueden ejecutar su desde UID 0 hacia
+    cuentas de servicio como nobody, apache, zimbra, etc.
+
+    Esto NO es una elevacion de privilegios: el proceso iniciador ya era root.
+    Se silencia solamente cuando el mensaje PAM confirma que el iniciador
+    fue UID 0. Las elevaciones hacia root iniciadas por UID distinto de 0
+    siguen siendo detectadas por la politica de autenticacion.
+-->
+<group name="orangebox,authentication,privilege_escalation,whitelist,">
+    <rule id="20044" level="0">
+        <if_sid>40101</if_sid>
+        <regex type="pcre2">session\s+opened\s+for\s+user\s+\S+\(uid=\d+\)\s+by\s+\(uid=0\)</regex>
+        <description>EXCEPCION: Sesion SU automatizada iniciada por UID 0; no es elevacion de privilegios.</description>
+        <group>authentication,privilege_escalation,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+</group>
+
+
+<group name="orangebox,authentication,systemd,whitelist,">
+
+    <rule id="20007" level="0">
+        <if_sid>40101</if_sid>
+        <regex type="pcre2">pam_unix\(systemd-user:session\):\s+session\s+opened</regex>
+        <description>EXCEPCION: Sesion systemd-user automatica no interactiva.</description>
+        <group>authentication,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+</group>
+
+
+<group name="orangebox,authentication,ssh,whitelist,">
+
+
+
+
+    <!--
+        SSH local de root desde loopback.
+
+        Este evento es generado por procesos locales que utilizan la pila
+        SSH para autenticarse contra el mismo host. Se silencia solamente
+        cuando 10001 ya identifico un login SSH exitoso y el evento coincide
+        exactamente con publickey + root + IP_DE_SERVIDOR.
+
+        IMPORTANTE:
+          - Es hija directa de 10001, no de 5715.
+          - No afecta logins SSH reales desde otras IP.
+          - No afecta otros usuarios desde IP_DE_SERVIDOR.
+          - No modifica la regla detectora 10001.
+    -->
+    <rule id="20010" level="0">
+        <if_sid>10001</if_sid>
+        <srcip>IP_DE_SERVIDOR</srcip>
+        <user>root</user>
+        <match type="pcre2">^Accepted publickey for root from 127\.0\.0\.1 port [0-9]+ ssh2:</match>
+        <description>EXCEPCION: SSH local de root mediante publickey desde loopback.</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!--
+        OpenSSH emite "Accepted key ... found at ..." al validar
+        authorized_keys. Es un mensaje auxiliar y no significa que
+        la autenticacion haya terminado.
+
+        La regla nativa 5715 usa "^Accepted|authenticated.$" y por
+        eso puede clasificar este mensaje como login exitoso.
+        Se silencia aqui; el evento definitivo "Accepted publickey",
+        "Accepted password" o "Accepted keyboard-interactive/pam"
+        sigue siendo detectado por 10001.
+    -->
+    <rule id="20008" level="0">
+        <if_sid>5715</if_sid>
+        <regex type="pcre2">^Accepted key .+ found at .+</regex>
+        <description>EXCEPCION: Mensaje auxiliar de validacion de clave SSH, no es un login.</description>
+        <group>authentication,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+
+
+    <!--
+        su/su-l de root hacia mysql: esta cuenta de sistema es utilizada
+        por servicios de base de datos y la apertura de sesion queda
+        registrada por PAM como regla nativa 40101.
+        Se silencia solamente cuando el usuario destino es mysql y el
+        evento indica que la sesion fue abierta por UID 0.
+    -->
+    <rule id="20009" level="0">
+        <if_sid>40101</if_sid>
+        <user>mysql</user>
+        <field name="uid">0</field>
+        <description>EXCEPCION: Sesion SU automatizada hacia mysql desde UID 0.</description>
+        <group>authentication,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+
+    <!-- SSH exitoso legitimo desde BackupPC IP_DE_SERVIDOR -->
+    <rule id="20001" level="0">
+        <if_sid>10001</if_sid>
+        <srcip>IP_DE_SERVIDOR</srcip>
+        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (IP_DE_SERVIDOR).</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!-- SSH exitoso legitimo desde BackupPC IP_DE_SERVIDOR -->
+    <rule id="20002" level="0">
+        <if_sid>10001</if_sid>
+        <srcip>IP_DE_SERVIDOR</srcip>
+        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (IP_DE_SERVIDOR).</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!-- SSH exitoso legitimo desde BackupPC IP_DE_SERVIDOR -->
+    <rule id="20006" level="0">
+        <if_sid>10001</if_sid>
+        <srcip>IP_DE_SERVIDOR</srcip>
+        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (IP_DE_SERVIDOR).</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!-- SSH exitoso legitimo desde BackupPC IP_DE_SERVIDOR -->
+    <rule id="20003" level="0">
+        <if_sid>10001</if_sid>
+        <srcip>IP_DE_SERVIDOR</srcip>
+        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (IP_DE_SERVIDOR).</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!-- SFTP automatizado de certcoopeuch -->
+    <rule id="20004" level="0">
+        <if_sid>10001</if_sid>
+        <srcip>IP_DE_SERVIDOR</srcip>
+        <user>certcoopeuch</user>
+        <description>EXCEPCION: Acceso SFTP automatizado legitimo de certcoopeuch.</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,sftp,</group>
+    </rule>
+
+    <!-- SFTP automatizado de certcoopeuch - IP adicional -->
+    <rule id="20005" level="0">
+        <if_sid>10001</if_sid>
+        <srcip>IP_DE_SERVIDOR</srcip>
+        <user>certcoopeuch</user>
+        <description>EXCEPCION: Acceso SFTP automatizado de certcoopeuch desde IP adicional autorizada.</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,sftp,</group>
+    </rule>
+
+    <!--
+        WP Toolkit / cPanel:
+        estos comandos son tareas operativas legitimas ejecutadas por
+        el usuario tecnico "wp-toolkit" como root en servidores cPanel.
+
+        La whitelist es GLOBAL: no depende del grupo del agente.
+        Se limita al usuario wp-toolkit y a los patrones de comando
+        observados, para no desactivar la deteccion general de SUDO.
+    -->
+    <!--
+        WP Toolkit / cPanel.
+
+        IMPORTANTE:
+        "srcuser" es un campo estatico de Wazuh y no puede utilizarse con
+        <field name="srcuser">. Para esta whitelist se valida el usuario y
+        el comando sobre el log bruto mediante <match type="pcre2">.
+
+        Wazuh puede registrar el mismo comando con:
+            - su ruta simple (cat, test, mv, readlink);
+            - ruta absoluta (/bin/cat, /bin/test, /bin/mv, /bin/readlink);
+            - wrapper /bin/sh -c '...'.
+
+        La whitelist sigue restringida a:
+            usuario de sudo = wp-toolkit
+            + comando operativo previamente validado.
+    -->
+    <rule id="20031" level="0">
+        <!--
+            WP Toolkit / cPanel - whitelist global de sudo -> root.
+
+            Esta excepcion se ejecuta DESPUES de 10005. Se valida sobre
+            el log bruto mediante <match type="pcre2"> porque srcuser es
+            un campo estatico de Wazuh y no puede usarse con <field>.
+
+            La expresion usa dos condiciones obligatorias mediante lookahead:
+              1) el sudo fue ejecutado por el usuario tecnico "wp-toolkit";
+              2) el comando pertenece a la lista de operaciones previamente
+                 observadas y autorizadas.
+
+            Se permite la envoltura habitual:
+                /bin/sh -c '...'
+
+            No se intenta reproducir la quoting exacta de sudo. El objetivo es
+            reconocer el comando real aunque sudo lo registre con shell wrapper,
+            comillas escapadas por sudo (\\') o rutas absolutas /bin/*.
+
+            SEGURIDAD:
+              - No se autoriza cualquier comando de wp-toolkit.
+              - Cada alternativa identifica una operacion concreta.
+              - Los argumentos variables solo se permiten donde WP Toolkit
+                los necesita (challenge, package names, usernames, IDs, etc.).
+        -->
+        <if_sid>10005</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-agent-profiles</list>
+        <match type="pcre2">(?s)(?=.*\bwp-toolkit\s+:).*COMMAND=(?!/bin/sh\s+-c\s)(?:/bin/)?(?:readlink\s+/usr/local/cpanel/server\.type|cagefsctl\s+--cagefs-status|curl\s+--silent\s+--insecure\s+--request\s+POST\s+https://localhost:8443/check-plesk\.php\s+--data\s+challenge=[^\s']+|cat\s+/usr/local/cpanel/version|test\s+-e\s+/usr/local/cpanel|test\s+-e\s+/usr/local/psa|test\s+-e\s+/opt/psa|cat\s+/etc/cagefs/exclude/wptoolkituserlist|test\s+-e\s+/etc/cagefs/exclude/wptoolkituserlist|cat\s+/etc/cagefs/cagefs\.mp|whmapi1\s+package_manager_get_package_info\s+package-0=[^\s]+\s+--output=json|cat\s+/etc/cagefs/conf\.d/wp-toolkit\.cfg|test\s+-e\s+/etc/cagefs/conf\.d/wp-toolkit\.cfg|whmapi1\s+listaccts\s+--output=json|whmapi1\s+get_domain_info\s+--output=json|whmapi1\s+get_users_features_settings(?:\s+.*)?|test\s+-[ef]\s+/etc/logrotate\.d/wp-toolkit-action-logs(?:-wpt-tmp-[^\s']+)?\.?~?|uapi\s+--user=[^\s]+\s+DomainInfo\s+single_domain_data(?:\s+.*)?|uapi\s+--user=[^\s]+\s+Mime\s+list_redirects\s+--output=json|whmapi1\s+get_tweaksetting\s+key=server_locale\s+--output=json|whmapi1\s+get_public_ip\s+ip=[^\s]+\s+--output=json|whmapi1\s+get_shared_ip\s+--output=json)</match>
+        <description>EXCEPCION: SUDO legitimo de WP Toolkit/cPanel para tareas operativas conocidas.</description>
+        <group>syslog,sudo,authentication,privilege_escalation,orangebox_exception,orangebox_whitelist,wp_toolkit,cpanel,</group>
+    </rule>
+
+    <!--
+        WP Toolkit / cPanel - allowlist operacional amplia.
+
+        WP Toolkit ejecuta numerosas operaciones administrativas mediante
+        sudo -> root y el conjunto de comandos puede variar entre versiones.
+        Mantener una excepcion por cada variante genera ruido y mantenimiento
+        innecesario.
+
+        Esta excepcion se limita al contexto operacional de WP Toolkit:
+          - usuario tecnico = wp-toolkit;
+          - PWD dentro del arbol de scripts de WP Toolkit;
+          - USER=root;
+          - ejecucion mediante /bin/sh -c.
+
+        La regla no afecta a otros usuarios, perfiles ni sudo interactivo.
+        Se acepta el comando que WP Toolkit invoque dentro de ese contexto.
+    -->
+    <rule id="20035" level="0">
+        <if_sid>10005</if_sid>
+        <match type="pcre2">^.*\bwp-toolkit\s+:\s+PWD=/usr/local/cpanel/3rdparty/wp-toolkit/scripts(?:/[^\s;]*)?\s+;\s+USER=root\s+;\s+COMMAND=.+$</match>
+        <description>EXCEPCION: WP Toolkit / cPanel - operaciones administrativas legitimas ejecutadas como root.</description>
+        <group>syslog,sudo,authentication,privilege_escalation,orangebox_exception,orangebox_whitelist,wp_toolkit,cpanel,</group>
+    </rule>
+
+<!--
+        La antigua whitelist 20005 por UID 995 fue eliminada.
+        No se debe filtrar SUDO por UID, usuario o identidad de Zimbra.
+        El control correcto se realiza por comando en 10005.
+    -->
+
+</group>
+
+<!-- ================================================================
+     PERFIL ZIMBRA / CARBONIO
+     ================================================================ -->
+
+<group name="orangebox,authentication,sudo,whitelist,zimbra,carbonio,">
+    <rule id="110100" level="0">
+        <!--
+            Zimbra / Carbonio CE - comandos operativos validados.
+
+            Perfil funcional:
+                hostname -> CDB -> zimbra
+
+            Se reconocen ambos arboles:
+                /opt/zimbra
+                /opt/zextras
+
+            IMPORTANTE:
+              - El perfil por si solo NO autoriza sudo.
+              - El comando debe pertenecer a la allowlist exacta.
+              - No se autoriza todo /opt/zimbra ni /opt/zextras.
+              - La integridad de los binarios relevantes se monitoriza por FIM.
+        -->
+        <if_sid>10005</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^zimbra$">etc/lists/orangebox-agent-profiles</list>
+        <field name="command" type="pcre2">^/opt/(?:zimbra|zextras)/(?:libexec/zmstat-fd(?:\s+.*)?|libexec/zmmailboxdmgr status|libexec/zmmailboxdmgr start(?:\s+.*)?|common/sbin/amavis-mc(?:\s+.*)?|common/sbin/postfix|common/sbin/postalias|common/sbin/qshape\.pl|common/sbin/postconf(?:\s+.*)?|common/sbin/postsuper|common/sbin/postcat|libexec/zmqstat|libexec/zmmtastatus)$</field>
+        <description>EXCEPCION: SUDO legitimo de Zimbra/Carbonio para comando operacional validado.</description>
+        <group>syslog,sudo,authentication,privilege_escalation,orangebox_exception,orangebox_whitelist,zimbra,carbonio,</group>
+    </rule>
+</group>

@@ -1,0 +1,48 @@
+<!--
+    OrangeBox Wazuh - Ejecucion desde zonas temporales criticas
+    ============================================================
+
+    Requiere auditd en el agente con la clave:
+        orangebox_exec
+
+    El instalador:
+        tools/install-orangebox-exec-audit.sh
+
+    Politica:
+        - No reemplaza FIM ni YARA.
+        - Detecta ejecucion real, no solamente creacion/modificacion.
+        - El nivel 12 es intencional: ejecutar algo desde /tmp, /var/tmp
+          o /dev/shm puede ser legitimo, por lo que primero alertamos y
+          correlacionamos antes de aplicar respuesta destructiva.
+-->
+
+<group name="orangebox,audit,execution,">
+
+    <!-- Ejecucion registrada por auditd en zona temporal critica. -->
+    <rule id="10600" level="12">
+        <decoded_as>auditd</decoded_as>
+        <field name="audit.key">orangebox_exec</field>
+        <description>ALERTA: Ejecucion de archivo desde zona temporal critica (/tmp, /var/tmp o /dev/shm).</description>
+        <mitre>
+            <id>T1204.002</id>
+            <id>T1059</id>
+        </mitre>
+        <group>execution,command_execution,attack,orangebox_execution,orangebox_audit,</group>
+    </rule>
+
+    <!--
+        Ejecucion especificamente asociada a un interprete de comandos.
+        Se mantiene como nivel 14 porque combina la zona de alto riesgo
+        con un interprete tipicamente usado para payloads/scripts.
+    -->
+    <rule id="10601" level="14">
+        <if_sid>10600</if_sid>
+        <regex type="pcre2">(?i)(?:bash|sh|dash|zsh|ksh|python(?:[0-9.]*)?|perl|php(?:[0-9.]*)?|ruby|node)(?:s|$)</regex>
+        <description>ALERTA CRITICA: Interprete ejecutado desde zona temporal critica.</description>
+        <mitre>
+            <id>T1059</id>
+        </mitre>
+        <group>execution,command_execution,script,attack,orangebox_execution,orangebox_audit,</group>
+    </rule>
+
+</group>

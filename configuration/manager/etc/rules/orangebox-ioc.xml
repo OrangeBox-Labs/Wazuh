@@ -1,0 +1,86 @@
+<!--
+  - OrangeBox IOC correlation layer.
+  - Uses the official Wazuh CDB lists:
+      * etc/lists/malicious-ioc/malicious-ip
+      * etc/lists/malicious-ioc/malicious-domains
+      * etc/lists/malicious-ioc/malware-hashes
+  - This file adds OrangeBox context to attack detections.
+  - It does not create a second IOC database and does not replace
+    the Wazuh rules that already detect malicious IOCs.
+  - IOC-specific source-IP containment is owned by rules 10460, 10462 and 10463.
+-->
+
+<group name="orangebox,ioc,threat_intel,">
+
+  <!--
+      SSH brute force + known malicious source IP.
+
+      This IOC child raises the detection context/severity and is
+      independently attached to a 30-day firewall-drop Active Response.
+  -->
+  <rule id="10460" level="14">
+    <if_sid>5720</if_sid>
+    <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
+    <description>ORANGEBOX IOC: Fuerza bruta SSH desde IP maliciosa conocida $(srcip).</description>
+    <group>authentication_failed,brute_force,attack,orangebox_ioc,orangebox_ssh,</group>
+  </rule>
+
+  <!--
+      Public TCP port scan + known malicious source IP.
+
+      This IOC child is independently attached to the 30-day firewall-drop Active Response.
+  -->
+  <rule id="10462" level="14">
+    <if_sid>10456</if_sid>
+    <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
+    <description>ORANGEBOX IOC: Escaneo TCP desde IP maliciosa conocida $(srcip).</description>
+    <group>attack,network,scan,orangebox_ioc,orangebox_firewall,</group>
+  </rule>
+
+  <!--
+      HTTP request to a known malicious IOC domain.
+
+      Wazuh native rule 99917 performs the IOC match. This OrangeBox
+      child raises the event to the same critical tier used by the
+      confirmed malware/hash path. No Active Response is attached:
+      firewall-drop expects srcip and must not be used here because the
+      IOC is the destination domain.
+  -->
+  <rule id="10464" level="14">
+    <if_sid>99917</if_sid>
+    <description>ORANGEBOX IOC: Conexion HTTP hacia dominio malicioso conocido $(http.hostname).</description>
+    <mitre>
+      <id>T1071.001</id>
+    </mitre>
+    <group>network,web,command_and_control,orangebox_ioc,orangebox_egress,</group>
+  </rule>
+
+  <!--
+      DNS query for a known malicious IOC domain.
+
+      No Active Response: the event is escalated and emailed, while
+      destination blocking remains intentionally disabled until a safe
+      dstip-specific response mechanism is implemented.
+  -->
+  <rule id="10465" level="14">
+    <if_sid>99918</if_sid>
+    <description>ORANGEBOX IOC: Consulta DNS hacia dominio malicioso conocido $(dns.rrname).</description>
+    <mitre>
+      <id>T1071.004</id>
+    </mitre>
+    <group>network,dns,command_and_control,orangebox_ioc,orangebox_egress,</group>
+  </rule>
+
+  <!--
+      Public SYN flood + known malicious source IP.
+
+      This IOC child is independently attached to the 30-day firewall-drop Active Response.
+  -->
+  <rule id="10463" level="14">
+    <if_sid>10457</if_sid>
+    <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
+    <description>ORANGEBOX IOC: SYN flood desde IP maliciosa conocida $(srcip).</description>
+    <group>attack,network,dos,orangebox_ioc,orangebox_firewall,</group>
+  </rule>
+
+</group>
