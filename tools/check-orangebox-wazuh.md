@@ -25,10 +25,18 @@
 2 = problema crítico
 ```
 
+## Instalación
+
+Copiar el script como `/usr/local/sbin/check-orangebox-wazuh.sh` y dejarlo ejecutable:
+
+```bash
+chmod 0750 /usr/local/sbin/check-orangebox-wazuh.sh
+```
+
 ## Uso
 
 ```bash
-/var/ossec/check-orangebox-wazuh.sh
+/usr/local/sbin/check-orangebox-wazuh.sh
 ```
 
 El script no reinicia servicios, no cambia reglas y no corrige automáticamente problemas. Está pensado para ejecutarse manualmente, desde cron o desde una herramienta de monitoreo.
