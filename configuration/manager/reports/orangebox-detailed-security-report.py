@@ -30,9 +30,7 @@ import html
 import importlib.util
 import ipaddress
 import os
-import re
-import smtplib
-import socket
+import reimport socket
 import ssl
 import struct
 import subprocess
@@ -54,8 +52,6 @@ AGENT_GROUPS = "/var/ossec/bin/agent_groups"
 OSSEC_CONF = Path("/var/ossec/etc/ossec.conf")
 ARCHIVE_DIR = Path("/var/ossec/reports/archive")
 DEFAULT_FROM = "TU_EMAIL"
-SMTP_HOST = "localhost"
-SMTP_PORT = 25
 
 LEVEL_HIGH_MIN = 12
 LEVEL_CRITICAL_MIN = 15
@@ -1144,8 +1140,17 @@ def main():
         msg.attach(MIMEText(body, "html", "utf-8"))
 
         try:
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
-                smtp.sendmail(DEFAULT_FROM, [recipient], msg.as_string())
+            result = subprocess.run(
+                ["/usr/sbin/sendmail", "-t", "-i"],
+                input=msg.as_string(),
+                text=True,
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout or f"sendmail exit={result.returncode}").strip()
+                raise RuntimeError(f"Postfix maildrop: {detail}")
             sent += 1
         except (OSError, smtplib.SMTPException) as exc:
             print(f"ERROR enviando a {recipient}: {exc}", flush=True)
