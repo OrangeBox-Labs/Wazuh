@@ -209,44 +209,40 @@
 
 <group name="orangebox,web,authentication,whitelist,">
 
-    <!-- Reverse proxy legitimo IP_DE_PROXY -->
+    <!--
+        Reverse proxies autorizados para eventos HTTP 401/403.
+
+        Las IP se mantienen en la CDB "etc/lists/orangebox-web-auth-proxies".
+        Esta lista aplica solamente a la correlación 10025 (brute force web).
+
+        Para agregar otro reverse proxy, agregar su IP como "<IP>:" en la
+        CDB y reiniciar el Wazuh Manager. No crear una regla nueva por proxy.
+    -->
     <rule id="20024" level="0">
         <if_sid>10025</if_sid>
-        <srcip>IP_DE_PROXY</srcip>
-        <description>EXCEPCION: Rafaga HTTP 401/403 proveniente del reverse proxy legitimo IP_DE_PROXY.</description>
-        <group>web,authentication,orangebox_exception,orangebox_whitelist,</group>
+        <list field="srcip" lookup="address_match_key">etc/lists/orangebox-web-auth-proxies</list>
+        <description>EXCEPCION: Rafaga HTTP 401/403 proveniente de reverse proxy autorizado.</description>
+        <group>web,authentication,orangebox_exception,orangebox_whitelist,reverse_proxy,</group>
     </rule>
 
-    <!-- Reverse proxy legitimo IP_DE_PROXY -->
-    <rule id="20025" level="0">
-        <if_sid>10025</if_sid>
-        <srcip>IP_DE_PROXY</srcip>
-        <description>EXCEPCION: Rafaga HTTP 401/403 proveniente del reverse proxy legitimo IP_DE_PROXY.</description>
-        <group>web,authentication,orangebox_exception,orangebox_whitelist,</group>
-    </rule>
 
-    <!-- Reverse proxy legitimo IP_DE_PROXY - reconocimiento de archivos -->
+    <!--
+        Reverse proxies autorizados para reconocimiento de archivos sensibles.
+
+        Esta lista es independiente de orangebox-web-auth-proxies porque
+        el alcance actual de la excepción no es idéntico para ambas
+        detecciones. Solamente los proxies que fueron validados para
+        10026 deben ingresar aquí.
+
+        Para agregar otro proxy, agregar su IP como "<IP>:" en
+        "etc/lists/orangebox-web-discovery-proxies" y reiniciar el Manager.
+        No crear una regla nueva por proxy.
+    -->
     <rule id="20026" level="0">
         <if_sid>10026</if_sid>
-        <srcip>IP_DE_PROXY</srcip>
-        <description>EXCEPCION: Reconocimiento de archivos proveniente del reverse proxy legitimo IP_DE_PROXY; el backend aun registra la IP del proxy.</description>
-        <group>web,reconnaissance,orangebox_exception,orangebox_whitelist,</group>
-    </rule>
-
-    <!-- Reverse proxy legitimo IP_DE_PROXY - reconocimiento de archivos -->
-    <rule id="20027" level="0">
-        <if_sid>10026</if_sid>
-        <srcip>IP_DE_PROXY</srcip>
-        <description>EXCEPCION: Reconocimiento de archivos proveniente del reverse proxy legitimo IP_DE_PROXY; el backend aun registra la IP del proxy.</description>
-        <group>web,reconnaissance,orangebox_exception,orangebox_whitelist,</group>
-    </rule>
-
-    <!-- Reverse proxy legitimo IP_DE_PROXY - reconocimiento de archivos -->
-    <rule id="20028" level="0">
-        <if_sid>10026</if_sid>
-        <srcip>IP_DE_PROXY</srcip>
-        <description>EXCEPCION: Reconocimiento de archivos proveniente del reverse proxy legitimo IP_DE_PROXY; el backend aun registra la IP del proxy.</description>
-        <group>web,reconnaissance,orangebox_exception,orangebox_whitelist,</group>
+        <list field="srcip" lookup="address_match_key">etc/lists/orangebox-web-discovery-proxies</list>
+        <description>EXCEPCION: Reconocimiento de archivos proveniente de reverse proxy autorizado; el backend puede registrar la IP del proxy.</description>
+        <group>web,reconnaissance,orangebox_exception,orangebox_whitelist,reverse_proxy,</group>
     </rule>
 
 </group>
