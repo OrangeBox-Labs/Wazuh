@@ -123,3 +123,9 @@ wazuh-yara: ALERT - Match: category=webshells rule=<RULE> path=/ruta/archivo
 El Manager decodifica esa línea y genera la alerta `10501` nivel 14.
 
 El Active Response es exclusivamente de detección: no elimina, mueve ni pone en cuarentena archivos.
+
+## Documentación
+
+La documentación técnica se mantiene junto al archivo que documenta, con el mismo nombre base y extensión `.md`. Esto permite revisar configuración y explicación en el mismo directorio, sin mantener un árbol documental separado.
+
+Ejemplos: `ossec.conf` + `ossec.md`, `orangebox-auth.xml` + `orangebox-auth.md` y `agent.conf` + `agent.md`.
