@@ -130,8 +130,6 @@ IMMEDIATE_RULES = {
     "10005",
     "10008",
     "10009",
-    "10700",
-    "10701",
 }
 
 
@@ -153,6 +151,8 @@ FIREWALL_DROP_RULES = {
     "10026",  # Descubrimiento de archivos sensibles -> firewall-drop
     "10456",  # Port scan publico -> firewall-drop
     "10457",  # SYN flood publico -> firewall-drop
+    "10700",  # Mail brute force Postfix -> firewall-drop
+    "10701",  # Mail brute force Exim/Dovecot -> firewall-drop
 }
 
 
