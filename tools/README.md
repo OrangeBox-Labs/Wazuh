@@ -8,6 +8,7 @@ Scripts operativos para instalar y validar componentes.
 - `verify-deployed-config.sh`: valida el espejo del Manager o, con `--agent`, el runtime YARA del agente.
 - `update-orangebox-ioc-lists.sh`: actualiza las listas IOC y reinicia Wazuh solo cuando hubo cambios.
 - `check-orangebox-wazuh.sh`: realiza un chequeo simple de salud del stack.
+- `install-orangebox-exec-audit.sh`: configura auditd para detectar ejecuciones desde directorios temporales delicados.
 
 El índice manual de YARA está en `tools/yara/webshells_index.yar`.
 
