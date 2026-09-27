@@ -22,7 +22,7 @@
     <if_sid>5720</if_sid>
     <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
     <description>ALERTA IOC: FUERZA BRUTA SSH DESDE IP MALICIOSA CONOCIDA $(srcip).</description>
-    <group>authentication_failed,brute_force,attack,orangebox_ioc,orangebox_ssh,</group>
+    <group>authentication_failed,brute_force,attack,orangebox_ioc,orangebox_ssh,orangebox_behavior,</group>
   </rule>
 
   <!--
@@ -34,7 +34,7 @@
     <if_sid>10456</if_sid>
     <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
     <description>ALERTA IOC: ESCANEO DE PUERTOS DESDE IP MALICIOSA CONOCIDA $(srcip).</description>
-    <group>attack,network,scan,orangebox_ioc,orangebox_firewall,</group>
+    <group>attack,network,scan,orangebox_ioc,orangebox_firewall,orangebox_behavior,</group>
   </rule>
 
   <!--
@@ -52,7 +52,7 @@
     <mitre>
       <id>T1071.001</id>
     </mitre>
-    <group>network,web,command_and_control,orangebox_ioc,orangebox_egress,</group>
+    <group>network,web,command_and_control,orangebox_ioc,orangebox_egress,orangebox_behavior,</group>
   </rule>
 
   <!--
@@ -68,7 +68,7 @@
     <mitre>
       <id>T1071.004</id>
     </mitre>
-    <group>network,dns,command_and_control,orangebox_ioc,orangebox_egress,</group>
+    <group>network,dns,command_and_control,orangebox_ioc,orangebox_egress,orangebox_behavior,</group>
   </rule>
 
   <!--
@@ -80,7 +80,7 @@
     <if_sid>10457</if_sid>
     <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
     <description>ALERTA IOC: SYN FLOOD DESDE IP MALICIOSA CONOCIDA $(srcip).</description>
-    <group>attack,network,dos,orangebox_ioc,orangebox_firewall,</group>
+    <group>attack,network,dos,orangebox_ioc,orangebox_firewall,orangebox_behavior,</group>
   </rule>
 
 </group>
