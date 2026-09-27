@@ -53,10 +53,10 @@
         <group>orangebox_yara,</group>
     </rule>
 
-    <!-- Archivo de script/webshell modificado en las mismas zonas. -->
+    <!-- Archivos modificados en las mismas zonas. -->
     <rule id="10421" level="3">
         <if_sid>550</if_sid>
-        <field name="file" type="pcre2">^/(?:tmp|var/tmp|dev/shm)/.*\.(?:jsp|jspx|php|phtml|phar|php[0-9]*|asp|aspx|cgi|pl|py|rb|sh|bash|zsh|war|class)$|^/opt/(?:zimbra|zextras)/data/tmp/.*\.(?:jsp|jspx|php|phtml|phar|php[0-9]*|asp|aspx|cgi|pl|py|rb|sh|bash|zsh|war|class)$</field>
+        <field name="file" type="pcre2">^/(?:tmp|var/tmp|dev/shm)/.+$|^/opt/(?:zimbra|zextras)/data/tmp/.+$</field>
         <description>ORANGEBOX: Archivo modificado en zona temporal critica candidato para YARA.</description>
         <group>orangebox_yara,</group>
     </rule>
