@@ -15,7 +15,7 @@
     <!-- Postfix: Wazuh nativo 3357 ya correlaciona multiples fallos SASL. -->
     <rule id="10700" level="13">
         <if_sid>3357</if_sid>
-        <description>ALERTA: Posible fuerza bruta contra autenticacion SMTP.</description>
+        <description>ALERTA: POSIBLE FUERZA BRUTA CONTRA AUTENTICACION SMTP.</description>
         <mitre>
             <id>T1110</id>
         </mitre>
@@ -25,7 +25,7 @@
     <!-- Exim/Dovecot: Wazuh nativo 87507 ya correlaciona multiples fallos. -->
     <rule id="10701" level="13">
         <if_sid>87507</if_sid>
-        <description>ALERTA: Posible fuerza bruta contra autenticacion de correo Exim/Dovecot.</description>
+        <description>ALERTA: POSIBLE FUERZA BRUTA CONTRA AUTENTICACION EXIM/DOVECOT.</description>
         <mitre>
             <id>T1110</id>
         </mitre>
