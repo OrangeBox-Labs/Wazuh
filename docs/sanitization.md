@@ -34,6 +34,24 @@ Cuando un servicio está publicado detrás de un reverse proxy, el backend puede
 
 Estas excepciones deben adaptarse a la arquitectura real y no deben copiarse sin revisión.
 
+## Valores múltiples y excepciones
+
+Cuando la implementación privada contiene varias IPs con la misma función, la versión pública no debe duplicar la misma etiqueta de placeholder en varias reglas. En su lugar, la excepción se consolida en una CDB y la regla consulta esa lista.
+
+Ejemplo:
+
+```text
+etc/lists/orangebox-backuppc
+```
+
+La CDB pública contiene una IP de documentación como ejemplo. En una implementación real se reemplaza por una entrada por cada servidor autorizado.
+
+Esta estrategia evita que la sanitización convierta varios servidores reales en reglas idénticas con el mismo placeholder y deja claro cómo ampliar la configuración sin duplicar SIDs.
+
+Para una IP adicional de una excepción ya existente, agregue la IP a la CDB correspondiente y reinicie el Manager. No cree otra regla solo por la nueva IP.
+
+Si una nueva condición requiere realmente una regla adicional, utilice un ID libre del rango OrangeBox correspondiente y verifique que no exista en ningún otro archivo del ruleset.
+
 ## Grupos de clientes
 
 Los grupos específicos de la implementación privada también se anonimizaron en la versión pública. Valores como `CLIENTE_01`, `CLIENTE_02` y `CLIENTE_03` son identificadores genéricos y deben reemplazarse por los grupos que utilice cada organización.
