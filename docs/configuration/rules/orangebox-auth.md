@@ -103,27 +103,13 @@ TU_HOSTNAME:cpanel
 
 Los wrappers `/bin/sh -c` se separan en reglas independientes para que cada operación tenga alcance exacto y no se pueda esconder un segundo comando dentro de un wrapper genérico.
 
-### Wrappers cPanel validados
+### Contexto cPanel validado
 
-| Regla | Operación |
-|---|---|
-| 20035 | `cat >` para temporal de logrotate |
-| 20036 | `mv` para reemplazo de logrotate |
-| 20037 | `readlink /usr/local/cpanel/server.type` |
-| 20038 | `cagefsctl --cagefs-status` |
-| 20039 | POST local a `check-plesk.php` |
-| 20044 | `package_manager_get_package_info` |
-| 20045 | `get_domain_info` |
-| 20046 | `listaccts` |
-| 20047 | `get_users_features_settings` |
-| 20048 | UAPI `DomainInfo single_domain_data` |
-| 20049 | UAPI `Mime list_redirects` |
-| 20050 | `get_shared_ip` |
-| 20051 | `get_public_ip` |
-| 20052 | `get_tweaksetting key=server_locale` |
-| 20053 | cPanel API 2 `Locale get_user_locale` |
+Actualmente `20031` cubre los comandos directos conocidos de WP Toolkit y `20035` cubre el contexto de ejecución mediante wrapper que ha sido validado para ese perfil.
 
-Todos requieren perfil `cpanel` y usuario `wp-toolkit`.
+Ambas excepciones requieren perfil `cpanel` y usuario `wp-toolkit`.
+
+El ruleset debe documentar solamente los SIDs que existen realmente. Cuando una variante nueva de WP Toolkit sea validada, se agrega su regla correspondiente y se actualiza esta documentación.
 
 Los argumentos variables solo se aceptan cuando son necesarios para la operación observada y se restringen mediante expresiones concretas.
 
