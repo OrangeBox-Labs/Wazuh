@@ -15,13 +15,13 @@ Active Response local
    ↓
 orangebox-yara.sh
    ↓
-YARA Core + Extended
+YARA oficial
    ↓
 /logs/active-responses.log
    ↓
 decoder OrangeBox
    ↓
-10501 Core / 10502 Extended
+10501 Core / no existe en el despliegue actual Extended
 ```
 
 Wazuh documenta este patrón: FIM detecta archivos nuevos/modificados, Active Response ejecuta YARA sobre el archivo afectado y el resultado vuelve al Manager mediante el log de Active Response. citeturn986130view0
@@ -38,7 +38,7 @@ El disparador YARA está deliberadamente acotado a archivos con extensiones habi
 
 Esto evita disparar YARA sobre todos los eventos FIM.
 
-Las firmas actuales del repositorio son principalmente de webshell JSP. La capa CORE se considera de mayor confianza y la EXTENDED se considera heurística.
+Las firmas actuales del repositorio son principalmente de webshell JSP. La capa YARA se considera de mayor confianza y la YARA se considera heurística.
 
 ## Instalacion en agentes
 
@@ -80,7 +80,7 @@ yara -r /var/ossec/active-response/bin/yara/rules/orangebox-webshell-core.yar /r
 
 En cPanel sustituir `/var/ossec` por `/opt/ossec`.
 
-Para probar el trigger FIM sin utilizar malware real, crear un archivo de laboratorio con contenido que reproduzca una firma CORE conocida y usar una extension monitorizada.
+Para probar el trigger FIM sin utilizar malware real, crear un archivo de laboratorio con contenido que reproduzca una firma YARA conocida y usar una extension monitorizada.
 
 No descargar muestras de malware reales en un servidor de produccion.
 
@@ -95,14 +95,14 @@ grep 'wazuh-yara' /var/ossec/logs/active-responses.log | tail
 En el Manager:
 
 ```bash
-grep '"10501"\|"10502"' /var/ossec/logs/alerts/alerts.json | tail
+grep '"10501"\|"no existe en el despliegue actual"' /var/ossec/logs/alerts/alerts.json | tail
 ```
 
-Un match CORE debe producir una alerta `10501` y llegar al flujo de correo actual por ser nivel 14. Un match EXTENDED debe producir `10502`, pero no supera el umbral actual de la integración de correo (12).
+Un match YARA debe producir una alerta `10501` y llegar al flujo de correo actual por ser nivel 14. Un match YARA debe producir `no existe en el despliegue actual`, pero no supera el umbral actual de la integración de correo (12).
 
 ## Seguridad
 
-La primera fase es solamente deteccion. No hay Active Response destructivo asociado a `10501` ni `10502`.
+La primera fase es solamente deteccion. No hay Active Response destructivo asociado a `10501` ni `no existe en el despliegue actual`.
 
 La contencion automatica se evaluara despues de medir falsos positivos sobre servidores cPanel, Zimbra/Carbonio y Linux generales.
 
@@ -112,10 +112,10 @@ El agente RPM OrangeBox utiliza `/opt/ossec`. El script deriva su Wazuh home des
 
 ## Mantenimiento
 
-Las reglas YARA CORE/EXTENDED se mantienen bajo:
+Las reglas YARA YARA oficial se mantienen bajo:
 
 ```text
 configuration/rules/
 ```
 
-No agregar reglas heuristicas directamente al indice sin decidir primero si son CORE o EXTENDED.
+No agregar reglas heuristicas directamente al indice sin decidir primero si son YARA o YARA.
