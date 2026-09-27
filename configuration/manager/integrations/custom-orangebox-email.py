@@ -113,6 +113,8 @@ CLIENT_GROUPS = {
 # 10008 = SUDO exitoso
 # 10009 = SUDO exitoso
 # 10005 = SUDO hacia ROOT sin excepcion operacional validada.
+# 10700 = Fuerza bruta contra autenticacion SMTP
+# 10701 = Fuerza bruta contra autenticacion de correo Exim/Dovecot
 #
 # IMPORTANTE:
 # 10005 SI es inmediato. No pasa por el buffer de 10 minutos.
@@ -128,6 +130,8 @@ IMMEDIATE_RULES = {
     "10005",
     "10008",
     "10009",
+    "10700",
+    "10701",
 }
 
 
