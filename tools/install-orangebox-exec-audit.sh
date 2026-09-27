@@ -88,7 +88,7 @@ add_behavior_rule() {
         local key="${arch}:${path}"
         [[ -n "${ORANGEBOX_AUDIT_EXE_SEEN[$key]:-}" ]] && continue
         ORANGEBOX_AUDIT_EXE_SEEN[$key]=1
-        printf '%s\\n' "-a always,exit -F arch=${arch} -S execve -F exe=${path} -F auid>=0 -F auid!=4294967295 -k audit-wazuh-c" >> "$RULE_FILE"
+        printf '%s\n' "-a always,exit -F arch=${arch} -S execve -F exe=${path} -F auid>=0 -F auid!=4294967295 -k audit-wazuh-c" >> "$RULE_FILE"
     done
 }
 
@@ -115,4 +115,10 @@ elif command -v service >/dev/null 2>&1; then
     service wazuh-agent restart
 fi
 
-echo "OK: auditd monitoriza ejecuciones en /tmp, /var/tmp y /dev/shm."
+echo "=== OrangeBox behavior monitoring ==="
+auditctl -l | grep -F -- '-k audit-wazuh-c' || {
+    echo "ERROR: las reglas de reconocimiento/escaneo no quedaron cargadas." >&2
+    exit 1
+}
+
+echo "OK: auditd monitoriza ejecuciones en zonas temporales, scanners y herramientas de reconocimiento."
