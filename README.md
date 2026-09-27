@@ -30,7 +30,7 @@ Todo el contenido publicado ha sido **sanitizado para uso público**. Las direcc
 
 Los valores como `IP_DE_WAZUH`, `IP_DE_PROXY`, `IP_DE_BACKEND`, `IP_DE_AGENTE`, `TU_DOMINIO` y `TU_EMAIL` representan componentes reales de una arquitectura de seguridad, no valores que deban copiarse literalmente.
 
-La explicación completa está en [docs/architecture.md](docs/architecture.md).
+La explicación completa está en [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Estructura
 
@@ -44,7 +44,6 @@ configuration/
 │   │   └── shared/
 │   ├── integrations/
 │   └── reports/
-docs/                             # Documentación técnica
 packages/agent/                   # RPM y builder del agente Wazuh
 tools/                            # Instaladores y herramientas auxiliares
 ```
@@ -81,7 +80,7 @@ Componentes principales:
 ```text
 configuration/manager/etc/rules/orangebox-yara.xml
 tools/orangebox-yara/
-docs/yara-fim.md
+
 ```
 
 ## Perfiles de agentes
@@ -112,13 +111,11 @@ Los componentes se encuentran en:
 ```text
 configuration/manager/integrations/
 configuration/manager/reports/
-docs/configuration/integrations/
-docs/configuration/reports/
 ```
 
 ## Despliegue
 
-Antes de desplegar, revise y adapte los valores de infraestructura documentados en [docs/sanitization.md](docs/sanitization.md).
+Antes de desplegar, revise y adapte los valores de infraestructura documentados en [SANITIZATION.md](SANITIZATION.md).
 
 Ejemplo para un Wazuh Manager:
 
@@ -141,3 +138,7 @@ Enterprise Linux · Wazuh · Security · Monitoring · Zimbra · VMware · Infra
 ### Keywords
 
 Wazuh, Wazuh Manager, Wazuh Agent, Wazuh rules, Wazuh FIM, File Integrity Monitoring, YARA, Active Response, malware detection, webshell detection, IOC, threat detection, Linux security, Linux monitoring, SSH security, brute force detection, RHEL, AlmaLinux, Rocky Linux, Zimbra security, Carbonio security, enterprise security, SIEM, XDR, OrangeBox.
+
+## Documentación
+
+La documentación técnica se mantiene junto al componente que documenta, usando el mismo nombre base con extensión `.md`. Por ejemplo: `orangebox-auth.xml` + `orangebox-auth.md`, `agent.conf` + `agent.md` y `custom-orangebox-email.py` + `custom-orangebox-email.md`.
