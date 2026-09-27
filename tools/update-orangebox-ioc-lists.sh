@@ -232,23 +232,45 @@ if [[ -s "$TMP_DIR/malware-hashes" ]] && ! awk -F: '
 fi
 
 # -------------------------
-# Install and rebuild CDB
+# Instalar solo si hubo cambios
 # -------------------------
-install -o wazuh -g wazuh -m 0640 \
-    "$TMP_DIR/malicious-ip" "$LIST_DIR/malicious-ip"
+#
+# No reiniciamos Wazuh por cada ejecución del actualizador. Las fuentes
+# se descargan y validan primero. Solo si alguna lista cambia se instala
+# la nueva versión y se reinicia el manager para reconstruir las CDB.
+CHANGED=0
 
-install -o wazuh -g wazuh -m 0640 \
-    "$TMP_DIR/malicious-domains" "$LIST_DIR/malicious-domains"
+install_if_changed() {
+    local name="$1"
+    local source="$TMP_DIR/$name"
+    local destination="$LIST_DIR/$name"
+
+    if [[ -f "$destination" ]] && cmp -s "$source" "$destination"; then
+        echo "Sin cambios: $name"
+        return 0
+    fi
+
+    install -o wazuh -g wazuh -m 0640 "$source" "$destination"
+    echo "Actualizada: $name"
+    CHANGED=1
+}
+
+install_if_changed "malicious-ip"
+install_if_changed "malicious-domains"
 
 if [[ -s "$TMP_DIR/malware-hashes" ]]; then
-    install -o wazuh -g wazuh -m 0640 \
-        "$TMP_DIR/malware-hashes" "$LIST_DIR/malware-hashes"
+    install_if_changed "malware-hashes"
 fi
 
-echo "=== OrangeBox IOC lists updated ==="
+echo "=== OrangeBox IOC lists ==="
 printf 'IPs:     %s entries\n' "$(count_lines "$LIST_DIR/malicious-ip")"
 printf 'Domains: %s entries\n' "$(count_lines "$LIST_DIR/malicious-domains")"
 printf 'Hashes:  %s entries\n' "$(count_lines "$LIST_DIR/malware-hashes" 2>/dev/null || true)"
 
-systemctl restart wazuh-manager
-echo "Wazuh manager restarted; CDB lists rebuilt on startup."
+if (( CHANGED == 1 )); then
+    echo "Hay cambios en las listas; reiniciando wazuh-manager para recargar las CDB..."
+    systemctl restart wazuh-manager
+    echo "Wazuh manager reiniciado; CDB listas reconstruidas."
+else
+    echo "No hubo cambios en las listas; no se reinicia wazuh-manager."
+fi
