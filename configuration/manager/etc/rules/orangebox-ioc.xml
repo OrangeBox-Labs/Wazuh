@@ -21,7 +21,7 @@
   <rule id="10460" level="14">
     <if_sid>5720</if_sid>
     <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
-    <description>ORANGEBOX IOC: Fuerza bruta SSH desde IP maliciosa conocida $(srcip).</description>
+    <description>ALERTA IOC: FUERZA BRUTA SSH DESDE IP MALICIOSA CONOCIDA $(srcip).</description>
     <group>authentication_failed,brute_force,attack,orangebox_ioc,orangebox_ssh,</group>
   </rule>
 
@@ -33,7 +33,7 @@
   <rule id="10462" level="14">
     <if_sid>10456</if_sid>
     <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
-    <description>ORANGEBOX IOC: Escaneo TCP desde IP maliciosa conocida $(srcip).</description>
+    <description>ALERTA IOC: ESCANEO DE PUERTOS DESDE IP MALICIOSA CONOCIDA $(srcip).</description>
     <group>attack,network,scan,orangebox_ioc,orangebox_firewall,</group>
   </rule>
 
@@ -48,7 +48,7 @@
   -->
   <rule id="10464" level="14">
     <if_sid>99917</if_sid>
-    <description>ORANGEBOX IOC: Conexion HTTP hacia dominio malicioso conocido $(http.hostname).</description>
+    <description>ALERTA IOC: CONEXION HTTP HACIA DOMINIO MALICIOSO CONOCIDO $(http.hostname).</description>
     <mitre>
       <id>T1071.001</id>
     </mitre>
@@ -64,7 +64,7 @@
   -->
   <rule id="10465" level="14">
     <if_sid>99918</if_sid>
-    <description>ORANGEBOX IOC: Consulta DNS hacia dominio malicioso conocido $(dns.rrname).</description>
+    <description>ALERTA IOC: CONSULTA DNS HACIA DOMINIO MALICIOSO CONOCIDO $(dns.rrname).</description>
     <mitre>
       <id>T1071.004</id>
     </mitre>
@@ -79,7 +79,7 @@
   <rule id="10463" level="14">
     <if_sid>10457</if_sid>
     <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
-    <description>ORANGEBOX IOC: SYN flood desde IP maliciosa conocida $(srcip).</description>
+    <description>ALERTA IOC: SYN FLOOD DESDE IP MALICIOSA CONOCIDA $(srcip).</description>
     <group>attack,network,dos,orangebox_ioc,orangebox_firewall,</group>
   </rule>
 
