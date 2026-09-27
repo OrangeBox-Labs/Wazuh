@@ -1,0 +1,16 @@
+<!--
+    OrangeBox - Decoder para resultados de YARA
+
+    Formato emitido por orangebox-yara.sh:
+
+    wazuh-yara: ALERT - Match: category=webshells rule=php_reverse_shell path=/path/to/file
+-->
+<decoder name="orangebox_yara">
+    <prematch>^wazuh-yara:</prematch>
+</decoder>
+
+<decoder name="orangebox_yara_result">
+    <parent>orangebox_yara</parent>
+    <regex type="pcre2">^wazuh-yara: ALERT - Match: category=(\S+) rule=(\S+) path=(.+)$</regex>
+    <order>yara_category,yara_rule,yara_scanned_file</order>
+</decoder>

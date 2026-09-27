@@ -1,0 +1,6 @@
+# OrangeBox - Redes internas excluidas de automatico firewall-drop
+# Estas son las redes privadas utilizadas por OrangeBox.
+192.168.200.:
+192.168.1.:
+192.168.2.:
+10.8.0.:
