@@ -61,11 +61,14 @@ Es nivel 11 y activa `firewall-drop` durante 24 horas. La severidad se mantiene 
 
 ## Whitelist
 
-`20024` y `20025` corresponden a reverse proxies legítimos.
+Las excepciones de reverse proxy se mantienen en CDB separadas por tipo de detección:
 
-Esto es necesario porque el backend puede recibir múltiples solicitudes desde el proxy y, si no se identifica correctamente la IP de origen, Wazuh podría pensar que el proxy es el atacante.
+- `20024` consulta `etc/lists/orangebox-web-auth-proxies` y aplica solamente a `10025` (brute force web).
+- `20026` consulta `etc/lists/orangebox-web-discovery-proxies` y aplica solamente a `10026` (reconocimiento de archivos sensibles).
 
-La whitelist se limita a las IP conocidas de los proxies. No se hace una excepción global para todo el tráfico web.
+Las listas son independientes porque el conjunto de proxies validado puede ser distinto para cada detección. Esto evita que una IP quede exceptuada de una categoría de alerta solo porque participa en otra.
+
+Para agregar un reverse proxy nuevo, agregar su IP a la CDB correspondiente y reiniciar el Wazuh Manager. No se debe crear una regla nueva por cada proxy.
 
 ## Decisiones importantes
 
