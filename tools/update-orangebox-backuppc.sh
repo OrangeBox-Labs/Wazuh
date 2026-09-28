@@ -2,21 +2,22 @@
 #
 # OrangeBox - Actualiza whitelist dinamica de BackupPC
 #
-# Resuelve el hostname autorizado y mantiene actualizada la CDB
-# utilizada por la regla 20001 de orangebox-auth.xml.
+# La lista estatica y la lista dinamica son independientes.
 #
-# El host autorizado debe resolver a una sola IPv4.
-# La whitelist se reemplaza completamente en cada actualizacion:
-# nunca se conservan IPs historicas.
+#   /var/ossec/etc/lists/orangebox-backuppc-static
+#       IPs administradas manualmente. Este script NUNCA la modifica.
 #
-# En la implementacion real, reemplace TU_HOSTNAME por el FQDN
-# del servidor BackupPC autorizado.
+#   /var/ossec/etc/lists/orangebox-backuppc-dynamic
+#       IPs obtenidas desde DNS. Esta lista se reemplaza completamente
+#       cuando cambia el resultado DNS.
+#
+# La regla 20001/20002 de orangebox-auth.xml consume ambas listas.
 #
 
 set -euo pipefail
 
 HOSTNAME="TU_HOSTNAME"
-CDB="/var/ossec/etc/lists/orangebox-backuppc"
+CDB="/var/ossec/etc/lists/orangebox-backuppc-dynamic"
 LOCK="/var/run/orangebox-update-backuppc.lock"
 
 exec 9>"$LOCK"
@@ -56,7 +57,7 @@ fi
 
 install -o root -g wazuh -m 0640 "$TMP" "$CDB"
 
-echo "BackupPC whitelist actualizada:"
+echo "BackupPC whitelist dinamica actualizada:"
 cat "$CDB"
 
 echo "Reiniciando wazuh-manager para recargar la CDB..."
