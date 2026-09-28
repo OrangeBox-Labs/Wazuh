@@ -17,18 +17,28 @@ La razón de tener un script propio es que el correo nativo de Wazuh no entrega 
 
 ## Envío inmediato
 
-Las reglas consideradas inmediatas se definen explícitamente por ID:
+La integración utiliza una marca funcional de regla:
+
+`orangebox_immediate`
+
+Cuando este grupo aparece en `rule.groups`, el correo se envía inmediatamente y no pasa por el buffer de 10 minutos.
+
+Se conserva además una lista de compatibilidad por ID para reglas históricas o nativas que no siempre pueden etiquetarse desde OrangeBox:
 
 - `5715` - login SSH exitoso nativo.
 - `10001` - login SSH exitoso OrangeBox.
 - `10004` - `su` hacia root.
 - `10005` - `sudo` hacia root sin excepción válida.
-- `10008` - sudo exitoso.
-- `10009` - sudo exitoso.
+- `10008` - correlación de logins SSH exitosos.
+- `10009` - sudo exitoso, cuando corresponda a la integración instalada.
 
-No se utiliza el grupo `privilege_escalation_root` como criterio genérico de inmediatez. Esto evita que una regla nueva quede inmediata simplemente por compartir una categoría.
+Las reglas nuevas de alta prioridad deben preferir `orangebox_immediate` en lugar de agregar otro ID al script.
 
-Las reglas `10025`, `10026`, `10453` y `10454` permanecen fuera del correo individual porque tienen Active Response `firewall-drop`. `10455` tampoco genera correo individual.
+Esto evita una falla de diseño donde una regla crítica nueva, aunque tuviera nivel alto o perteneciera a `privilege_escalation`, quedara accidentalmente en el buffer por no aparecer en una lista Python.
+
+Las reglas `100316`, `100318`, `100319` y `10613` utilizan esta marca funcional. Las reglas experimentales `10615`-`10618` fueron retiradas del ruleset base porque podían reemplazar la identidad de las alertas base de autenticación (especialmente `10001`) antes de llegar a esta integración.
+
+Las reglas `10025`, `10026`, `10453`, `10454` y `10455` permanecen gobernadas por la política de firewall-drop/no-email.
 
 ## Fuerza bruta de correo
 
@@ -92,7 +102,7 @@ También quedan separados dos agentes aunque tengan la misma regla.
 
 El primer evento crea el buffer y genera un proceso hijo que espera los 10 minutos.
 
-El proceso principal termina inmediatamente. El hijo desacopla `stdin`, `stdout` y `stderr` mediante `/dev/null` antes de dormir. Esto es **obligatorio** porque `wazuh-integratord` ejecuta la integración con esos descriptores conectados a un pipe y espera EOF; si el hijo heredara el pipe, la ventana de 10 minutos bloquearía el procesamiento de alertas posteriores.
+El proceso principal termina inmediatamente. Esto es importante porque no queremos que Wazuh quede esperando un `sleep()` mientras la integración está procesando eventos.
 
 Además, la creación del buffer usa `O_EXCL`. Así, cuando llegan muchas alertas simultáneamente, solamente un proceso puede declararse dueño del buffer.
 
@@ -161,41 +171,15 @@ El encabezado clasifica visualmente el correo según el nivel máximo:
 
 No cambia el nivel real de Wazuh; solamente cambia la presentación del correo.
 
-## Entrega de correo resiliente
+## SMTP
 
-El script **no abre una conexión SMTP TCP contra `localhost:25`**.
-
-Entrega el mensaje mediante:
+El script entrega el correo a:
 
 ```text
-/usr/sbin/sendmail -t -i
+localhost
 ```
 
-En Postfix, esta vía coloca el mensaje en el `maildrop` local. Por eso una caída temporal del daemon Postfix no provoca `ECONNREFUSED` ni descarta la alerta: el mensaje queda persistente para que Postfix lo procese cuando vuelva a estar activo.
-
-### Motivo del cambio
-
-La implementación anterior usaba `smtplib.SMTP("localhost")`. Si Postfix estaba detenido o reiniciándose justo en el instante del envío, Python recibía `Connection refused` y la alerta no tenía una segunda oportunidad.
-
-El cambio mueve la responsabilidad de cola y reintento al MTA, donde corresponde.
-
-### Prueba de resiliencia
-
-Se validó operacionalmente con Postfix completamente detenido:
-
-```text
-custom-orangebox-email.py
-        -> /usr/sbin/sendmail
-        -> maildrop Postfix
-        -> mensaje queda en cola
-
-Postfix vuelve a iniciar
-        -> pickup
-        -> queue
-        -> entrega SMTP
-```
-
-La prueba real dejó un mensaje en cola con Postfix detenido y la cola quedó vacía después de volver a iniciar el servicio.
+El relay SMTP local se encarga de la entrega posterior.
 
 El remitente usado por el HTML es:
 
