@@ -7,7 +7,7 @@
   - This file adds OrangeBox context to attack detections.
   - It does not create a second IOC database and does not replace
     the Wazuh rules that already detect malicious IOCs.
-  - IOC-specific source-IP containment is owned by rules 10460, 10462 and 10463.
+  - IOC-specific source-IP containment is owned by rules 10460, 10461, 10462 and 10463.
 -->
 
 <group name="orangebox,ioc,threat_intel,">
@@ -16,7 +16,7 @@
       SSH brute force + known malicious source IP.
 
       This IOC child raises the detection context/severity and is
-      independently attached to a 30-day firewall-drop Active Response.
+      independently attached to the 720-hour / 30-day firewall-drop Active Response.
   -->
   <rule id="10460" level="14">
     <if_sid>5720</if_sid>
