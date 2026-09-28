@@ -40,7 +40,7 @@ DEFAULT_ALERT_RECIPIENT = "TU_EMAIL"
 # Estas opciones solamente controlan destinatarios adicionales.
 #
 # La comparacion de grupos es CASE-INSENSITIVE:
-#   CLIENTE_03 == cliente_03
+#   CloudLatam == CLOUDLATAM == cloudlatam
 #
 # Para agregar un cliente nuevo solamente hay que agregar una entrada
 # aqui. No es necesario modificar ninguna otra parte del script.
@@ -50,46 +50,46 @@ DEFAULT_ALERT_RECIPIENT = "TU_EMAIL"
 # ============================================================
 
 CLIENT_GROUPS = {
-    "CLIENTE_01": {
+    "CTS": {
         "enabled": 0,
         "emails": [
-            "TU_EMAIL",
+            "martin.diaz@ctsturismo.cl",
         ],
     },
 
-    "CLIENTE_02": {
+    "OLC": {
         "enabled": 0,
         "emails": [
-            "TU_EMAIL",
-            "TU_EMAIL",
+            "pvial@olc.cl",
+            "etomicic@olc.cl",
         ],
     },
 
-    "CLIENTE_03": {
+    "CLOUDLATAM": {
         "enabled": 0,
         "emails": [
-            "TU_EMAIL",
+            "carlos@linuxhost.cl",
         ],
     },
 
-    "CLIENTE_04": {
+    "NEXIT": {
         "enabled": 1,
         "emails": [
-            "TU_EMAIL",
+            "Juan.toledo@nexit.cl",
         ],
     },
 
-    "CLIENTE_05": {
+    "JHG": {
         "enabled": 0,
         "emails": [
-            "TU_EMAIL",
+            "joseramirez@jhg.cl",
         ],
     },
 
-    "CLIENTE_06": {
+    "CASAPIEDRA": {
         "enabled": 0,
         "emails": [
-            "TU_EMAIL",
+            "rfarias@casapiedra.cl",
         ],
     },
 
@@ -102,35 +102,36 @@ CLIENT_GROUPS = {
 
 
 # ============================================================
-# REGLAS DE ENVIO INMEDIATO
+# POLITICA DE ENVIO INMEDIATO
 # ============================================================
-
-# Estas reglas no pasan por el buffer.
 #
-# 5715 = SSH login exitoso
-# 10001 = regla OrangeBox hija de 5715
-# 10004 = SU hacia root
-# 10008 = SUDO exitoso
-# 10009 = SUDO exitoso
-# 10005 = SUDO hacia ROOT sin excepcion operacional validada.
-# 10700 = Fuerza bruta contra autenticacion SMTP
-# 10701 = Fuerza bruta contra autenticacion de correo Exim/Dovecot
+# La politica tiene DOS capas:
+#
+# 1) Compatibilidad explicita por ID para reglas historicas/nativas.
+# 2) Marca funcional "orangebox_immediate" en rule.groups.
+#
+# La segunda es la politica preferida: una regla nueva de alta
+# prioridad se marca en el XML y automaticamente queda fuera del
+# buffer, sin tener que editar este script.
 #
 # IMPORTANTE:
-# 10005 SI es inmediato. No pasa por el buffer de 10 minutos.
-#
-# Las excepciones de perfil evitan que los comandos conocidos lleguen
-# a 10005. Los comandos sudo -> root que no coincidan con una
-# excepcion permanecen como alerta critica y se envian inmediatamente.
+#   FIREWALL_DROP_RULES se evalua antes que esta politica.
+#   Una alerta con firewall-drop sigue sin generar correo individual.
 #
 IMMEDIATE_RULES = {
+    # Reglas historicas / nativas que no podemos marcar todas desde
+    # OrangeBox (por ejemplo 5715).
     "5715",
+
+    # Compatibilidad con reglas OrangeBox existentes.
     "10001",
     "10004",
     "10005",
     "10008",
     "10009",
 }
+
+IMMEDIATE_RULE_GROUP = "ORANGEBOX_IMMEDIATE"
 
 
 # ============================================================
@@ -281,9 +282,9 @@ def get_agent_groups_from_manager(agent_id):
     output = result.stdout or ""
 
     # Formato habitual:
-    #   has the group: '[u'CLIENTE_04', u'default']'
+    #   has the group: '[u'Nexit', u'default']'
     # y versiones:
-    #   belongs to groups: default, CLIENTE_04
+    #   belongs to groups: default, Nexit
     import re
 
     match = re.search(r"\[([^\]]*)\]", output)
@@ -407,7 +408,7 @@ def extract_ssh_source_ip(full_log):
     no entrega data.srcip al decoder.
 
     Ejemplo esperado:
-        Accepted password for root from IP_DE_SERVIDOR port 60943 ssh2
+        Accepted password for root from 10.8.0.22 port 60943 ssh2
 
     Esta ruta de respaldo es necesaria porque algunos eventos
     provenientes de journald llegan al integrador sin srcip aunque
@@ -570,7 +571,7 @@ def ssh_already_notified(agent_id, srcip, event_timestamp, ssh_identity="", full
         # Esta es la politica principal. Es la que debe resolver
         # exactamente el caso:
         #
-        #   Accepted password ... from IP_DE_SERVIDOR
+        #   Accepted password ... from 10.8.0.22
         #
         # cinco veces durante el dia en el mismo agente -> un solo correo.
         #
@@ -901,13 +902,13 @@ full_log = alert_json.get(
     "No log fragment attached."
 )
 
+rule_groups = alert_json.get("rule", {}).get("groups", [])
+if not isinstance(rule_groups, list):
+    rule_groups = []
+
 groups = ", ".join(
-    alert_json.get(
-        "rule", {}
-    ).get(
-        "groups",
-        []
-    )
+    str(group)
+    for group in rule_groups
 )
 
 # rule.groups pertenece a la REGLA. El routing usa grupos del AGENTE.
@@ -1049,8 +1050,14 @@ current_event = {
 #
 # !!! FIN CONTRATO LOCKED !!!
 #
+normalized_rule_groups = {
+    normalize_group_name(group)
+    for group in rule_groups
+}
+
 send_immediately = (
     rule_id in IMMEDIATE_RULES
+    or IMMEDIATE_RULE_GROUP in normalized_rule_groups
 )
 
 
@@ -1229,18 +1236,25 @@ else:
         # ----------------------------------------------------
         # PROCESO HIJO
         # ----------------------------------------------------
+        #
+        # Wazuh wazuh-integratord ejecuta las integraciones con
+        # stdout/stderr conectados a un pipe y espera EOF antes
+        # de continuar con la siguiente alerta.
+        #
+        # Este hijo debe desprenderse inmediatamente de esos
+        # descriptores. Si conserva fd 1/2 abiertos mientras
+        # duerme los 10 minutos, integratord queda bloqueado
+        # durante toda la ventana de agrupacion y las alertas
+        # posteriores (incluidas las inmediatas SSH/SU/SUDO)
+        # se retrasan artificialmente.
+        #
+        # Reemplazamos stdin/stdout/stderr por /dev/null para
+        # que el proceso hijo quede completamente desacoplado
+        # del pipe del integrador.
+        # ----------------------------------------------------
 
         os.setsid()
 
-        # wazuh-integratord mantiene stdout/stderr conectados a un pipe
-        # y espera EOF antes de procesar la siguiente alerta.
-        #
-        # El proceso hijo NO debe heredar esos descriptores mientras
-        # espera la ventana de agrupacion, porque eso bloquearia al
-        # integrador durante los 10 minutos.
-        #
-        # Desacoplamos stdin/stdout/stderr usando /dev/null antes
-        # de dormir.
         devnull_fd = os.open(os.devnull, os.O_RDWR)
 
         try:
@@ -2157,11 +2171,19 @@ msg.attach(
 # No usamos SMTP TCP contra localhost:25.
 #
 # /usr/sbin/sendmail entrega el mensaje al maildrop local de
-# Postfix. Esto permite aceptar la alerta aunque el daemon
-# Postfix este temporalmente detenido.
+# Postfix mediante postdrop. Esto permite aceptar el mensaje
+# incluso cuando el daemon Postfix esta temporalmente detenido.
 #
-# Postfix procesa posteriormente el mensaje desde su cola
-# cuando vuelve a estar activo.
+# Si Postfix esta abajo:
+#     custom integration -> maildrop -> mensaje persistente
+#
+# Cuando Postfix vuelve:
+#     pickup -> queue -> entrega SMTP
+#
+# IMPORTANTE:
+#     - No tocar la logica de alertas inmediatas.
+#     - No tocar la deduplicacion SSH.
+#     - No tocar el buffer de 10 minutos.
 #
 try:
 
