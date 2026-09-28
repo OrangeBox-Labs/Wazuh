@@ -43,7 +43,7 @@
     <rule id="10001" level="13">
         <if_sid>5715</if_sid>
         <description>ALERTA: Inicio de sesion SSH exitoso.</description>
-        <group>authentication_success,orangebox_auth,orangebox_ssh,</group>
+        <group>authentication_success,orangebox_auth,orangebox_ssh,orangebox_immediate,</group>
     </rule>
 
 </group>
@@ -91,7 +91,7 @@
         <regex type="pcre2">su(?:-l)?:session\):\s+session\s+opened\s+for\s+user\s+root\b.*\bby\s+\S+\(uid=(?!0\b)\d+\)</regex>
         <user>root</user>
         <description>ALERTA: Usuario cambio de sesion a ROOT mediante comando SU.</description>
-        <group>authentication_success,privilege_escalation,privilege_escalation_root,orangebox_auth,</group>
+        <group>authentication_success,privilege_escalation,privilege_escalation_root,orangebox_auth,orangebox_immediate,</group>
     </rule>
 
     <!--
@@ -145,7 +145,7 @@
         <user>root</user>
         <regex type="pcre2">^(?!.*incorrect password attempt).*$</regex>
         <description>ALERTA CRITICA: SUDO hacia ROOT sin excepcion operacional validada.</description>
-        <group>syslog,sudo,privilege_escalation,privilege_escalation_root,orangebox_auth,orangebox_sudo_whitelist_enforced,</group>
+        <group>syslog,sudo,privilege_escalation,privilege_escalation_root,orangebox_auth,orangebox_sudo_whitelist_enforced,orangebox_immediate,</group>
     </rule>
 
 </group>
@@ -207,7 +207,7 @@
         <mitre>
             <id>T1021.004</id>
         </mitre>
-        <group>authentication_success,lateral_movement,attack,orangebox_ssh,orangebox_auth,orangebox_behavior,</group>
+        <group>authentication_success,lateral_movement,attack,orangebox_ssh,orangebox_auth,orangebox_behavior,orangebox_immediate,</group>
     </rule>
 
 </group>
@@ -277,17 +277,17 @@
         Este evento es generado por procesos locales que utilizan la pila
         SSH para autenticarse contra el mismo host. Se silencia solamente
         cuando 10001 ya identifico un login SSH exitoso y el evento coincide
-        exactamente con publickey + root + IP_DE_SERVIDOR.
+        exactamente con publickey + root + 127.0.0.1.
 
         IMPORTANTE:
           - Es hija directa de 10001, no de 5715.
           - No afecta logins SSH reales desde otras IP.
-          - No afecta otros usuarios desde IP_DE_SERVIDOR.
+          - No afecta otros usuarios desde 127.0.0.1.
           - No modifica la regla detectora 10001.
     -->
     <rule id="20010" level="0">
         <if_sid>10001</if_sid>
-        <srcip>IP_DE_SERVIDOR</srcip>
+        <srcip>127.0.0.1</srcip>
         <user>root</user>
         <match type="pcre2">^Accepted publickey for root from 127\.0\.0\.1 port [0-9]+ ssh2:</match>
         <description>EXCEPCION: SSH local de root mediante publickey desde loopback.</description>
@@ -329,12 +329,13 @@
         <group>authentication,orangebox_exception,orangebox_whitelist,</group>
     </rule>
 
+
     <!--
         BackupPC - SSH automatizado autorizado.
 
         La excepción representa la función "servidor BackupPC autorizado",
-        no una cantidad fija de servidores. Las IP permitidas se mantienen
-        en la CDB "etc/lists/orangebox-backuppc".
+        no una cantidad fija de servidores. Todas las IP permitidas se
+        mantienen en la CDB "etc/lists/orangebox-backuppc".
 
         Para agregar otro servidor BackupPC:
           1. Agregar su IP como una nueva línea en la CDB:
@@ -342,8 +343,9 @@
           2. Reiniciar el Wazuh Manager para recargar la CDB.
           3. No crear otra regla 200xx por cada servidor.
 
-        En la versión pública la CDB contiene una IP de documentación
-        como ejemplo. Sustitúyela por las IP reales de tu entorno.
+        La regla 20001 es compartida por todos los BackupPC autorizados.
+        Esto evita duplicar reglas cuando una implementación tiene uno,
+        tres o más servidores BackupPC.
 
         Si en el futuro se necesita una excepción que requiera una regla
         distinta, usar un ID libre dentro de 20000-29999 y verificar que
@@ -356,7 +358,6 @@
         <group>authentication_success,orangebox_exception,orangebox_whitelist,backuppc,</group>
     </rule>
 
-
     <!--
         SFTP certcoopeuch - origenes autorizados.
 
@@ -367,9 +368,9 @@
         "<IP>:" a esa CDB. No se debe crear una regla 200xx adicional
         solo por una IP nueva.
 
-        Reemplaza el ejemplo de la CDB por la IP real de tu entorno.
-        La condición de usuario "certcoopeuch" se conserva para limitar
-        la excepción al servicio esperado.
+        La condición de usuario "certcoopeuch" se conserva para que la
+        excepción no convierta cualquier SSH desde una IP autorizada
+        en una excepción global.
     -->
     <rule id="20004" level="0">
         <if_sid>10001</if_sid>
