@@ -57,7 +57,7 @@ El script se puede ejecutar repetidamente:
 Valores iniciales:
 
 ```text
-Manager : TU_HOSTNAME
+Manager : wazuh.orangebox.cl
 Grupo   : OrangeBox
 Nombre  : $HOSTNAME
 ```
