@@ -13,7 +13,7 @@
 set -u
 
 WAZUH_VERSION="4.14.7"
-DEFAULT_MANAGER="TU_HOSTNAME"
+DEFAULT_MANAGER="wazuh.orangebox.cl"
 DEFAULT_GROUP="OrangeBox"
 DEFAULT_AGENT_NAME="$HOSTNAME"
 WAZUH_OSSEC_SIZE="1G"
@@ -545,7 +545,7 @@ log_rule_exists || "$IPTABLES" -A ORANGEBOX-FW \
 return_rule_exists || "$IPTABLES" -A ORANGEBOX-FW -j RETURN || exit 1
 input_rule_exists || "$IPTABLES" -I INPUT 1 \
     -p tcp --tcp-flags SYN SYN \
-    ! -s IP_DE_SERVIDOR/8 \
+    ! -s 127.0.0.0/8 \
     -j ORANGEBOX-FW || exit 1
 
 chain_exists || exit 1
@@ -700,7 +700,7 @@ configure_iptables() {
         echo "==> Conectando INPUT con ORANGEBOX-FW..."
         if iptables -I INPUT 1 \
             -p tcp --tcp-flags SYN SYN \
-            ! -s IP_DE_SERVIDOR/8 \
+            ! -s 127.0.0.0/8 \
             -j ORANGEBOX-FW; then
             if iptables_input_rule_exists; then
                 ok "Validación: regla INPUT -> ORANGEBOX-FW instalada."
@@ -780,20 +780,20 @@ configure_firewalld() {
     # Se pasan directamente como argumentos para mantener compatibilidad
     # incluso cuando el instalador se invoque mediante "sh script.sh".
     if firewall-cmd --direct --query-rule ipv4 filter INPUT 0 \
-        -p tcp --tcp-flags SYN SYN ! -s IP_DE_SERVIDOR/8 \
+        -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 \
         -m limit --limit 20/second --limit-burst 40 \
         -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 >/dev/null 2>&1; then
         ok "Regla ORANGEBOX-FW ya existe en firewalld."
     else
         echo "==> Agregando regla ORANGEBOX-FW a firewalld..."
         firewall-cmd --permanent --direct --add-rule ipv4 filter INPUT 0 \
-            -p tcp --tcp-flags SYN SYN ! -s IP_DE_SERVIDOR/8 \
+            -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 \
             -m limit --limit 20/second --limit-burst 40 \
             -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 \
             || fail "No se pudo agregar la regla a firewalld."
         firewall-cmd --reload || fail "No se pudo recargar firewalld."
         firewall-cmd --direct --query-rule ipv4 filter INPUT 0 \
-            -p tcp --tcp-flags SYN SYN ! -s IP_DE_SERVIDOR/8 \
+            -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 \
             -m limit --limit 20/second --limit-burst 40 \
             -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 >/dev/null 2>&1 \
             || fail "No se pudo validar la regla firewalld."
