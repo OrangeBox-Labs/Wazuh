@@ -13,7 +13,7 @@
 set -u
 
 WAZUH_VERSION="4.14.7"
-DEFAULT_MANAGER="wazuh.orangebox.cl"
+DEFAULT_MANAGER="wazuh.example.com"
 DEFAULT_GROUP="OrangeBox"
 DEFAULT_AGENT_NAME="$HOSTNAME"
 WAZUH_OSSEC_SIZE="1G"
@@ -430,6 +430,7 @@ configure_shorewall() {
 # RATE: 20 conexiones/segundo, burst 40.
 LOG:info:ORANGEBOX-FW    all-    $FW    tcp    -    -    -    20/sec:40
 EOF
+        shorewall_changed=1
 
         shorewall check >/dev/null 2>&1 \
             || fail "Shorewall rechazó la configuración ORANGEBOX-FW."
