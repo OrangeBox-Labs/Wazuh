@@ -226,7 +226,7 @@ def indexer_settings():
             "El password del Indexer no debe quedar dentro del repositorio."
         )
     return {
-        "url": (os.environ.get("WAZUH_INDEXER_URL") or config.get("WAZUH_INDEXER_URL") or "https://IP_DE_INDEXER:9200").rstrip("/"),
+        "url": (os.environ.get("WAZUH_INDEXER_URL") or config.get("WAZUH_INDEXER_URL") or "https://127.0.0.1:9200").rstrip("/"),
         "user": user,
         "password": password,
     }
