@@ -269,10 +269,10 @@ else
     fail "Falta srv27:cpanel"
 fi
 
-if grep -q '^TU_HOSTNAME:cpanel$' ${OSSEC_HOME}/etc/lists/orangebox-agent-profiles 2>/dev/null; then
-    ok "Perfil cPanel TU_HOSTNAME"
+if grep -q '^srv27.cloudlatam.cl:cpanel$' ${OSSEC_HOME}/etc/lists/orangebox-agent-profiles 2>/dev/null; then
+    ok "Perfil cPanel srv27.cloudlatam.cl"
 else
-    fail "Falta TU_HOSTNAME:cpanel"
+    fail "Falta srv27.cloudlatam.cl:cpanel"
 fi
 
 zimbra_profile_count="$(grep -c ':zimbra$' ${OSSEC_HOME}/etc/lists/orangebox-agent-profiles 2>/dev/null || true)"
