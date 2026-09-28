@@ -48,6 +48,14 @@ need_cmd sort
 need_cmd comm
 need_cmd install
 need_cmd systemctl
+need_cmd flock
+
+LOCK_FILE="/var/run/orangebox-ioc-lists.lock"
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    echo "INFO: ya existe otra ejecución de update-orangebox-ioc-lists.sh; se omite esta ejecución."
+    exit 0
+fi
 
 mkdir -p "$LIST_DIR"
 
