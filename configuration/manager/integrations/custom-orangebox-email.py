@@ -29,18 +29,18 @@ STATE_DIR = "/var/ossec/logs/orangebox_email_state"
 SSH_STATE_FILE = os.path.join(STATE_DIR, "ssh_notifications.json")
 
 # Destinatario obligatorio de todas las alertas.
-DEFAULT_ALERT_RECIPIENT = "TU_EMAIL"
+DEFAULT_ALERT_RECIPIENT = "soporte@example.com"
 
 
 # ============================================================
 # ALERTAS POR GRUPO / CLIENTE
 # ============================================================
 #
-# TU_EMAIL SIEMPRE recibe las alertas.
+# soporte@example.com SIEMPRE recibe las alertas.
 # Estas opciones solamente controlan destinatarios adicionales.
 #
 # La comparacion de grupos es CASE-INSENSITIVE:
-#   CloudLatam == CLOUDLATAM == cloudlatam
+#   CLIENTE == CLOUDLATAM == cloudlatam
 #
 # Para agregar un cliente nuevo solamente hay que agregar una entrada
 # aqui. No es necesario modificar ninguna otra parte del script.
@@ -50,46 +50,46 @@ DEFAULT_ALERT_RECIPIENT = "TU_EMAIL"
 # ============================================================
 
 CLIENT_GROUPS = {
-    "CTS": {
+    "CLIENTE": {
         "enabled": 0,
         "emails": [
-            "TU_EMAIL",
+            "security@example.com",
         ],
     },
 
-    "OLC": {
+    "CLIENTE": {
         "enabled": 0,
         "emails": [
-            "TU_EMAIL",
-            "TU_EMAIL",
+            "pvial@example.com",
+            "etomicic@example.com",
         ],
     },
 
     "CLOUDLATAM": {
         "enabled": 0,
         "emails": [
-            "TU_EMAIL",
+            "security@example.com",
         ],
     },
 
     "NEXIT": {
         "enabled": 1,
         "emails": [
-            "TU_EMAIL",
+            "security@example.com",
         ],
     },
 
-    "JHG": {
+    "CLIENTE": {
         "enabled": 0,
         "emails": [
-            "TU_EMAIL",
+            "joseramirez@example.com",
         ],
     },
 
     "CASAPIEDRA": {
         "enabled": 0,
         "emails": [
-            "TU_EMAIL",
+            "rfarias@example.com",
         ],
     },
 
@@ -120,10 +120,10 @@ CLIENT_GROUPS = {
 #
 IMMEDIATE_RULES = {
     # Reglas historicas / nativas que no podemos marcar todas desde
-    # OrangeBox (por ejemplo 5715).
+    # CLIENTE (por ejemplo 5715).
     "5715",
 
-    # Compatibilidad con reglas OrangeBox existentes.
+    # Compatibilidad con reglas CLIENTE existentes.
     "10001",
     "10004",
     "10005",
@@ -282,9 +282,9 @@ def get_agent_groups_from_manager(agent_id):
     output = result.stdout or ""
 
     # Formato habitual:
-    #   has the group: '[u'Nexit', u'default']'
+    #   has the group: '[u'CLIENTE', u'default']'
     # y versiones:
-    #   belongs to groups: default, Nexit
+    #   belongs to groups: default, CLIENTE
     import re
 
     match = re.search(r"\[([^\]]*)\]", output)
@@ -345,7 +345,7 @@ def extract_agent_groups(alert_json):
 
 def build_recipients(default_recipient, agent_groups):
     """
-    Soporte OrangeBox siempre recibe el correo.
+    Soporte CLIENTE siempre recibe el correo.
     Los destinatarios de cliente dependen del grupo y su switch.
     """
     recipients = []
@@ -363,7 +363,7 @@ def build_recipients(default_recipient, agent_groups):
             seen.add(key)
             recipients.append(address)
 
-    # Soporte OrangeBox es SIEMPRE destinatario.
+    # Soporte CLIENTE es SIEMPRE destinatario.
     add_recipient(DEFAULT_ALERT_RECIPIENT)
 
     # Conservamos tambien el recipient entregado por Wazuh si difiere,
@@ -408,7 +408,7 @@ def extract_ssh_source_ip(full_log):
     no entrega data.srcip al decoder.
 
     Ejemplo esperado:
-        Accepted password for root from IP_DE_SERVIDOR port 60943 ssh2
+        Accepted password for root from 10.8.0.22 port 60943 ssh2
 
     Esta ruta de respaldo es necesaria porque algunos eventos
     provenientes de journald llegan al integrador sin srcip aunque
@@ -436,7 +436,7 @@ def ssh_already_notified(agent_id, srcip, event_timestamp, ssh_identity="", full
     """
     Deduplicacion SSH por marcadores atomicos.
 
-    Politica OrangeBox:
+    Politica CLIENTE:
         - maximo un correo SSH por agente + IP origen + dia;
         - 5715 y 10001 comparten el mismo estado;
         - si journald no entrega data.srcip, el caller intenta
@@ -571,7 +571,7 @@ def ssh_already_notified(agent_id, srcip, event_timestamp, ssh_identity="", full
         # Esta es la politica principal. Es la que debe resolver
         # exactamente el caso:
         #
-        #   Accepted password ... from IP_DE_SERVIDOR
+        #   Accepted password ... from 10.8.0.22
         #
         # cinco veces durante el dia en el mismo agente -> un solo correo.
         #
@@ -1042,7 +1042,7 @@ current_event = {
 #   - 10004 = su -> root
 #   - 10005 = SUDO -> root sin excepcion validada
 #   - 10008 = sudo -i / escalamiento equivalente
-#   - 10009 = otros escalamientos SUDO definidos por OrangeBox
+#   - 10009 = otros escalamientos SUDO definidos por CLIENTE
 #   - 5715 / 10001 = SSH exitoso (con su deduplicacion bloqueada arriba)
 #
 # No mover estas reglas al buffer ni cambiar su tratamiento sin
@@ -1066,7 +1066,7 @@ send_immediately = (
 # ------------------------------------------------------------
 #
 # 5715 = regla nativa de SSH exitoso.
-# 10001 = regla OrangeBox hija de 5715.
+# 10001 = regla CLIENTE hija de 5715.
 #
 # Ambas representan el mismo evento de autenticacion SSH.
 #
@@ -1738,7 +1738,7 @@ for idx, ev in enumerate(
 # ============================================================
 
 wazuh_url = (
-    "https://TU_HOSTNAME/app/threat-hunting"
+    "https://wazuh.example.com/app/threat-hunting"
     "#/overview/?tab=general&tabView=events"
     f"&agentId={final_data['agent_id']}"
     "&_a=(filters:!(('$state':(store:appState),"
@@ -1807,8 +1807,8 @@ html_template = f"""<!DOCTYPE html>
                             border-radius:20px 20px 0 0;
                         ">
 
-                        <img src="https://TU_HOSTNAME/obox/img/logo-dark.png"
-                             alt="OrangeBox"
+                        <img src="https://www.example.com/obox/img/logo-dark.png"
+                             alt="CLIENTE"
                              border="0"
                              width="220"
                              style="
@@ -1826,7 +1826,7 @@ html_template = f"""<!DOCTYPE html>
                             font-weight:700;
                             letter-spacing:-0.3px;
                         ">
-                            OrangeBox
+                            CLIENTE
                             <span style="color:#f97316;">Seguridad</span>
                         </div>
 
@@ -2092,7 +2092,7 @@ html_template = f"""<!DOCTYPE html>
                             line-height:18px;
                         ">
                             Mensaje automatizado de
-                            <strong>OrangeBox SOC &amp; CyberSecurity</strong>
+                            <strong>CLIENTE SOC &amp; CyberSecurity</strong>
                         </div>
 
                         <div style="
@@ -2146,7 +2146,7 @@ msg["Subject"] = (
 )
 
 msg["From"] = (
-    "Wazuh SOC <TU_EMAIL>"
+    "Wazuh SOC <wazuh@example.com>"
 )
 
 final_recipients = final_data.get("recipients", recipients)
