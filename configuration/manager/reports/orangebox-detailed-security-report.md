@@ -1,10 +1,10 @@
-# OrangeBox Wazuh — Informe de Seguridad Detallado
+# CLIENTE Wazuh — Informe de Seguridad Detallado
 
 Reporte operativo detallado, complementario al reporte ejecutivo `orangebox-security-report.py`. El reporte presenta el detalle por agente y grupo Wazuh.
 
 ## Identidad del informe
 
-Este reporte corresponde al **Informe de Seguridad Detallado** de OrangeBox. El asunto del correo se genera dinámicamente según el período:
+Este reporte corresponde al **Informe de Seguridad Detallado** de CLIENTE. El asunto del correo se genera dinámicamente según el período:
 
 ```text
 [ORANGEBOX] Diario - Informe de Seguridad Detallado - <grupo>
@@ -75,31 +75,31 @@ La instalación estándar de Wazuh guarda las credenciales del indexer del manag
 Diario:
 
 ```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group CLIENTE --email TU_EMAIL
+/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group CLIENTE --email security@example.com
 ```
 
 Semanal:
 
 ```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --lastweek --group CLIENTE --email TU_EMAIL
+/var/ossec/reports/orangebox-detailed-security-report.py --lastweek --group CLIENTE --email security@example.com
 ```
 
 Mensual:
 
 ```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --lastmonth --group CLIENTE --email TU_EMAIL
+/var/ossec/reports/orangebox-detailed-security-report.py --lastmonth --group CLIENTE --email security@example.com
 ```
 
 Todos los grupos:
 
 ```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group all --email TU_EMAIL
+/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group all --email soporte@example.com
 ```
 
 Prueba sin enviar correo:
 
 ```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group CLIENTE --email TU_EMAIL --dry-run
+/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group CLIENTE --email security@example.com --dry-run
 ```
 
 ## Fuente de eventos
