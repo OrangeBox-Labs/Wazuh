@@ -10,7 +10,7 @@ Configuraciones distribuidas para los agentes Wazuh.
 
 Cada perfil debe mantener su archivo funcional acompañado de documentación técnica.
 
-Los perfiles no contienen por sí mismos las whitelists de reglas. La relación hostname -> perfil vive en `configuration/lists/orangebox-agent-profiles`, mientras que el grupo Wazuh distribuye la etiqueta funcional al endpoint.
+Los perfiles no contienen por sí mismos las whitelists de reglas. La relación hostname -> perfil vive en `configuration/manager/etc/lists/orangebox-agent-profiles`, mientras que el grupo Wazuh distribuye la etiqueta funcional al endpoint.
 
 ## Criterio
 
