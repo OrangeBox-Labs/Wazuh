@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OrangeBox Wazuh Security Activity Report.
+"""CLIENTE Wazuh Security Activity Report.
 
 Genera reportes HTML portables a partir de las alertas JSON de Wazuh.
 El HTML usa tablas e estilos inline para funcionar en Thunderbird, webmail y móvil.
@@ -29,13 +29,13 @@ from pathlib import Path
 ALERTS_ROOT = "/var/ossec/logs/alerts"
 ALERTS_FILE = f"{ALERTS_ROOT}/alerts.json"
 ARCHIVE_DIR = "/var/ossec/reports/archive"
-DEFAULT_FROM = "TU_EMAIL"
+DEFAULT_FROM = "wazuh@example.com"
 AGENT_GROUPS_BIN = "/var/ossec/bin/agent_groups"
 INDEXER_CONFIG = "/var/ossec/etc/orangebox-indexer.conf"
 FIREWALL_RULE = "651"
 FIREWALL_RE = re.compile(r"active-response/bin/firewall-drop:\s*(\{.*\})$")
 WAZUH_OSSEC_CONF = "/var/ossec/etc/ossec.conf"
-LOGO_URL = "https://TU_HOSTNAME/obox/img/logo-dark.png"
+LOGO_URL = "https://www.example.com/obox/img/logo-dark.png"
 
 AUTH_RULES = {"5710", "5712", "5715", "5716", "5720", "5760", "5763", "10001", "10006", "10007", "10008", "10009", "40101"}
 WEB_RULES = {"31101", "10023", "10024", "10025", "10026"}
@@ -67,7 +67,7 @@ RULE_CANONICAL_DESCRIPTIONS = {
     "2502": "ACCESO: Contraseña incorrecta en múltiples intentos.",
     "3332": "ACCESO: Fallo de autenticación SASL de Postfix.",
     "10004": "PRIVILEGIOS: Usuario cambió de sesión a ROOT mediante comando SU.",
-    "10005": "PRIVILEGIOS: SUDO hacia ROOT con comando no autorizado por la whitelist OrangeBox.",
+    "10005": "PRIVILEGIOS: SUDO hacia ROOT con comando no autorizado por la whitelist CLIENTE.",
     "5402": "PRIVILEGIOS: SUDO hacia ROOT ejecutado.",
     "5403": "PRIVILEGIOS: Primera ejecución de SUDO por el usuario.",
     "10032": "PRIVILEGIOS: Configuración de SUDO modificada.",
@@ -721,7 +721,7 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
     page.append(f"<tr><td style='height:6px;background:{orange};font-size:0;line-height:0;'>&nbsp;</td></tr>")
     page.append("<tr><td align='center' style='padding:18px 10px 34px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;max-width:1120px;background:#ffffff;border:1px solid #e1e5e4;'>")
     page.append("<tr><td style='padding:0;background:#06141d;'>"
-                 "<img src='https://TU_HOSTNAME/obox/img/banner-reporte-wazuh.png' alt='OrangeBox - Reporte de Seguridad Wazuh' width='1120' style='display:block;width:100%;max-width:1120px;height:auto;border:0;'>"
+                 "<img src='https://www.example.com/obox/img/banner-reporte-wazuh.png' alt='CLIENTE - Reporte de Seguridad Wazuh' width='1120' style='display:block;width:100%;max-width:1120px;height:auto;border:0;'>"
                  "</td></tr>")
     page.append(f"<tr><td style='padding:26px 26px 16px;'><div style='color:{orange};font-size:10px;font-weight:800;letter-spacing:1.8px;'>ORANGEBOX SECURITY · WAZUH</div><div style='font-size:30px;line-height:1.12;font-weight:800;margin-top:6px;color:{text};'>{esc(title)}</div><div style='font-size:14px;line-height:1.5;color:{muted};padding-top:7px;'>{esc(subtitle)}</div><table role='presentation' cellpadding='0' cellspacing='0' border='0' style='margin-top:16px;'><tr><td style='background:#f3f5f4;border:0;border-radius:20px;padding:9px 14px;font-size:11px;color:#526873;'><b>CLIENTE</b>&nbsp; {esc(group)}</td><td width='8'></td><td style='background:{orange};border-radius:20px;padding:9px 14px;font-size:11px;color:#ffffff;'><b>PERÍODO</b>&nbsp; {esc(period)}</td></tr></table></td></tr>")
     page.append("<tr><td style='padding:0 22px 24px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='8' border='0'><tr>")
@@ -870,7 +870,7 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
     return "".join(page)
 
 def send_email(subject,body,recipient):
-    msg=MIMEMultipart("alternative"); msg["Subject"]=subject; msg["From"]=f"Wazuh SOC <{DEFAULT_FROM}>"; msg["To"]=recipient; msg.attach(MIMEText("OrangeBox Wazuh Security Activity Report.","plain","utf-8")); msg.attach(MIMEText(body,"html","utf-8"))
+    msg=MIMEMultipart("alternative"); msg["Subject"]=subject; msg["From"]=f"Wazuh SOC <{DEFAULT_FROM}>"; msg["To"]=recipient; msg.attach(MIMEText("CLIENTE Wazuh Security Activity Report.","plain","utf-8")); msg.attach(MIMEText(body,"html","utf-8"))
     result = subprocess.run(["/usr/sbin/sendmail","-t","-i"], input=msg.as_string(), text=True, capture_output=True, timeout=10, check=False)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or f"sendmail exit={result.returncode}").strip()
@@ -882,7 +882,7 @@ def archive_html(body,label):
     return path
 
 def main():
-    parser=argparse.ArgumentParser(description="OrangeBox Wazuh Security Activity Report"); modes=parser.add_mutually_exclusive_group(required=True)
+    parser=argparse.ArgumentParser(description="CLIENTE Wazuh Security Activity Report"); modes=parser.add_mutually_exclusive_group(required=True)
     for name in ("today","yesterday","thisweek","lastweek","thismonth","lastmonth","thisyear","lastyear"): modes.add_argument("--"+name,action="store_true")
     modes.add_argument("--date",help="Día específico YYYY-MM-DD"); parser.add_argument("--group",required=True,help="Grupos Wazuh separados por comas")
     parser.add_argument("--email",action="append",required=True,help="Destinatario. Puede repetirse o contener varias direcciones separadas por comas."); parser.add_argument("--lang",choices=("es","en"),default="es",help="Idioma del informe: es o en"); args=parser.parse_args()
