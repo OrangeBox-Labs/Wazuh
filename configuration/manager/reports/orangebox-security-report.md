@@ -1,6 +1,6 @@
 # orangebox-security-report.py
 
-Motor de reportes **OrangeBox Wazuh Security Activity Report**.
+Motor de reportes **CLIENTE Wazuh Security Activity Report**.
 
 El script genera reportes diarios, semanales, mensuales y anuales, globales o filtrados por grupo Wazuh.
 
@@ -60,7 +60,7 @@ orangebox-security-report.py --lastyear --group all --email <destinatario> --lan
 El correo se entrega mediante la cola local de Postfix usando `/usr/sbin/sendmail -t -i`. Esto permite que el reporte quede en la cola aunque Postfix esté detenido temporalmente y sea entregado cuando el servicio vuelva.
 
 ```text
-From: Wazuh SOC <TU_EMAIL>
+From: Wazuh SOC <wazuh@example.com>
 ```
 
 El HTML generado se archiva bajo:
@@ -78,7 +78,7 @@ El renderer está diseñado específicamente para clientes de correo y utiliza:
 - sin `flex`, CSS Grid ni JavaScript;
 - ancho máximo aproximado de 640 px;
 - contenido adaptable a pantallas pequeñas;
-- logo corporativo usado por las alertas OrangeBox;
+- logo corporativo usado por las alertas CLIENTE;
 - sin listas interactivas de IPs, para mantener una visualización consistente en Gmail, Carbonio, Thunderbird y móvil.
 
 ## Vulnerabilidades / CVE
@@ -143,11 +143,11 @@ Resume actividad de File Integrity Monitoring y cambios relevantes detectados po
 
 ### Detecciones de malware y archivos sospechosos
 
-Incluye reglas OrangeBox asociadas a malware, webshells y ejecutables sospechosos.
+Incluye reglas CLIENTE asociadas a malware, webshells y ejecutables sospechosos.
 
 ### Escalamiento de privilegios
 
-Incluye reglas de `sudo`, `su` y elevación a root, incluyendo la detección OrangeBox `10005`.
+Incluye reglas de `sudo`, `su` y elevación a root, incluyendo la detección CLIENTE `10005`.
 
 ### Detecciones clasificadas como intentos de ataque
 
@@ -184,7 +184,7 @@ el `54,914` debe interpretarse como **54,914 alertas de Wazuh asociadas a la té
 
 Las explicaciones se mantienen dentro del propio script para que el reporte sea portable y no dependa de una consulta externa durante su ejecución.
 
-Actualmente se incluyen explicaciones para las técnicas observadas en los reportes OrangeBox, entre ellas:
+Actualmente se incluyen explicaciones para las técnicas observadas en los reportes CLIENTE, entre ellas:
 
 ```text
 T1110       Fuerza bruta
@@ -231,7 +231,7 @@ privilege
 attack
 ```
 
-Los eventos de prueba controlada OrangeBox se mantienen dentro de los reportes. Esto permite demostrar que las reglas y mecanismos de respuesta han sido probados y que las cifras observadas no son números generados artificialmente.
+Los eventos de prueba controlada CLIENTE se mantienen dentro de los reportes. Esto permite demostrar que las reglas y mecanismos de respuesta han sido probados y que las cifras observadas no son números generados artificialmente.
 
 ## Cron recomendado
 
