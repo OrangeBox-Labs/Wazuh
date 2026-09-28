@@ -21,7 +21,7 @@ YARA oficial
    ↓
 decoder OrangeBox
    ↓
-10501 Core / no existe en el despliegue actual Extended
+10501 = coincidencia YARA oficial
 ```
 
 Wazuh documenta este patrón: FIM detecta archivos nuevos/modificados, Active Response ejecuta YARA sobre el archivo afectado y el resultado vuelve al Manager mediante el log de Active Response. citeturn986130view0
@@ -75,7 +75,7 @@ Primero validar la presencia de YARA y las reglas:
 
 ```bash
 yara --version
-yara -r /var/ossec/active-response/bin/yara/rules/orangebox-webshell-core.yar /ruta/de/prueba.jsp
+yara -w /var/ossec/active-response/bin/yara/rules/yara-rules/webshells_index.yar /ruta/de/prueba.jsp
 ```
 
 En cPanel sustituir `/var/ossec` por `/opt/ossec`.
@@ -95,14 +95,14 @@ grep 'wazuh-yara' /var/ossec/logs/active-responses.log | tail
 En el Manager:
 
 ```bash
-grep '"10501"\|"no existe en el despliegue actual"' /var/ossec/logs/alerts/alerts.json | tail
+grep '"10501"' /var/ossec/logs/alerts/alerts.json | tail
 ```
 
-Un match YARA debe producir una alerta `10501` y llegar al flujo de correo actual por ser nivel 14. Un match YARA debe producir `no existe en el despliegue actual`, pero no supera el umbral actual de la integración de correo (12).
+Una coincidencia YARA oficial debe producir una alerta `10501` de nivel 14 y llegar al flujo de correo actual.
 
 ## Seguridad
 
-La primera fase es solamente deteccion. No hay Active Response destructivo asociado a `10501` ni `no existe en el despliegue actual`.
+La primera fase es solamente detección. No hay Active Response destructivo asociado a `10501`.
 
 La contencion automatica se evaluara despues de medir falsos positivos sobre servidores cPanel, Zimbra/Carbonio y Linux generales.
 
@@ -112,10 +112,10 @@ El agente RPM OrangeBox utiliza `/opt/ossec`. El script deriva su Wazuh home des
 
 ## Mantenimiento
 
-Las reglas YARA YARA oficial se mantienen bajo:
+Las reglas YARA oficiales se mantienen bajo:
 
 ```text
 configuration/manager/etc/rules/
 ```
 
-No agregar reglas heuristicas directamente al indice sin decidir primero si son YARA o YARA.
+No agregar firmas locales al índice oficial descargado. Las actualizaciones de firmas se obtienen del repositorio Yara-Rules configurado por el instalador.
