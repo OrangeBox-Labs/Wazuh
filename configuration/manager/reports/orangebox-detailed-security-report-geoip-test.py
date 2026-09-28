@@ -41,7 +41,7 @@ BASE_DIR = Path(__file__).resolve().parent
 PROD_REPORT = BASE_DIR / "orangebox-detailed-security-report.py"
 
 DEFAULT_CACHE = Path("/var/ossec/reports/geoip-cache.json")
-DEFAULT_API = "https://api.db-ip.com/v2/free/{ip}"
+DEFAULT_API = "http://api.db-ip.com/v2/free/{ip}"
 DEFAULT_MAX_IPS = 100
 DEFAULT_MAX_NEW_LOOKUPS = 450
 DEFAULT_CACHE_DAYS = 30
@@ -214,6 +214,7 @@ class GeoIPResolver:
             url,
             headers={
                 "Accept": "application/json",
+                "Accept-Language": "es,en;q=0.8",
                 "User-Agent": "OrangeBox-Wazuh-GeoIP-Test/1.0",
             },
             method="GET",
