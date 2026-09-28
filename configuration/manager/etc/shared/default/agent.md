@@ -159,7 +159,7 @@ Si no tenemos respuesta, probablemente todavía no necesitamos esa ruta.
 
 - Wazuh Agent / Syscheck (FIM).
 - Audit en Linux cuando se utiliza `whodata="yes"` con el proveedor por defecto.
-- Reglas personalizadas de `configuration/rules/`.
+- Reglas personalizadas de `configuration/manager/etc/rules/`.
 - El contenido de este archivo se instala normalmente como configuración compartida del agente.
 
 ## Nota
