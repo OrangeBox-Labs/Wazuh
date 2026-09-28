@@ -3,7 +3,7 @@
 # RPM OPT: /opt/ossec
 # El agent.conf se hereda desde el Wazuh Manager.
 
-DEFAULT_MANAGER="TU_HOSTNAME"
+DEFAULT_MANAGER="wazuh.orangebox.cl"
 DEFAULT_GROUP="OrangeBox"
 DEFAULT_AGENT_NAME="$HOSTNAME"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -138,7 +138,7 @@ ORANGEBOX_PUBLIC_IP="${ORANGEBOX_PUBLIC_IP:-}"
 ORANGEBOX_PRIVATE_IP="${ORANGEBOX_PRIVATE_IP:-}"
 
 if [ -z "$ORANGEBOX_PRIVATE_IP" ]; then
-    ORANGEBOX_PRIVATE_IP="$(ip -4 route get IP_DE_SERVIDOR 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}')"
+    ORANGEBOX_PRIVATE_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}')"
 fi
 
 if [ -z "$ORANGEBOX_PUBLIC_IP" ] && has curl; then
