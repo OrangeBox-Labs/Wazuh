@@ -44,7 +44,7 @@
         un payload puede estar recien creado, tener otro nombre o haber
         sido descargado antes de recibir chmod +x. Todo archivo nuevo o
         modificado en estas zonas pasa por el analisis YARA, respetando
-        el limite de tamano del runtime.
+        el limite de tamano del runtime (5 MiB por defecto).
     -->
     <rule id="10420" level="3">
         <if_sid>554</if_sid>
