@@ -53,43 +53,43 @@ CLIENT_GROUPS = {
     "CTS": {
         "enabled": 0,
         "emails": [
-            "martin.diaz@ctsturismo.cl",
+            "TU_EMAIL",
         ],
     },
 
     "OLC": {
         "enabled": 0,
         "emails": [
-            "pvial@olc.cl",
-            "etomicic@olc.cl",
+            "TU_EMAIL",
+            "TU_EMAIL",
         ],
     },
 
     "CLOUDLATAM": {
         "enabled": 0,
         "emails": [
-            "carlos@linuxhost.cl",
+            "TU_EMAIL",
         ],
     },
 
     "NEXIT": {
         "enabled": 1,
         "emails": [
-            "Juan.toledo@nexit.cl",
+            "TU_EMAIL",
         ],
     },
 
     "JHG": {
         "enabled": 0,
         "emails": [
-            "joseramirez@jhg.cl",
+            "TU_EMAIL",
         ],
     },
 
     "CASAPIEDRA": {
         "enabled": 0,
         "emails": [
-            "rfarias@casapiedra.cl",
+            "TU_EMAIL",
         ],
     },
 
@@ -408,7 +408,7 @@ def extract_ssh_source_ip(full_log):
     no entrega data.srcip al decoder.
 
     Ejemplo esperado:
-        Accepted password for root from 10.8.0.22 port 60943 ssh2
+        Accepted password for root from IP_DE_SERVIDOR port 60943 ssh2
 
     Esta ruta de respaldo es necesaria porque algunos eventos
     provenientes de journald llegan al integrador sin srcip aunque
@@ -571,7 +571,7 @@ def ssh_already_notified(agent_id, srcip, event_timestamp, ssh_identity="", full
         # Esta es la politica principal. Es la que debe resolver
         # exactamente el caso:
         #
-        #   Accepted password ... from 10.8.0.22
+        #   Accepted password ... from IP_DE_SERVIDOR
         #
         # cinco veces durante el dia en el mismo agente -> un solo correo.
         #
