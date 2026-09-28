@@ -52,7 +52,7 @@ Detecciones sobre archivos ejecutables creados en ubicaciones temporales o de al
 
 ### `orangebox-yara.xml`
 
-Integra FIM con YARA mediante Active Response. `10420/10421` envían a YARA todos los archivos nuevos o modificados de las zonas temporales delicadas, sin exigir extensión ni permiso de ejecución. El runtime usa 5 MiB como limite por defecto. `10501` alerta coincidencias YARA.
+Integra FIM con YARA mediante Active Response. `10420/10421` envían a YARA todos los archivos nuevos o modificados de las zonas temporales delicadas, sin exigir extensión ni permiso de ejecución. `10501` alerta coincidencias YARA.
 
 Las firmas ejecutables se mantienen en los archivos `.yar` del mismo directorio y el decoder asociado vive en `configuration/decoders/orangebox-yara.xml`.
 
