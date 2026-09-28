@@ -1,2 +1,6 @@
-cpanel.example.test:cpanel
-mail.example.test:zimbra
+cpanel.example.com:cpanel
+cpanel.example.com.cloudlatam.cl:cpanel
+mail.example.com:zimbra
+mail.example.com:zimbra
+mail.example.com:zimbra
+mail.example.com:zimbra
