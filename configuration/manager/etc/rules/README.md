@@ -35,12 +35,21 @@ Autenticación, escalamiento de privilegios y correlaciones SSH/SUDO/SU.
 
 `10005` funciona como nodo común para todos los `sudo -> root`.
 
+Las correlaciones SSH principales son:
+
+- `10006`: fuerza bruta SSH seguida de login exitoso desde la misma IP dentro de 5 minutos.
+- `10008`: tres logins SSH exitosos desde la misma IP hacia ubicaciones diferentes dentro de 5 minutos, correlacionados globalmente entre agentes.
+
+`10008` fue validada con Logtest manteniendo el mismo token de sesión y variando la `location` por evento; la tercera autenticación generó `10008` nivel 13. No tiene Active Response.
+
 Las excepciones de aplicación están separadas por perfil:
 
 - `cpanel` / WP Toolkit: `20031`, `20035`.
 - `zimbra` / Carbonio CE: `110100`.
 
 Las excepciones de SSH conservan condiciones por IP de origen cuando el sistema autorizado es el origen y no el agente receptor.
+
+BackupPC separa las IP estáticas de la IP dinámica administrada por DNS para evitar que el updater pueda destruir autorizaciones manuales.
 
 ### `orangebox-hardening.xml`
 
