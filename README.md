@@ -1,139 +1,113 @@
 # OrangeBox · Wazuh
 
-> Reglas de seguridad, detección de amenazas, IOC, YARA, respuestas activas, automatización y reportes para Wazuh, desarrollados a partir de implementaciones reales.
+> Reglas, configuración y herramientas Wazuh para seguridad, FIM, YARA, Active Response y monitoreo de servidores Linux.
 
-[![OrangeBox IT Services](https://img.shields.io/badge/OrangeBox-IT%20Services-ff6a00?style=for-the-badge)](https://www.orangebox.cl/)
+[![OrangeBox IT Services](https://img.shields.io/badge/OrangeBox-IT%20Services-ff6a00?style=for-the-badge)](https://TU_HOSTNAME/)
 [![Wazuh](https://img.shields.io/badge/Wazuh-security-0073c6?style=for-the-badge)](https://wazuh.com/)
 [![Bash](https://img.shields.io/badge/Bash-tooling-121011?style=for-the-badge&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 
-## Descripción
+## Seguridad Linux con Wazuh
 
-**OrangeBox Wazuh** es una colección de reglas, configuraciones, herramientas y automatizaciones para Wazuh orientadas a detección de amenazas, respuesta ante incidentes, monitoreo y operación de seguridad.
+Repositorio técnico de **OrangeBox IT Services** para desplegar y mantener **Wazuh Manager, Wazuh Agent, File Integrity Monitoring (FIM), YARA, Active Response, reglas de detección y automatizaciones de seguridad** en infraestructura Linux Enterprise.
 
-El proyecto reúne trabajo desarrollado a partir de implementaciones reales, incluyendo:
-
-- reglas personalizadas de detección
-- indicadores de compromiso (IOC)
-- detección de malware y webshells
-- File Integrity Monitoring (FIM)
-- integración con YARA
-- Active Response y firewall-drop
-- detección de autenticación SSH y escalamiento de privilegios
-- controles de hardening
-- automatización de seguridad
-- generación de reportes
-- perfiles para servidores Linux, Zimbra, cPanel y servidores web
-
-Todo el contenido publicado ha sido **sanitizado para uso público**. Las direcciones IP, dominios, nombres de servidores, correos y otros valores específicos de infraestructura se reemplazan por valores de ejemplo y deben adaptarse al entorno de cada organización.
-
-## Arquitectura de referencia
-
-Los valores como `IP_DE_WAZUH`, `IP_DE_PROXY`, `IP_DE_BACKEND`, `IP_DE_AGENTE`, `TU_DOMINIO` y `TU_EMAIL` representan componentes reales de una arquitectura de seguridad, no valores que deban copiarse literalmente.
-
-La explicación completa está en [ARCHITECTURE.md](ARCHITECTURE.md).
+El proyecto está orientado a operaciones reales de seguridad: detección de malware y webshells, cambios de archivos, accesos SSH, escalamiento de privilegios, brute force, indicadores de compromiso (IOC), respuesta automática y reportes de seguridad.
 
 ## Estructura
 
 ```text
 configuration/
-├── manager/
-│   ├── etc/
-│   │   ├── decoders/
-│   │   ├── lists/
-│   │   ├── rules/
-│   │   └── shared/
-│   ├── integrations/
-│   └── reports/
-packages/agent/                   # RPM y builder del agente Wazuh
-tools/                            # Instaladores y herramientas auxiliares
+├── manager/            # Configuración del Wazuh Manager
+└── agents/common/      # Configuración común de agentes
+
+tools/                  # Instaladores y herramientas auxiliares
 ```
 
-La estructura de `configuration/manager/` está pensada para facilitar el despliegue sobre el directorio de configuración de Wazuh Manager.
+Los árboles `configuration/` mantienen la estructura de instalación de Wazuh para facilitar despliegues mediante `rsync`.
 
-## Detección y respuesta
+## FIM y detección
 
-El proyecto cubre escenarios como:
-
-- autenticación y accesos SSH
-- brute force
-- escalamiento de privilegios
-- ejecución sospechosa
-- cambios de archivos
-- malware y webshells
-- IOC
-- detección mediante YARA
-- respuestas activas
-- bloqueo de IP mediante firewall-drop
-
-Las reglas se encuentran principalmente en:
-
-```text
-configuration/manager/etc/rules/
-```
-
-## FIM + YARA
-
-La integración entre **File Integrity Monitoring y YARA** permite analizar archivos detectados por Wazuh y generar eventos de seguridad asociados.
-
-Componentes principales:
-
-```text
-configuration/manager/etc/rules/orangebox-yara.xml
-tools/orangebox-yara/
-
-```
-
-## Perfiles de agentes
-
-Los perfiles compartidos se organizan por tipo de carga:
+La política de **File Integrity Monitoring** se distribuye por perfiles:
 
 ```text
 configuration/manager/etc/shared/
 ├── default/
 ├── cpanel/
-├── webserver/
-└── zimbra/
+├── zimbra/
+└── webserver/
 ```
 
-Cada perfil puede adaptarse a las rutas y servicios propios de la organización.
+El perfil común cubre mecanismos generales de compromiso, persistencia, credenciales y escalamiento. Los perfiles específicos agregan solamente las rutas y controles propios de cada plataforma.
 
-## Reportes e integraciones
+## YARA + Wazuh
 
-La configuración incluye:
+La integración **FIM → YARA** permite analizar archivos detectados por Wazuh usando reglas oficiales de Yara-Rules.
 
-- integración de correo para alertas
-- reportes detallados de seguridad
-- reportes periódicos
-- documentación de despliegue y operación
-
-Los componentes se encuentran en:
+El instalador se encuentra en:
 
 ```text
-configuration/manager/integrations/
-configuration/manager/reports/
+tools/orangebox-yara/install-orangebox-yara.sh
 ```
 
-## Despliegue
+y el runtime desplegable en:
 
-Antes de desplegar, revise y adapte los valores de infraestructura documentados en [SANITIZATION.md](SANITIZATION.md).
+```text
+configuration/agents/common/active-response/bin/orangebox-yara.sh
+```
 
-Ejemplo para un Wazuh Manager:
+El proyecto registra la versión/commit del ruleset descargado para facilitar auditoría y trazabilidad.
+
+## Active Response
+
+El repositorio incluye herramientas y configuración para respuestas automáticas frente a eventos de seguridad, incluyendo escenarios de:
+
+- bloqueo de IP mediante firewall-drop
+- indicadores de compromiso
+- brute force
+- detección de malware y webshell
+- eventos de autenticación
+- cambios de archivos críticos
+
+## Plataformas
+
+La configuración contempla perfiles para servidores Linux Enterprise y cargas como:
+
+- RHEL, AlmaLinux y Rocky Linux
+- Zimbra / Carbonio
+- servidores web
+- cPanel
+- servicios Linux críticos
+
+## Deploy
+
+Wazuh Manager:
 
 ```bash
 rsync -a configuration/manager/ /var/ossec/
 ```
 
-Valide siempre la configuración y pruebe las reglas en un entorno controlado antes de aplicarlas en producción.
+Agente Linux:
+
+```bash
+rsync -a configuration/agents/common/ /var/ossec/
+```
+
+Instalaciones con `/opt/ossec`:
+
+```bash
+rsync -a configuration/agents/common/ /opt/ossec/
+```
 
 ## Filosofía OrangeBox
 
 **Seguridad operable y auditable.**
 
-Las reglas y herramientas deben poder revisarse, probarse y desplegarse sin depender de una caja negra.
+Las reglas y scripts deben poder revisarse, probarse y desplegarse sin depender de una caja negra.
 
 ## OrangeBox IT Services
 
 Enterprise Linux · Wazuh · Security · Monitoring · Zimbra · VMware · Infrastructure
+
+https://TU_HOSTNAME/
 
 ### Keywords
 
