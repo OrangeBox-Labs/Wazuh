@@ -75,19 +75,19 @@ La instalación estándar de Wazuh guarda las credenciales del indexer del manag
 Diario:
 
 ```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group CLIENTE_03 --email TU_EMAIL
+/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group CLIENTE --email TU_EMAIL
 ```
 
 Semanal:
 
 ```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --lastweek --group CLIENTE_03 --email TU_EMAIL
+/var/ossec/reports/orangebox-detailed-security-report.py --lastweek --group CLIENTE --email TU_EMAIL
 ```
 
 Mensual:
 
 ```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --lastmonth --group CLIENTE_03 --email TU_EMAIL
+/var/ossec/reports/orangebox-detailed-security-report.py --lastmonth --group CLIENTE --email TU_EMAIL
 ```
 
 Todos los grupos:
@@ -99,7 +99,7 @@ Todos los grupos:
 Prueba sin enviar correo:
 
 ```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group CLIENTE_03 --email TU_EMAIL --dry-run
+/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group CLIENTE --email TU_EMAIL --dry-run
 ```
 
 ## Fuente de eventos
