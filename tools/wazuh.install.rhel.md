@@ -178,7 +178,7 @@ En EL7+ el instalador utiliza journald para el logging local del firewall; la re
 Las reglas OrangeBox asociadas están en:
 
 ```text
-configuration/rules/orangebox-firewall.xml
+configuration/manager/etc/rules/orangebox-firewall.xml
 ```
 
 Actualmente:
