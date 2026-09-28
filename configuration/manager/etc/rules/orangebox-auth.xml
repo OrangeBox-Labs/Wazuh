@@ -465,7 +465,7 @@
     <rule id="20035" level="0">
         <if_sid>10005</if_sid>
         <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-agent-profiles</list>
-        <match type="pcre2">(?s)^.*\bwp-toolkit\s+:\s+PWD=/usr/local/cpanel/3rdparty/wp-toolkit/scripts\s+;\s+USER=root\s+;\s+COMMAND=.+$</match>
+        <match type="pcre2">(?s)^.*\bwp-toolkit\s+:\s+PWD=/usr/local/cpanel/3rdparty/wp-toolkit/(?:scripts|htdocs)(?:/[^\s;]*)?\s+;\s+USER=root\s+;\s+COMMAND=.+$</match>
         <description>EXCEPCION: WP Toolkit / cPanel - SUDO operativo en contexto autorizado.</description>
         <group>syslog,sudo,authentication,privilege_escalation,orangebox_exception,orangebox_whitelist,wp_toolkit,cpanel,</group>
     </rule>
