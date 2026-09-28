@@ -22,7 +22,7 @@ ALERTA
 
 Se mantiene `alerts.json` porque la integración `custom-orangebox-email.py` necesita recibir las alertas en JSON.
 
-`alerts.log` también permanece habilitado para diagnóstico e integraciones.
+`alerts.log` permanece deshabilitado. Las integraciones y los reportes de OrangeBox utilizan exclusivamente `alerts.json`.
 
 No se registra absolutamente todo con `logall` / `logall_json`. No necesitamos convertir el Manager en una aspiradora de logs.
 
@@ -57,7 +57,7 @@ La whitelist global queda reservada para infraestructura necesaria para el funci
 
 **Reverse proxies y BackupPC no se incluyen en la whitelist global.** Sus excepciones son específicas de cada detección y se gestionan mediante CDB:
 
-- `orangebox-backuppc` para SSH;
+- `orangebox-backuppc-static` y `orangebox-backuppc-dynamic` para SSH;
 - `orangebox-web-auth-proxies` para brute force web;
 - `orangebox-web-discovery-proxies` para discovery web.
 
@@ -144,7 +144,7 @@ Se excluyen archivos dinámicos, logs, swaps y pseudo-filesystems para evitar ru
 
 También se evita generar diff de `/etc/ssl/private.key`, porque no queremos mandar material sensible al sistema de alertas.
 
-La configuración detallada de rutas de los agentes vive en `configuration/agents/`, no aquí.
+La configuración detallada de rutas de los agentes vive en `configuration/manager/etc/shared/`, no aquí.
 
 ## 13. Active Response
 
@@ -196,6 +196,8 @@ Esto se diseñó para detectar el escenario que realmente nos interesa: no solam
 ## 16. Reconocimiento web de archivos sensibles
 
 La regla `10026` también usa `firewall-drop` durante 24 horas.
+
+Las correlaciones IOC de una IP maliciosa (`10460`–`10463`) utilizan `firewall-drop` durante `720h` (30 días).
 
 Se aplica a múltiples intentos contra rutas sensibles como `.env`, credenciales de AWS/GCloud/OCI, `wp-config.php` y rutas equivalentes detectadas por las reglas web.
 
@@ -308,7 +310,7 @@ El framework del Wazuh Manager utiliza:
 /var/ossec/etc/shared/agent-template.conf
 ```
 
-como plantilla al crear un nuevo Agent Group. El código de Wazuh 4.14.7 crea el directorio del grupo y copia esta plantilla como `agent.conf`. Si el archivo no existe, la creación del grupo falla con un error de lectura.
+como plantilla al crear un nuevo Agent Group. El código de Wazuh crea el directorio del grupo y copia esta plantilla como `agent.conf`. Si el archivo no existe, la creación del grupo falla con un error de lectura.
 
 La plantilla versionada por OrangeBox se encuentra en:
 
