@@ -184,7 +184,7 @@ El relay SMTP local se encarga de la entrega posterior.
 El remitente usado por el HTML es:
 
 ```text
-Wazuh SOC <TU_EMAIL>
+Wazuh SOC <wazuh@example.com>
 ```
 
 ## Integración con `ossec.conf`
