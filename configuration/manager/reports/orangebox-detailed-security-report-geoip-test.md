@@ -50,7 +50,7 @@ La API gratuita de DB-IP tiene un límite de 500 consultas diarias; el script li
 El formato de argumentos es el mismo que el reporte detallado actual:
 
 ```bash
-python3 /var/ossec/etc/reports/orangebox-detailed-security-report-geoip-test.py \
+python3 /var/ossec/reports/orangebox-detailed-security-report-geoip-test.py \
   --today \
   --group CTS \
   --email soporte@orangebox.cl \
