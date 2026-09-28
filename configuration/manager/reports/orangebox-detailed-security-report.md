@@ -1,10 +1,10 @@
-# CLIENTE Wazuh — Informe de Seguridad Detallado
+# OrangeBox Wazuh — Informe de Seguridad Detallado
 
 Reporte operativo detallado, complementario al reporte ejecutivo `orangebox-security-report.py`. El reporte presenta el detalle por agente y grupo Wazuh.
 
 ## Identidad del informe
 
-Este reporte corresponde al **Informe de Seguridad Detallado** de CLIENTE. El asunto del correo se genera dinámicamente según el período:
+Este reporte corresponde al **Informe de Seguridad Detallado** de OrangeBox. El asunto del correo se genera dinámicamente según el período:
 
 ```text
 [ORANGEBOX] Diario - Informe de Seguridad Detallado - <grupo>
@@ -34,6 +34,28 @@ Por cada agente se informa:
 - CVE críticos activos del inventario de vulnerabilidades.
 
 Wazuh clasifica las reglas entre los niveles 0 y 16; los niveles 12-14 corresponden a eventos de alta importancia y los niveles 15-16 a severidad severa/máxima. citeturn251854search0
+
+## GeoIP y Top países
+
+El reporte utiliza DB-IP City Lite desde la base MMDB local:
+
+```text
+/var/lib/orangebox/geoip/dbip-city-lite.mmdb
+```
+
+La ruta puede sobrescribirse con `ORANGEBOX_GEOIP_CITY_DB`. El reporte de producción no consulta una API externa por cada IP.
+
+La sección **Top países · eventos de seguridad** resume las IPs públicas únicas asociadas a detecciones de seguridad del período. No debe interpretarse como una lista de ataques confirmados.
+
+La sección **Top países · IPs bloqueadas automáticamente** resume las IPs públicas que activaron una respuesta automática de `firewall-drop`.
+
+En las tablas de IP individuales se muestra país y bandera cuando existe información GeoIP. En el detalle investigativo, las IPs de origen se agrupan con los tipos/reglas de detección observados durante el período.
+
+Las IP privadas, reservadas o no globales se identifican como **IP local** y no se consideran en los rankings de países.
+
+La geolocalización es aproximada y sirve como contexto de seguridad.
+
+Fuente: DB-IP Lite, licencia CC BY 4.0.
 
 ## Datos de vulnerabilidades
 
@@ -75,19 +97,19 @@ La instalación estándar de Wazuh guarda las credenciales del indexer del manag
 Diario:
 
 ```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group CLIENTE --email security@example.com
+/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group <grupo_cliente> --email <destinatario>
 ```
 
 Semanal:
 
 ```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --lastweek --group CLIENTE --email security@example.com
+/var/ossec/reports/orangebox-detailed-security-report.py --lastweek --group <grupo_cliente> --email <destinatario>
 ```
 
 Mensual:
 
 ```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --lastmonth --group CLIENTE --email security@example.com
+/var/ossec/reports/orangebox-detailed-security-report.py --lastmonth --group <grupo_cliente> --email <destinatario>
 ```
 
 Todos los grupos:
@@ -99,7 +121,7 @@ Todos los grupos:
 Prueba sin enviar correo:
 
 ```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group CLIENTE --email security@example.com --dry-run
+/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group <grupo_cliente> --email <destinatario> --dry-run
 ```
 
 ## Fuente de eventos
