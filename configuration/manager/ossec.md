@@ -123,7 +123,7 @@ Las reglas personalizadas pueden posteriormente elevar determinados resultados, 
 El Manager utiliza el Wazuh Indexer local mediante HTTPS en:
 
 ```text
-https://IP_DE_INDEXER:9200
+https://127.0.0.1:9200
 ```
 
 La conexión utiliza los certificados definidos bajo `/etc/filebeat/certs/`.
