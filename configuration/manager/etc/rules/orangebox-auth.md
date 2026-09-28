@@ -58,7 +58,7 @@ Parte de `5715` y eleva a nivel 13 los logins SSH exitosos.
 La excepción `20010` es hija directa de `10001` y silencia únicamente el evento local:
 
 ```text
-Accepted publickey for root from IP_DE_SERVIDOR
+Accepted publickey for root from 127.0.0.1
 ```
 
 No modifica `10001` ni afecta logins exitosos desde otras IP, otros usuarios o otros métodos de autenticación.
@@ -96,7 +96,8 @@ El perfil se resuelve mediante `configuration/lists/orangebox-agent-profiles`.
 Ejemplo:
 
 ```text
-TU_HOSTNAME:cpanel
+srv27:cpanel
+srv27.cloudlatam.cl:cpanel
 ```
 
 `20031` contiene comandos directos conocidos de WP Toolkit/cPanel.
@@ -133,7 +134,10 @@ Los árboles reconocidos son:
 Hosts actualmente registrados en la CDB:
 
 ```text
-TU_HOSTNAME:zimbra
+mail.orangebox.cl:zimbra
+zimbra10.orangebox.cl:zimbra
+mail2.jhg.cl:zimbra
+mail.appnexit.cl:zimbra
 ```
 
 ### 110100 — Comandos Zimbra/Carbonio autorizados
