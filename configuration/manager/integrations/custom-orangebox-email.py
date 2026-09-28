@@ -40,7 +40,6 @@ DEFAULT_ALERT_RECIPIENT = "soporte@example.com"
 # Estas opciones solamente controlan destinatarios adicionales.
 #
 # La comparacion de grupos es CASE-INSENSITIVE:
-#   CLIENTE == CLOUDLATAM == cloudlatam
 #
 # Para agregar un cliente nuevo solamente hay que agregar una entrada
 # aqui. No es necesario modificar ninguna otra parte del script.
@@ -407,7 +406,7 @@ def extract_ssh_source_ip(full_log):
     no entrega data.srcip al decoder.
 
     Ejemplo esperado:
-        Accepted password for root from 10.8.0.22 port 60943 ssh2
+        Accepted password for root from 192.0.2.22 port 60943 ssh2
 
     Esta ruta de respaldo es necesaria porque algunos eventos
     provenientes de journald llegan al integrador sin srcip aunque
@@ -570,7 +569,7 @@ def ssh_already_notified(agent_id, srcip, event_timestamp, ssh_identity="", full
         # Esta es la politica principal. Es la que debe resolver
         # exactamente el caso:
         #
-        #   Accepted password ... from 10.8.0.22
+        #   Accepted password ... from 192.0.2.22
         #
         # cinco veces durante el dia en el mismo agente -> un solo correo.
         #
