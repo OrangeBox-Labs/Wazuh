@@ -1,6 +1,6 @@
 # orangebox-security-report.py
 
-Motor de reportes **CLIENTE Wazuh Security Activity Report**.
+Motor de reportes **OrangeBox Wazuh Security Activity Report**.
 
 El script genera reportes diarios, semanales, mensuales y anuales, globales o filtrados por grupo Wazuh.
 
@@ -78,7 +78,7 @@ El renderer está diseñado específicamente para clientes de correo y utiliza:
 - sin `flex`, CSS Grid ni JavaScript;
 - ancho máximo aproximado de 640 px;
 - contenido adaptable a pantallas pequeñas;
-- logo corporativo usado por las alertas CLIENTE;
+- logo corporativo usado por las alertas OrangeBox;
 - sin listas interactivas de IPs, para mantener una visualización consistente en Gmail, Carbonio, Thunderbird y móvil.
 
 ## Vulnerabilidades / CVE
@@ -143,11 +143,11 @@ Resume actividad de File Integrity Monitoring y cambios relevantes detectados po
 
 ### Detecciones de malware y archivos sospechosos
 
-Incluye reglas CLIENTE asociadas a malware, webshells y ejecutables sospechosos.
+Incluye reglas OrangeBox asociadas a malware, webshells y ejecutables sospechosos.
 
 ### Escalamiento de privilegios
 
-Incluye reglas de `sudo`, `su` y elevación a root, incluyendo la detección CLIENTE `10005`.
+Incluye reglas de `sudo`, `su` y elevación a root, incluyendo la detección OrangeBox `10005`.
 
 ### Detecciones clasificadas como intentos de ataque
 
@@ -168,7 +168,29 @@ El término **intento de ataque** se utiliza para destacar que la actividad pres
 
 Esta sección es independiente del resumen MITRE. Por eso puede existir un informe donde esta sección indique que no hubo detecciones clasificadas como ataque y, al mismo tiempo, existan técnicas MITRE asociadas a otras alertas de autenticación, web, FIM o privilegios.
 
-### Técnicas MITRE observadas en las alertas
+### GeoIP y Top países
+
+El reporte utiliza DB-IP City Lite desde la base MMDB local:
+
+```text
+/var/lib/orangebox/geoip/dbip-city-lite.mmdb
+```
+
+La ruta puede sobrescribirse con `ORANGEBOX_GEOIP_CITY_DB`. No se realizan consultas a una API externa durante la ejecución del reporte.
+
+El bloque **Top países · eventos de seguridad** muestra el ranking de países de las **IPs públicas únicas asociadas a detecciones de seguridad del período**. No representa ataques confirmados ni implica por sí solo compromiso.
+
+Junto a ese bloque se muestra **Top países · IPs bloqueadas automáticamente**, construido exclusivamente con las IPs públicas que activaron una respuesta automática `firewall-drop`.
+
+Las IP privadas, reservadas o no globales se identifican como **IP local** cuando aparecen individualmente y no se incluyen en los rankings geográficos.
+
+En las tablas donde se muestra una IP individual, el reporte agrega país y bandera cuando la geolocalización está disponible.
+
+La geolocalización es aproximada. El dato se utiliza como contexto para el análisis de seguridad y no como identificación física exacta del origen.
+
+Fuente: DB-IP Lite, licencia CC BY 4.0.
+
+## Técnicas MITRE observadas en las alertas
 
 Wazuh incorpora en las alertas los identificadores MITRE ATT&CK, junto con el nombre de la técnica y la táctica cuando están disponibles. El informe conserva el identificador técnico y añade una explicación corta pensada para personas no especialistas.
 
@@ -184,7 +206,7 @@ el `54,914` debe interpretarse como **54,914 alertas de Wazuh asociadas a la té
 
 Las explicaciones se mantienen dentro del propio script para que el reporte sea portable y no dependa de una consulta externa durante su ejecución.
 
-Actualmente se incluyen explicaciones para las técnicas observadas en los reportes CLIENTE, entre ellas:
+Actualmente se incluyen explicaciones para las técnicas observadas en los reportes OrangeBox, entre ellas:
 
 ```text
 T1110       Fuerza bruta
@@ -231,7 +253,7 @@ privilege
 attack
 ```
 
-Los eventos de prueba controlada CLIENTE se mantienen dentro de los reportes. Esto permite demostrar que las reglas y mecanismos de respuesta han sido probados y que las cifras observadas no son números generados artificialmente.
+Los eventos de prueba controlada OrangeBox se mantienen dentro de los reportes. Esto permite demostrar que las reglas y mecanismos de respuesta han sido probados y que las cifras observadas no son números generados artificialmente.
 
 ## Cron recomendado
 
