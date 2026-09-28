@@ -24,7 +24,7 @@ cPanel / WHM / WP Toolkit.
 
 ```text
 srv27:cpanel
-srv27.cloudlatam.cl:cpanel
+srv27.example.com:cpanel
 ```
 
 Se utiliza para las excepciones de WP Toolkit y para `cpanel_ssl_reissue`.
@@ -60,9 +60,9 @@ comando o condición exacta
 excepción
 ```
 
-## `orangebox-backuppc`
+## `orangebox-backuppc-static`
 
-Contiene las IP de los servidores BackupPC autorizados para la excepción SSH `20001`.
+Contiene las IP de BackupPC autorizadas manualmente para la excepción SSH `20001`.
 
 Formato:
 
@@ -70,7 +70,19 @@ Formato:
 <IP>:
 ```
 
-Todas las IP autorizadas usan la misma regla `20001`. Para agregar otro BackupPC, agregue una línea a esta CDB y reinicie el Manager. No cree una regla nueva por cada servidor.
+El updater dinámico no modifica esta lista.
+
+## `orangebox-backuppc-dynamic`
+
+Contiene la IP actual del hostname BackupPC administrado por `update-orangebox-backuppc.sh`. La lista se reemplaza completamente cuando cambia DNS.
+
+Formato:
+
+```text
+<IP>:
+```
+
+No editar esta lista manualmente salvo para recuperación controlada.
 
 ## `orangebox-sftp-certcoopeuch`
 
