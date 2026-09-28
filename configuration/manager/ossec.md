@@ -414,6 +414,37 @@ Las excepciones de aplicaciones utilizan esta CDB para reducir falsos positivos 
 
 Después de modificar la CDB se debe reiniciar el Manager para que el motor cargue la nueva lista.
 
+## Persistencia y fuente de alertas
+
+`alerts.json` es la fuente estructurada utilizada por las integraciones y reportes OrangeBox. `alerts.log` permanece deshabilitado para evitar duplicar el volumen de eventos en formato texto.
+
+El umbral de persistencia se define en `ossec.conf` sin elevar artificialmente el nivel de las reglas auxiliares de correlación.
+
+## Entrega de correo resiliente
+
+`custom-orangebox-email.py` entrega los mensajes mediante:
+
+```text
+/usr/sbin/sendmail -t -i
+```
+
+Esto entrega el mensaje al maildrop local de Postfix y permite que el MTA lo procese posteriormente si estaba temporalmente detenido.
+
+## Validación después de cambios
+
+Antes de reiniciar el Manager después de modificar `ossec.conf`:
+
+```bash
+/var/ossec/bin/wazuh-analysisd -t
+```
+
+Después validar las cadenas críticas con:
+
+```bash
+/var/ossec/bin/wazuh-logtest
+```
+
+Como mínimo se deben probar SSH exitoso (`10001`), `su -> root` (`10004`), `sudo -> root` sin excepción (`10005`) y las correlaciones modificadas.
 ## GeoIP local para reportes
 
 Los reportes OrangeBox utilizan DB-IP Lite desde una base MMDB local para enriquecer IPs públicas con país y bandera, sin depender de una consulta externa por cada IP.
