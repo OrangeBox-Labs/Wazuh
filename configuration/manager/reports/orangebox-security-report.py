@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLIENTE Wazuh Security Activity Report.
+"""OrangeBox Wazuh Security Activity Report.
 
 Genera reportes HTML portables a partir de las alertas JSON de Wazuh.
 El HTML usa tablas e estilos inline para funcionar en Thunderbird, webmail y móvil.
@@ -20,6 +20,7 @@ import json
 import os
 import re
 import subprocess
+import shutil
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
@@ -67,7 +68,7 @@ RULE_CANONICAL_DESCRIPTIONS = {
     "2502": "ACCESO: Contraseña incorrecta en múltiples intentos.",
     "3332": "ACCESO: Fallo de autenticación SASL de Postfix.",
     "10004": "PRIVILEGIOS: Usuario cambió de sesión a ROOT mediante comando SU.",
-    "10005": "PRIVILEGIOS: SUDO hacia ROOT con comando no autorizado por la whitelist CLIENTE.",
+    "10005": "PRIVILEGIOS: SUDO hacia ROOT con comando no autorizado por la whitelist OrangeBox.",
     "5402": "PRIVILEGIOS: SUDO hacia ROOT ejecutado.",
     "5403": "PRIVILEGIOS: Primera ejecución de SUDO por el usuario.",
     "10032": "PRIVILEGIOS: Configuración de SUDO modificada.",
@@ -377,6 +378,106 @@ def fetch_critical_cves(allowed):
 def valid_ip(value):
     try: ipaddress.ip_address(value); return True
     except (ValueError, TypeError): return False
+
+
+GEOIP_CITY_DB = os.environ.get(
+    "ORANGEBOX_GEOIP_CITY_DB",
+    "/var/lib/orangebox/geoip/dbip-city-lite.mmdb",
+)
+
+
+def _mmdblookup_country_value(ip, *path):
+    if not Path(GEOIP_CITY_DB).is_file() or shutil.which("mmdblookup") is None:
+        return ""
+    try:
+        result = subprocess.run(
+            ["mmdblookup", "--file", GEOIP_CITY_DB, "--ip", str(ip), *path],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if result.returncode != 0:
+        return ""
+    match = re.search(r'(?m)^\s*"((?:\\.|[^"])*)"\s*<utf8_string>', result.stdout)
+    if not match:
+        return ""
+    try:
+        return json.loads(f'"{match.group(1)}"')
+    except json.JSONDecodeError:
+        return match.group(1)
+
+
+def country_flag(country_code):
+    code = str(country_code or "").strip().upper()
+    if len(code) != 2 or not code.isalpha():
+        return "🌐"
+    return "".join(chr(127397 + ord(char)) for char in code)
+
+
+def geoip_country(ip, cache=None):
+    cache = cache if cache is not None else {}
+    if ip in cache:
+        return cache[ip]
+    try:
+        if not ipaddress.ip_address(ip).is_global:
+            data = {"country_code": "", "country": "IP local", "flag": "🌐"}
+            cache[ip] = data
+            return data
+    except ValueError:
+        data = {"country_code": "", "country": "No disponible", "flag": "🌐"}
+        cache[ip] = data
+        return data
+
+    code = _mmdblookup_country_value(ip, "country", "iso_code").upper()
+    name = (
+        _mmdblookup_country_value(ip, "country", "names", "es")
+        or _mmdblookup_country_value(ip, "country", "names", "en")
+    )
+    data = {
+        "country_code": code,
+        "country": name or "No disponible",
+        "flag": country_flag(code),
+    }
+    cache[ip] = data
+    return data
+
+
+def geoip_country_map(ips):
+    cache = {}
+    for ip in sorted(set(ips), key=lambda value: (ipaddress.ip_address(value).version, int(ipaddress.ip_address(value)))):
+        geoip_country(ip, cache)
+    return cache
+
+
+def geoip_country_ranking(ips, geo):
+    counts = Counter()
+    for ip in ips:
+        try:
+            if not ipaddress.ip_address(ip).is_global:
+                continue
+        except ValueError:
+            continue
+        item = geo.get(ip) or {}
+        code = str(item.get("country_code") or "").upper()
+        name = str(item.get("country") or "No disponible")
+        counts[(code, name)] += 1
+    return counts.most_common(10)
+
+
+def render_country_ranking_rows(ranking):
+    rows = []
+    for position, ((code, name), count) in enumerate(ranking, start=1):
+        rows.append(
+            f"<tr><td style='border-top:1px solid #e3e9ec;padding:7px;text-align:center;color:#78909c;font-size:11px;'>{position}</td>"
+            f"<td style='border-top:1px solid #e3e9ec;padding:6px;text-align:center;font-size:20px;'>{esc(country_flag(code))}</td>"
+            f"<td style='border-top:1px solid #e3e9ec;padding:7px;font-size:11px;font-weight:bold;'>{esc(name)}</td>"
+            f"<td style='border-top:1px solid #e3e9ec;padding:7px;text-align:right;font-size:12px;font-weight:bold;'>{count:,}</td></tr>"
+        )
+    return "".join(rows)
+
 
 def parse_timestamp(value):
     if not value: return None
@@ -721,7 +822,7 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
     page.append(f"<tr><td style='height:6px;background:{orange};font-size:0;line-height:0;'>&nbsp;</td></tr>")
     page.append("<tr><td align='center' style='padding:18px 10px 34px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;max-width:1120px;background:#ffffff;border:1px solid #e1e5e4;'>")
     page.append("<tr><td style='padding:0;background:#06141d;'>"
-                 "<img src='https://www.example.com/obox/img/banner-reporte-wazuh.png' alt='CLIENTE - Reporte de Seguridad Wazuh' width='1120' style='display:block;width:100%;max-width:1120px;height:auto;border:0;'>"
+                 "<img src='https://www.example.com/obox/img/banner-reporte-wazuh.png' alt='OrangeBox - Reporte de Seguridad Wazuh' width='1120' style='display:block;width:100%;max-width:1120px;height:auto;border:0;'>"
                  "</td></tr>")
     page.append(f"<tr><td style='padding:26px 26px 16px;'><div style='color:{orange};font-size:10px;font-weight:800;letter-spacing:1.8px;'>ORANGEBOX SECURITY · WAZUH</div><div style='font-size:30px;line-height:1.12;font-weight:800;margin-top:6px;color:{text};'>{esc(title)}</div><div style='font-size:14px;line-height:1.5;color:{muted};padding-top:7px;'>{esc(subtitle)}</div><table role='presentation' cellpadding='0' cellspacing='0' border='0' style='margin-top:16px;'><tr><td style='background:#f3f5f4;border:0;border-radius:20px;padding:9px 14px;font-size:11px;color:#526873;'><b>CLIENTE</b>&nbsp; {esc(group)}</td><td width='8'></td><td style='background:{orange};border-radius:20px;padding:9px 14px;font-size:11px;color:#ffffff;'><b>PERÍODO</b>&nbsp; {esc(period)}</td></tr></table></td></tr>")
     page.append("<tr><td style='padding:0 22px 24px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='8' border='0'><tr>")
@@ -744,6 +845,56 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
         if sub: section+=f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:12px;'>{esc(sub)}</td></tr>"
         return section
     def section_close(): return "</table></td></tr>"
+    geo_ips = set(all_ips) | set(firewall_ips)
+    geo = geoip_country_map(geo_ips)
+    source_country_rank = geoip_country_ranking(all_ips, geo)
+    blocked_country_rank = geoip_country_ranking(firewall_ips, geo)
+
+    source_rows = render_country_ranking_rows(source_country_rank)
+    if not source_rows:
+        source_rows = "<tr><td colspan='4' style='padding:8px;color:#78909c;font-size:10px;'>Sin IPs públicas.</td></tr>"
+
+    blocked_rows = render_country_ranking_rows(blocked_country_rank)
+    if not blocked_rows:
+        blocked_rows = "<tr><td colspan='4' style='padding:8px;color:#78909c;font-size:10px;'>No hubo IPs bloqueadas.</td></tr>"
+
+    page.append(section_open(
+        "🌍",
+        "Top países · eventos de seguridad",
+        "IPs públicas únicas asociadas a detecciones de seguridad del período; no implica por sí solo un ataque confirmado.",
+    ))
+    page.append(
+        "<tr><td style='padding:0 8px 8px;'>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='8' border='0'><tr>"
+        "<td width='50%' valign='top' style='padding:0 4px 0 0;'>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+        "<tr><td colspan='4' style='background:#102d38;color:#fff;padding:9px;font-size:11px;font-weight:800;'>Top países · eventos de seguridad</td></tr>"
+        "<tr><td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:28px;'>#</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:34px;text-align:center;'>FLAG</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;'>PAÍS</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;text-align:right;'>IPS</td></tr>"
+        + source_rows +
+        "</table></td>"
+        "<td width='50%' valign='top' style='padding:0 0 0 4px;'>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+        "<tr><td colspan='4' style='background:#102d38;color:#fff;padding:9px;font-size:11px;font-weight:800;'>Top países · IPs bloqueadas automáticamente</td></tr>"
+        "<tr><td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:28px;'>#</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:34px;text-align:center;'>FLAG</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;'>PAÍS</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;text-align:right;'>IPS</td></tr>"
+        + blocked_rows +
+        "</table></td>"
+        "</tr></table></td></tr>"
+    )
+    page.append(
+        "<tr><td style='padding:0 14px 10px;color:#78909c;font-size:10px;'>"
+        "Las IPs de origen representan direcciones públicas asociadas a detecciones de seguridad; "
+        "no implican por sí solas un ataque confirmado. El segundo ranking muestra las IPs públicas "
+        "que activaron una respuesta automática de firewall-drop."
+        "</td></tr>"
+    )
+    page.append(section_close())
+
     page.append(section_open("🛡",L["firewall"],L["firewall_sub"]))
     if firewall_rows:
         # Agrupa las ejecuciones reales de firewall-drop por motivo de bloqueo.
@@ -777,11 +928,13 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
         page.append("<tr><td style='padding:0 8px 8px;overflow-wrap:anywhere;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>")
         page.append(f"<tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>IP</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['block_count'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['trigger_rules'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['ban_duration'])}</td></tr>")
         for src in recidivists:
+            geo_item=geo.get(src) or {}
+            ip_country=(f"{geo_item.get('flag','🌐')} {geo_item.get('country')}" if geo_item.get('country') and geo_item.get('country') != 'No disponible' else '🌐 No disponible')
             rules=sorted(firewall_rules_by_ip[src], key=lambda item:item[0])
             rule_text="<br>".join(f"<span style='font-family:monospace;color:#d65d00;font-weight:bold;'>{esc(rule_id)}</span> — {esc(description)}" for rule_id,description in rules)
             durations=sorted({format_duration(firewall_timeouts.get(rule_id)) for rule_id,_ in rules})
             duration_text=", ".join(durations)
-            page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-size:12px;font-weight:bold;'>{esc(src)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{firewall_recurrence[src]:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;line-height:1.4;overflow-wrap:anywhere;'>{rule_text}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;white-space:nowrap;'>{esc(duration_text)}</td></tr>")
+            page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-size:12px;font-weight:bold;'>{esc(src)}<br><span style='font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:normal;color:#667b84;'>{esc(ip_country)}</span></td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{firewall_recurrence[src]:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;line-height:1.4;overflow-wrap:anywhere;'>{rule_text}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;white-space:nowrap;'>{esc(duration_text)}</td></tr>")
         page.append("</table></td></tr>")
         page.append(f"<tr><td style='padding:0 14px 12px;color:#78909c;font-size:11px;'>El tiempo mostrado corresponde al <b>tiempo de bloqueo configurado en Wazuh</b> para cada regla de respuesta automática; no representa necesariamente el tiempo restante de un bloqueo histórico.</td></tr>")
     else:
@@ -870,7 +1023,7 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
     return "".join(page)
 
 def send_email(subject,body,recipient):
-    msg=MIMEMultipart("alternative"); msg["Subject"]=subject; msg["From"]=f"Wazuh SOC <{DEFAULT_FROM}>"; msg["To"]=recipient; msg.attach(MIMEText("CLIENTE Wazuh Security Activity Report.","plain","utf-8")); msg.attach(MIMEText(body,"html","utf-8"))
+    msg=MIMEMultipart("alternative"); msg["Subject"]=subject; msg["From"]=f"Wazuh SOC <{DEFAULT_FROM}>"; msg["To"]=recipient; msg.attach(MIMEText("OrangeBox Wazuh Security Activity Report.","plain","utf-8")); msg.attach(MIMEText(body,"html","utf-8"))
     result = subprocess.run(["/usr/sbin/sendmail","-t","-i"], input=msg.as_string(), text=True, capture_output=True, timeout=10, check=False)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or f"sendmail exit={result.returncode}").strip()
@@ -882,7 +1035,7 @@ def archive_html(body,label):
     return path
 
 def main():
-    parser=argparse.ArgumentParser(description="CLIENTE Wazuh Security Activity Report"); modes=parser.add_mutually_exclusive_group(required=True)
+    parser=argparse.ArgumentParser(description="OrangeBox Wazuh Security Activity Report"); modes=parser.add_mutually_exclusive_group(required=True)
     for name in ("today","yesterday","thisweek","lastweek","thismonth","lastmonth","thisyear","lastyear"): modes.add_argument("--"+name,action="store_true")
     modes.add_argument("--date",help="Día específico YYYY-MM-DD"); parser.add_argument("--group",required=True,help="Grupos Wazuh separados por comas")
     parser.add_argument("--email",action="append",required=True,help="Destinatario. Puede repetirse o contener varias direcciones separadas por comas."); parser.add_argument("--lang",choices=("es","en"),default="es",help="Idioma del informe: es o en"); args=parser.parse_args()
