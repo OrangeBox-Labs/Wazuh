@@ -40,7 +40,7 @@ Las correlaciones SSH principales son:
 - `10006`: fuerza bruta SSH seguida de login exitoso desde la misma IP dentro de 5 minutos.
 - `10008`: tres logins SSH exitosos desde la misma IP hacia ubicaciones diferentes dentro de 5 minutos, correlacionados globalmente entre agentes.
 
-`10008` fue validada con Logtest manteniendo el mismo token de sesión y variando la `location` por evento; la tercera autenticación generó `10008` nivel 13. No tiene Active Response.
+`10008` es una detección para investigación y no tiene Active Response asociado.
 
 Las excepciones de aplicación están separadas por perfil:
 
