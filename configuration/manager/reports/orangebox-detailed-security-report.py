@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OrangeBox Wazuh - Resumen detallado por grupo.
+"""CLIENTE Wazuh - Resumen detallado por grupo.
 
 Reporte operativo orientado al cliente. Reutiliza el motor de extracción,
 clasificación y períodos de orangebox-security-report.py, pero presenta el
@@ -52,7 +52,7 @@ AGENT_CONTROL = "/var/ossec/bin/agent_control"
 AGENT_GROUPS = "/var/ossec/bin/agent_groups"
 OSSEC_CONF = Path("/var/ossec/etc/ossec.conf")
 ARCHIVE_DIR = Path("/var/ossec/reports/archive")
-DEFAULT_FROM = "TU_EMAIL"
+DEFAULT_FROM = "wazuh@example.com"
 
 LEVEL_HIGH_MIN = 12
 LEVEL_CRITICAL_MIN = 15
@@ -654,7 +654,7 @@ def period_label(mode):
 
 
 def generate_html(group_sections, title, subtitle, period, total_agents, total_events, total_high, total_critical, total_attacks, vuln_error=None, mitre_descriptions=None):
-    logo_url = "https://TU_HOSTNAME/obox/img/logo-dark.png"
+    logo_url = "https://www.example.com/obox/img/logo-dark.png"
     dark = "#102d38"
     orange = "#ff5a2f"
     coral = "#ff6b4a"
@@ -677,7 +677,7 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
 
         # Header corporativo alojado como imagen para máxima compatibilidad con clientes de correo.
         "<tr><td style='padding:0;background:#06141d;'>",
-        "<img src='https://TU_HOSTNAME/obox/img/banner-reporte-wazuh.png' alt='OrangeBox - Reporte de Seguridad Wazuh' width='1120' style='display:block;width:100%;max-width:1120px;height:auto;border:0;'>",
+        "<img src='https://www.example.com/obox/img/banner-reporte-wazuh.png' alt='CLIENTE - Reporte de Seguridad Wazuh' width='1120' style='display:block;width:100%;max-width:1120px;height:auto;border:0;'>",
         "</td></tr>",
 
         # Report heading
@@ -921,7 +921,7 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
 
 def generate_plain(group_sections, period, total_agents, total_events, total_high, total_critical, total_attacks, vuln_error=None):
     lines = [
-        "OrangeBox — Resumen de Seguridad por Grupo",
+        "CLIENTE — Resumen de Seguridad por Grupo",
         f"Período: {period}",
         f"Servidores: {total_agents} | Eventos de seguridad: {total_events} | Alertas alta severidad (12–14): {total_high} | Alertas críticas (15–16): {total_critical} | Detecciones de ataque: {total_attacks}",
         "",
@@ -989,7 +989,7 @@ def archive_html(body, filename):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="OrangeBox Wazuh Group Security Report")
+    parser = argparse.ArgumentParser(description="CLIENTE Wazuh Group Security Report")
     modes = parser.add_mutually_exclusive_group(required=True)
     for name in ("today", "yesterday", "thisweek", "lastweek", "thismonth", "lastmonth", "thisyear", "lastyear"):
         modes.add_argument("--" + name, action="store_true")
@@ -1066,9 +1066,9 @@ def main():
 
     client_name = args.group
     title = (
-        f"OrangeBox — Reporte detallado: {client_name}"
+        f"CLIENTE — Reporte detallado: {client_name}"
         if len(groups) == 1
-        else "OrangeBox — Reporte detallado"
+        else "CLIENTE — Reporte detallado"
     )
     subtitle = ""
     period = f"{start.strftime('%d/%m/%Y %H:%M')} — {end.strftime('%d/%m/%Y %H:%M')}"
