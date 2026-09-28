@@ -443,12 +443,8 @@
         cambio de contenido. Cambios exclusivos de inode, mtime o permisos
         no disparan estas reglas.
 
-    Ejemplo de estructura para una futura excepcion:
-
-    <rule id="20030" level="3">
-        <if_sid>10030</if_sid>
-        <field name="file">^/ruta/validada$</field>
-        <description>EXCEPCION: Cambio autorizado previamente validado.</description>
-        <group>orangebox_exception,orangebox_whitelist,</group>
-    </rule>
+    Una nueva excepcion debe usar un SID del rango 20000-29999 y contener
+    condiciones especificas de contexto, archivo y/o actor. No reutilizar
+    SIDs antiguos ni mantener ejemplos de reglas no desplegadas dentro del
+    ruleset de produccion.
 -->
