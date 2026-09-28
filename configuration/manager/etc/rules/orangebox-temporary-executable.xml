@@ -144,19 +144,25 @@
 
 
     <!--
-        20054 - EXCEPCION WEAK-MODULES / INITRAMFS
+        20044 - EXCEPCION WEAK-MODULES / INITRAMFS
 
         weak-modules crea arboles temporales bajo /tmp/weak-modules.* durante
-        la reconstruccion/preparacion de initramfs. Estos objetos pueden tener
-        permisos de ejecucion legitimos y generar falsos positivos en 10410.
+        la reconstruccion/preparacion de initramfs.
 
-        La excepcion se limita exclusivamente al arbol old_initramfs. No se
-        excluye /tmp en general.
+        Estos arboles contienen directorios y archivos con permisos de
+        ejecucion legitimos (por ejemplo /bin, /lib, /lib64, /sbin y
+        ejecutables del initramfs). La regla 10410 se basa en el campo
+        "perm", por lo que estos objetos pueden generar falsos positivos.
+
+        La excepcion se limita exclusivamente al arbol old_initramfs creado
+        por weak-modules. No se excluye /tmp en general.
     -->
     <rule id="20054" level="0">
         <if_sid>10410</if_sid>
         <field name="file" type="pcre2">^/tmp/weak-modules\.[^/]+/old_initramfs(?:/.*)?$</field>
-        <description>EXCEPCION ORANGEBOX: arbol temporal old_initramfs generado por weak-modules.</description>
+        <description>
+            EXCEPCION ORANGEBOX: arbol temporal old_initramfs generado por weak-modules.
+        </description>
         <group>orangebox_exception,orangebox_whitelist,weak_modules,initramfs,</group>
     </rule>
 
