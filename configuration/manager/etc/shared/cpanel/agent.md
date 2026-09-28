@@ -19,7 +19,8 @@ configuration/lists/orangebox-agent-profiles
 Ejemplo:
 
 ```text
-TU_HOSTNAME:cpanel
+srv27:cpanel
+srv27.cloudlatam.cl:cpanel
 ```
 
 La pertenencia al grupo y la entrada CDB deben mantenerse sincronizadas.
