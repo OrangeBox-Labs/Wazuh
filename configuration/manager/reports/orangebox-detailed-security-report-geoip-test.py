@@ -790,8 +790,9 @@ def main():
             print(f"ERROR: correo inválido: {recipient}", flush=True)
             continue
 
+        from_addr = getattr(prod, "DEFAULT_FROM", "wazuh@example.com")
         msg_lines = [
-            "From: Wazuh SOC <wazuh@example.com>",
+            f"From: Wazuh SOC <{from_addr}>",
             f"To: {recipient}",
             f"Subject: {subject}",
             "MIME-Version: 1.0",
