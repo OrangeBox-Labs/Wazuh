@@ -19,7 +19,6 @@ import datetime
 import hashlib
 import json
 import os
-import shutil
 import stat
 import sys
 import tempfile
@@ -40,16 +39,6 @@ def log(message):
     except Exception:
         pass
 
-
-def sha256_file(path):
-    digest = hashlib.sha256()
-    with open(path, "rb") as file_handle:
-        while True:
-            chunk = file_handle.read(1024 * 1024)
-            if not chunk:
-                break
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def main():
@@ -84,74 +73,116 @@ def main():
         log("ERROR: missing syscheck.path or valid syscheck.sha256")
         return 1
 
-    if not os.path.isfile(path) or os.path.islink(path):
-        log("ERROR: target is missing or is a symlink: {}".format(path))
-        return 1
+    source_fd = None
+    source_stat = None
 
     try:
-        actual = sha256_file(path)
-    except Exception as exc:
-        log("ERROR: cannot hash {}: {}".format(path, exc))
-        return 1
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+        source_fd = os.open(path, flags)
+        source_stat = os.fstat(source_fd)
 
-    if actual.lower() != expected:
-        log(
-            "ABORT: source hash changed/mismatch for {} expected={} actual={}".format(
-                path, expected, actual
-            )
-        )
-        return 1
-
-    try:
-        os.makedirs(QUARANTINE_ROOT, mode=0o700, exist_ok=True)
-        os.chmod(QUARANTINE_ROOT, 0o700)
-    except Exception as exc:
-        log("ERROR: cannot create quarantine root {}: {}".format(QUARANTINE_ROOT, exc))
-        return 1
-
-    qdir = os.path.join(QUARANTINE_ROOT, expected)
-    try:
-        os.makedirs(qdir, mode=0o700, exist_ok=True)
-        os.chmod(qdir, 0o700)
-    except Exception as exc:
-        log("ERROR: cannot create quarantine directory {}: {}".format(qdir, exc))
-        return 1
-
-    base = os.path.basename(path) or "quarantined-file"
-    destination = os.path.join(qdir, base)
-    if os.path.exists(destination):
-        stamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        destination = os.path.join(qdir, "{}-{}".format(stamp, base))
-
-    temp_fd, temp_path = tempfile.mkstemp(prefix=".quarantine-", dir=qdir)
-    os.close(temp_fd)
-
-    try:
-        shutil.copy2(path, temp_path, follow_symlinks=False)
-        copied_hash = sha256_file(temp_path)
-
-        if copied_hash.lower() != expected:
-            log(
-                "ABORT: quarantine copy hash mismatch for {} expected={} actual={}".format(
-                    path, expected, copied_hash
-                )
-            )
-            os.unlink(temp_path)
+        if not stat.S_ISREG(source_stat.st_mode):
+            log("ERROR: target is not a regular file: {}".format(path))
             return 1
 
-        os.chmod(temp_path, 0o400)
-        os.rename(temp_path, destination)
-        os.chmod(destination, 0o400)
-    except Exception as exc:
-        try:
-            os.unlink(temp_path)
-        except OSError:
-            pass
-        log("ERROR: failed to quarantine {}: {}".format(path, exc))
-        return 1
+        # Hash the opened inode, not the pathname. If the file changes while
+        # it is being read, the quarantine copy hash will fail closed.
+        os.lseek(source_fd, 0, os.SEEK_SET)
+        source_digest = hashlib.sha256()
+        while True:
+            chunk = os.read(source_fd, 1024 * 1024)
+            if not chunk:
+                break
+            source_digest.update(chunk)
+        actual = source_digest.hexdigest()
 
-    try:
-        source_stat = os.stat(path, follow_symlinks=False)
+        if actual.lower() != expected:
+            log(
+                "ABORT: source hash changed/mismatch for {} expected={} actual={}".format(
+                    path, expected, actual
+                )
+            )
+            return 1
+
+        try:
+            os.makedirs(QUARANTINE_ROOT, mode=0o700, exist_ok=True)
+            os.chmod(QUARANTINE_ROOT, 0o700)
+        except Exception as exc:
+            log("ERROR: cannot create quarantine root {}: {}".format(QUARANTINE_ROOT, exc))
+            return 1
+
+        qdir = os.path.join(QUARANTINE_ROOT, expected)
+        try:
+            os.makedirs(qdir, mode=0o700, exist_ok=True)
+            os.chmod(qdir, 0o700)
+        except Exception as exc:
+            log("ERROR: cannot create quarantine directory {}: {}".format(qdir, exc))
+            return 1
+
+        base = os.path.basename(path) or "quarantined-file"
+        destination = os.path.join(qdir, base)
+        if os.path.exists(destination):
+            stamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+            destination = os.path.join(qdir, "{}-{}".format(stamp, base))
+
+        temp_fd, temp_path = tempfile.mkstemp(prefix=".quarantine-", dir=qdir)
+
+        try:
+            # Copy from the already-open descriptor and hash the exact bytes
+            # written to quarantine. No second pathname lookup of the source.
+            copied_hash = hashlib.sha256()
+            with os.fdopen(os.dup(source_fd), "rb") as source_file, os.fdopen(temp_fd, "wb") as target_file:
+                while True:
+                    chunk = source_file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    copied_hash.update(chunk)
+                    target_file.write(chunk)
+                target_file.flush()
+                os.fsync(target_file.fileno())
+
+            copied_digest = copied_hash.hexdigest()
+            if copied_digest.lower() != expected:
+                log(
+                    "ABORT: quarantine copy hash mismatch for {} expected={} actual={}".format(
+                        path, expected, copied_digest
+                    )
+                )
+                os.unlink(temp_path)
+                return 1
+
+            os.chmod(temp_path, 0o400)
+            os.rename(temp_path, destination)
+            os.chmod(destination, 0o400)
+        except Exception as exc:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+            log("ERROR: failed to quarantine {}: {}".format(path, exc))
+            return 1
+
+        # Re-check the pathname immediately before unlinking it. If another
+        # process replaced the pathname, preserve the original and fail closed.
+        current_stat = os.stat(path, follow_symlinks=False)
+        same_identity = (
+            current_stat.st_dev == source_stat.st_dev
+            and current_stat.st_ino == source_stat.st_ino
+            and current_stat.st_size == source_stat.st_size
+            and getattr(current_stat, "st_mtime_ns", int(current_stat.st_mtime * 1e9))
+                == getattr(source_stat, "st_mtime_ns", int(source_stat.st_mtime * 1e9))
+            and getattr(current_stat, "st_ctime_ns", int(current_stat.st_ctime * 1e9))
+                == getattr(source_stat, "st_ctime_ns", int(source_stat.st_ctime * 1e9))
+        )
+
+        if not same_identity:
+            log(
+                "ABORT: source pathname changed before removal; quarantine preserved for {}".format(
+                    path
+                )
+            )
+            return 1
+
         metadata = {
             "quarantine_time_utc": datetime.datetime.utcnow().strftime(
                 "%Y-%m-%dT%H:%M:%SZ"
@@ -179,21 +210,23 @@ def main():
         os.chmod(temp_metadata, 0o400)
         os.rename(temp_metadata, metadata_path)
         os.chmod(metadata_path, 0o400)
-    except Exception as exc:
-        log(
-            "WARNING: quarantined {} but metadata creation failed: {}".format(
-                path, exc
-            )
-        )
 
-    try:
+        # The source path is removed only after the quarantine copy and the
+        # inode/path identity checks have succeeded.
         os.unlink(path)
     except Exception as exc:
         log(
-            "ERROR: file preserved in quarantine but original could not be removed: "
-            "{}: {}".format(path, exc)
+            "ERROR: failed to quarantine {} safely: {}".format(
+                path, exc
+            )
         )
         return 1
+    finally:
+        if source_fd is not None:
+            try:
+                os.close(source_fd)
+            except OSError:
+                pass
 
     log(
         "QUARANTINED: {} -> {} sha256={} rule={} agent={}".format(
