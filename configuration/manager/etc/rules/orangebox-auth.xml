@@ -333,28 +333,27 @@
     <!--
         BackupPC - SSH automatizado autorizado.
 
-        La excepción representa la función "servidor BackupPC autorizado",
-        no una cantidad fija de servidores. Todas las IP permitidas se
-        mantienen en la CDB "etc/lists/orangebox-backuppc".
+        Las autorizaciones se separan en dos CDB:
+          - orangebox-backuppc-static: IPs estaticas administradas manualmente.
+          - orangebox-backuppc-dynamic: IPs obtenidas automaticamente desde DNS.
 
-        Para agregar otro servidor BackupPC:
-          1. Agregar su IP como una nueva línea en la CDB:
-             <IP>:
-          2. Reiniciar el Wazuh Manager para recargar la CDB.
-          3. No crear otra regla 200xx por cada servidor.
-
-        La regla 20001 es compartida por todos los BackupPC autorizados.
-        Esto evita duplicar reglas cuando una implementación tiene uno,
-        tres o más servidores BackupPC.
-
-        Si en el futuro se necesita una excepción que requiera una regla
-        distinta, usar un ID libre dentro de 20000-29999 y verificar que
-        no esté utilizado por ninguna otra regla del ruleset.
+        IMPORTANTE:
+          - La lista estatica NUNCA es modificada por el updater.
+          - La lista dinamica se reemplaza completamente cuando cambia DNS.
+          - Ambas excepciones producen el mismo resultado level 0.
+          - No se crea una regla por cada IP.
     -->
     <rule id="20001" level="0">
         <if_sid>10001</if_sid>
-        <list field="srcip" lookup="address_match_key">etc/lists/orangebox-backuppc</list>
-        <description>EXCEPCION: SSH exitoso legitimo desde servidor BackupPC autorizado.</description>
+        <list field="srcip" lookup="address_match_key">etc/lists/orangebox-backuppc-static</list>
+        <description>EXCEPCION: SSH exitoso legitimo desde servidor BackupPC estatico autorizado.</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,backuppc,</group>
+    </rule>
+
+    <rule id="20002" level="0">
+        <if_sid>10001</if_sid>
+        <list field="srcip" lookup="address_match_key">etc/lists/orangebox-backuppc-dynamic</list>
+        <description>EXCEPCION: SSH exitoso legitimo desde servidor BackupPC dinamico autorizado.</description>
         <group>authentication_success,orangebox_exception,orangebox_whitelist,backuppc,</group>
     </rule>
 
