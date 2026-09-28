@@ -23,7 +23,8 @@ Una misma máquina puede necesitar hostname corto y FQDN cuando ambas representa
 cPanel / WHM / WP Toolkit.
 
 ```text
-TU_HOSTNAME:cpanel
+srv27:cpanel
+srv27.cloudlatam.cl:cpanel
 ```
 
 Se utiliza para las excepciones de WP Toolkit y para `cpanel_ssl_reissue`.
