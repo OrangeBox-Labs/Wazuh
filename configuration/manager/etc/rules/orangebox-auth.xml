@@ -156,11 +156,11 @@
      ================================================================ -->
 <group name="orangebox,authentication,ssh,attack,">
 
-    <rule id="10006" level="13">
+    <rule id="10006" level="13" frequency="2" timeframe="300">
         <if_sid>10001</if_sid>
         <if_matched_sid>5763</if_matched_sid>
         <same_source_ip/>
-        <description>ALERTA: FUERZA BRUTA SSH COMPLETADA CON EXITO. LOGIN EXITOSO POSTERIOR A MULTIPLES FALLOS DE AUTENTICACION.</description>
+        <description>ALERTA: FUERZA BRUTA SSH COMPLETADA CON EXITO. LOGIN EXITOSO POSTERIOR A UN EVENTO DE FUERZA BRUTA SSH DENTRO DE 5 MINUTOS.</description>
         <group>authentication_success,authentication_failures,brute_force,attack,orangebox_ssh,orangebox_auth,</group>
     </rule>
 
@@ -439,26 +439,34 @@
     </rule>
 
     <!--
-        WP Toolkit / cPanel - allowlist operacional amplia.
+        WP Toolkit / cPanel - excepcion contextual.
 
         WP Toolkit ejecuta numerosas operaciones administrativas mediante
-        sudo -> root y el conjunto de comandos puede variar entre versiones.
-        Mantener una excepcion por cada variante genera ruido y mantenimiento
-        innecesario.
+        sudo -> root y las variantes de COMMAND cambian entre versiones,
+        actualizaciones y tareas. Por eso NO se mantiene una allowlist de
+        comandos individuales aqui.
 
-        Esta excepcion se limita al contexto operacional de WP Toolkit:
-          - usuario tecnico = wp-toolkit;
-          - PWD dentro del arbol de scripts de WP Toolkit;
-          - USER=root;
-          - ejecucion mediante /bin/sh -c.
+        La excepcion se limita al contexto operacional estable:
+          - perfil del agente = cPanel;
+          - usuario iniciador de sudo = wp-toolkit;
+          - PWD exacto = /usr/local/cpanel/3rdparty/wp-toolkit/scripts;
+          - usuario destino = root;
+          - existe un COMMAND.
 
-        La regla no afecta a otros usuarios, perfiles ni sudo interactivo.
-        Se acepta el comando que WP Toolkit invoque dentro de ese contexto.
+        IMPORTANTE:
+          - 10005 sigue siendo el detector universal de SUDO -> ROOT.
+          - Esta regla level 0 solo se evalua despues de 10005.
+          - No se toca la integracion de correo ni su deduplicacion.
+          - Un sudo de wp-toolkit fuera de este contexto sigue generando
+            10005.
+          - No se filtra por una lista de comandos que pueda quedar obsoleta
+            con una nueva version de WP Toolkit.
     -->
     <rule id="20035" level="0">
         <if_sid>10005</if_sid>
-        <match type="pcre2">^.*\bwp-toolkit\s+:\s+PWD=/usr/local/cpanel/3rdparty/wp-toolkit/scripts(?:/[^\s;]*)?\s+;\s+USER=root\s+;\s+COMMAND=.+$</match>
-        <description>EXCEPCION: WP Toolkit / cPanel - operaciones administrativas legitimas ejecutadas como root.</description>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-agent-profiles</list>
+        <match type="pcre2">(?s)^.*\bwp-toolkit\s+:\s+PWD=/usr/local/cpanel/3rdparty/wp-toolkit/scripts\s+;\s+USER=root\s+;\s+COMMAND=.+$</match>
+        <description>EXCEPCION: WP Toolkit / cPanel - SUDO operativo en contexto autorizado.</description>
         <group>syslog,sudo,authentication,privilege_escalation,orangebox_exception,orangebox_whitelist,wp_toolkit,cpanel,</group>
     </rule>
 
