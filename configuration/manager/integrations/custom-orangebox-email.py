@@ -900,6 +900,15 @@ full_log = alert_json.get(
     "No log fragment attached."
 )
 
+if not full_log or full_log == "No log fragment attached.":
+    vulnerability = alert_json.get("data", {}).get("vulnerability", {})
+    if isinstance(vulnerability, dict) and vulnerability:
+        full_log = json.dumps(
+            vulnerability,
+            ensure_ascii=False,
+            indent=2
+        )
+
 rule_groups = alert_json.get("rule", {}).get("groups", [])
 if not isinstance(rule_groups, list):
     rule_groups = []
