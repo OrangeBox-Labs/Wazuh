@@ -119,3 +119,10 @@ configuration/manager/etc/rules/
 ```
 
 No agregar firmas locales al índice oficial descargado. Las actualizaciones de firmas se obtienen del repositorio Yara-Rules configurado por el instalador.
+
+
+## Fuente única del runtime
+
+`tools/orangebox-yara/orangebox-yara.sh` es la única fuente de código del runtime. El instalador copia ese archivo y no mantiene una segunda implementación embebida.
+
+El ruleset oficial queda fijado por SHA. La instalación falla si el commit obtenido no coincide con `ORANGEBOX_YARA_RULES_COMMIT`.
