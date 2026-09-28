@@ -3,7 +3,7 @@
 # RPM OPT: /opt/ossec
 # El agent.conf se hereda desde el Wazuh Manager.
 
-DEFAULT_MANAGER="wazuh.orangebox.cl"
+DEFAULT_MANAGER="wazuh.example.com"
 DEFAULT_GROUP="OrangeBox"
 DEFAULT_AGENT_NAME="$HOSTNAME"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
