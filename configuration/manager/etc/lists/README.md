@@ -84,9 +84,9 @@ Formato:
 
 No editar esta lista manualmente salvo para recuperación controlada.
 
-## `orangebox-sftp-certcoopeuch`
+## `orangebox-sftp-external`
 
-Contiene los orígenes autorizados para el SFTP del usuario `certcoopeuch`. La regla `20004` combina esta lista con la condición de usuario.
+Contiene los orígenes autorizados para un SFTP externo administrado por OrangeBox. La regla `20004` combina esta lista con la condición de usuario.
 
 Agregar una IP nueva significa agregar una línea `<IP>:` y reiniciar el Manager.
 
