@@ -65,11 +65,46 @@ No modifica `10001` ni afecta logins exitosos desde otras IP, otros usuarios o o
 
 La excepción `20008` se mantiene para el mensaje auxiliar `Accepted key ... found at ...`, que no representa una sesión autenticada completa.
 
+## 10006 — Fuerza bruta SSH seguida de login exitoso
+
+`10006` correlaciona un login SSH exitoso (`10001`) con la detección nativa `5763` de fuerza bruta, exigiendo la misma IP de origen y una ventana de 5 minutos. La condición efectiva es `5763 -> 10001` y `same_source_ip`. La regla fue validada con una secuencia de fallos seguida por un login exitoso desde la misma IP.
+
+## 10008 — Movimiento lateral SSH
+
+`10008` detecta tres logins SSH exitosos desde la misma IP de origen hacia ubicaciones diferentes dentro de 5 minutos.
+
+Condiciones:
+
+```text
+10001
+  + misma IP de origen
+  + ubicación diferente
+  + correlación global entre agentes
+  + 3 eventos / 300 segundos
+  = 10008 / nivel 13
+```
+
+La regla utiliza `global_frequency` para correlacionar eventos generados por distintos agentes y `different_location` para evitar que varios logins sobre un único origen de logs satisfagan la condición. Wazuh documenta ambos operadores como mecanismos de correlación temporal. citeturn0search0
+
+La prueba reproducible se realizó mediante la clase oficial `WazuhLogtest` contra el socket local de Logtest, manteniendo el mismo token y cambiando la `location` entre eventos:
+
+```text
+ubicación A -> 10001 / firedtimes 1
+ubicación B -> 10001 / firedtimes 2
+ubicación C -> 10008 / nivel 13
+```
+
+No tiene Active Response asociado: el patrón puede corresponder a un bastión o sistema administrativo legítimo y requiere investigación.
+
 ## 10004 — SU a root
 
 Detecta apertura de sesión `su` o `su-l` hacia `root` cuando el UID iniciador no es 0.
 
 Un `su -> root` iniciado por UID 0 no se considera escalamiento porque el proceso ya era root. Esta condición evita falsos positivos de servicios automáticos observados en producción.
+
+### 10613 — Reconocimiento seguido de sudo → root
+
+`10613` requiere el evento actual `10005` y una coincidencia previa de `orangebox_recon` dentro de 600 segundos y en el mismo `location`. La frecuencia es `1`: no exige dos eventos de reconocimiento; exige un único reconocimiento previo y el `sudo → root` actual.
 
 ## 10005 — SUDO hacia root
 
@@ -96,8 +131,8 @@ El perfil se resuelve mediante `configuration/lists/orangebox-agent-profiles`.
 Ejemplo:
 
 ```text
-srv27:cpanel
-srv27.cloudlatam.cl:cpanel
+servidor-cpanel.example.com:cpanel
+servidor-cpanel.example.com:cpanel
 ```
 
 `20031` contiene comandos directos conocidos de WP Toolkit/cPanel.
@@ -106,7 +141,7 @@ Los wrappers `/bin/sh -c` se separan en reglas independientes para que cada oper
 
 ### Contexto cPanel validado
 
-Actualmente `20031` cubre los comandos directos conocidos de WP Toolkit y `20035` cubre el contexto de ejecución mediante wrapper que ha sido validado para ese perfil.
+Actualmente `20031` cubre los comandos directos conocidos de WP Toolkit y `20035` cubre únicamente wrappers `/bin/sh -c` con operaciones previamente validadas. No se acepta `COMMAND=.+` de forma genérica y se rechazan metacaracteres de shell.
 
 Ambas excepciones requieren perfil `cpanel` y usuario `wp-toolkit`.
 
@@ -131,14 +166,7 @@ Los árboles reconocidos son:
 /opt/zextras
 ```
 
-Hosts actualmente registrados en la CDB:
-
-```text
-mail.orangebox.cl:zimbra
-zimbra10.orangebox.cl:zimbra
-mail2.jhg.cl:zimbra
-mail.appnexit.cl:zimbra
-```
+Los hosts se mantienen en la CDB de despliegue y no se publican identificadores operacionales.
 
 ### 110100 — Comandos Zimbra/Carbonio autorizados
 
@@ -161,11 +189,11 @@ El perfil identifica al endpoint y el comando identifica la operación. Esto es 
 
 ### BackupPC
 
-`20001` consulta la CDB `etc/lists/orangebox-backuppc`. Todas las IP autorizadas para los servidores BackupPC comparten una sola regla.
+`20001` consulta `etc/lists/orangebox-backuppc-static` y `20002` consulta `etc/lists/orangebox-backuppc-dynamic`. La lista estática contiene las IP autorizadas manualmente; la dinámica contiene la IP actual obtenida desde DNS.
 
-Para agregar otro BackupPC, agregar una nueva línea `<IP>:` en la CDB y reiniciar el Wazuh Manager. No crear otra regla por cada servidor.
+Para agregar otro BackupPC estático, agregar una línea `<IP>:` a la CDB estática. La lista dinámica no se edita manualmente: la mantiene `update-orangebox-backuppc.sh`.
 
-La cantidad de servidores no está fija: la lista puede contener uno, tres o más orígenes sin duplicar reglas.
+Ambas excepciones producen `level 0` y no alteran la alerta base `10001`.
 
 ### SFTP certcoopeuch
 
@@ -231,7 +259,8 @@ Cada nuevo wrapper debe probarse también con una variante que agregue `;`, `&&`
 
 - reglas nativas de Wazuh para SSH, PAM y sudo;
 - CDB `etc/lists/orangebox-agent-profiles`;
-- CDB `etc/lists/orangebox-backuppc`;
+- CDB `etc/lists/orangebox-backuppc-static`;
+- CDB `etc/lists/orangebox-backuppc-dynamic`;
 - CDB `etc/lists/orangebox-sftp-certcoopeuch`;
 - CDB `etc/lists/orangebox-web-auth-proxies`;
 - CDB `etc/lists/orangebox-web-discovery-proxies`;
