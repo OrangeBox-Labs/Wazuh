@@ -14,6 +14,7 @@ set -euo pipefail
 
 YARA_RULES_REPO="https://github.com/Yara-Rules/rules.git"
 YARA_RULES_BRANCH="${ORANGEBOX_YARA_RULES_BRANCH:-master}"
+YARA_RULES_COMMIT="${ORANGEBOX_YARA_RULES_COMMIT:-0f93570194a80d2f2032869055808b0ddcdfb360}"
 
 if [[ "${EUID}" -ne 0 ]]; then
     echo "ERROR: ejecutar como root." >&2
@@ -118,193 +119,17 @@ fi
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
-SCRIPT_SRC="${TMP_DIR}/orangebox-yara.sh"
+SCRIPT_SRC="${SCRIPT_DIR}/orangebox-yara.sh"
 
-cat > "${SCRIPT_SRC}" <<'ORANGEBOX_YARA_SCRIPT'
-#!/usr/bin/env bash
-set -u
-set -o pipefail
-
-# OrangeBox Wazuh - Active Response FIM -> YARA
-# ==============================================
-#
-# Analiza unicamente el archivo que disparo FIM y utiliza EXCLUSIVAMENTE
-# los indices oficiales descargados desde:
-#   https://github.com/Yara-Rules/rules
-#
-# No contiene firmas YARA propias de OrangeBox.
-# No elimina, mueve, cuarentena ni modifica archivos.
-#
-# Compatibilidad:
-#   - Wazuh agent normal: /var/ossec
-#   - OrangeBox cPanel/Enterprise: /opt/ossec
-#
-# El Manager decide que eventos son candidatos mediante 10420/10421.
-
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-WAZUH_HOME="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
-LOG_FILE="${WAZUH_HOME}/logs/active-responses.log"
-RULES_DIR="${SCRIPT_DIR}/yara/rules"
-RULESET_DIR="${RULES_DIR}/yara-rules"
-MAX_FILE_SIZE="${ORANGEBOX_YARA_MAX_FILE_SIZE:-5242880}"
-
-log_info() {
-    printf 'wazuh-yara: INFO - %s\n' "$*" >> "${LOG_FILE}"
+[[ -f "${SCRIPT_SRC}" ]] || {
+    echo "ERROR: falta el único source of truth del runtime: ${SCRIPT_SRC}" >&2
+    exit 1
 }
 
-log_error() {
-    printf 'wazuh-yara: ERROR - %s\n' "$*" >> "${LOG_FILE}"
+bash -n "${SCRIPT_SRC}" || {
+    echo "ERROR: el runtime YARA fuente tiene error de sintaxis: ${SCRIPT_SRC}" >&2
+    exit 1
 }
-
-log_match() {
-    printf 'wazuh-yara: ALERT - Match: category=%s rule=%s path=%s\n' "$1" "$2" "$3" >> "${LOG_FILE}"
-}
-
-INPUT_JSON=""
-
-if [[ $# -ge 1 && -n "${1:-}" ]]; then
-    INPUT_JSON="$1"
-else
-    IFS= read -r INPUT_JSON || true
-fi
-
-if [[ -z "${INPUT_JSON}" ]]; then
-    log_error "No se recibio payload JSON de Active Response por argumento ni STDIN."
-    exit 1
-fi
-
-if ! command -v jq >/dev/null 2>&1; then
-    log_error "jq no esta instalado; no se puede procesar el evento FIM."
-    exit 1
-fi
-
-if ! printf "%s" "${INPUT_JSON}" | jq -e . >/dev/null 2>&1; then
-    log_error "Payload de Active Response invalido; no es JSON."
-    exit 1
-fi
-
-ACTION="$(printf '%s' "${INPUT_JSON}" | jq -r '.command // .action // empty' 2>/dev/null || true)"
-FILENAME="$(printf '%s' "${INPUT_JSON}" | jq -r '.parameters.alert.syscheck.path // empty' 2>/dev/null || true)"
-
-if [[ -n "${ACTION}" && "${ACTION}" != "add" ]]; then
-    exit 0
-fi
-
-if [[ -z "${FILENAME}" || "${FILENAME}" == "null" ]]; then
-    log_error "No se pudo obtener parameters.alert.syscheck.path."
-    exit 1
-fi
-
-if [[ ! -e "${FILENAME}" ]]; then
-    log_error "El archivo ya no existe: ${FILENAME}"
-    exit 0
-fi
-
-if [[ -L "${FILENAME}" ]]; then
-    log_info "Archivo omitido por ser symlink: ${FILENAME}"
-    exit 0
-fi
-
-if [[ ! -f "${FILENAME}" ]]; then
-    log_info "Archivo omitido por no ser regular: ${FILENAME}"
-    exit 0
-fi
-
-FILE_SIZE="$(stat -c '%s' -- "${FILENAME}" 2>/dev/null || echo 0)"
-
-if [[ "${FILE_SIZE}" =~ ^[0-9]+$ ]] && (( FILE_SIZE > MAX_FILE_SIZE )); then
-    log_info "Archivo omitido por superar el limite de ${MAX_FILE_SIZE} bytes: ${FILENAME}"
-    exit 0
-fi
-
-PREV_SIZE="${FILE_SIZE}"
-for _ in 1 2 3 4 5; do
-    sleep 1
-
-    [[ -f "${FILENAME}" ]] || {
-        log_error "El archivo desaparecio durante la espera: ${FILENAME}"
-        exit 0
-    }
-
-    CURRENT_SIZE="$(stat -c '%s' -- "${FILENAME}" 2>/dev/null || echo 0)"
-
-    if [[ "${CURRENT_SIZE}" == "${PREV_SIZE}" ]]; then
-        break
-    fi
-
-    PREV_SIZE="${CURRENT_SIZE}"
-done
-
-YARA_BIN="${ORANGEBOX_YARA_BIN:-}"
-if [[ -z "${YARA_BIN}" ]]; then
-    for candidate in /usr/local/bin/yara /usr/bin/yara /usr/local/sbin/yara; do
-        if [[ -x "${candidate}" ]]; then
-            YARA_BIN="${candidate}"
-            break
-        fi
-    done
-fi
-
-if [[ -z "${YARA_BIN}" || ! -x "${YARA_BIN}" ]]; then
-    log_error "No se encontro el binario YARA."
-    exit 1
-fi
-
-WEBSHELL_INDEX="${RULESET_DIR}/webshells_index.yar"
-MALWARE_INDEX="${RULESET_DIR}/malware_index.yar"
-
-for index in "${WEBSHELL_INDEX}" "${MALWARE_INDEX}"; do
-    if [[ ! -s "${index}" ]]; then
-        log_error "Falta el indice YARA oficial: ${index}"
-        exit 1
-    fi
-done
-
-run_scan() {
-    local category="$1"
-    local rules_file="$2"
-    local yara_output
-    local yara_rc
-    local line
-    local rule_name
-    local scanned_path
-
-    yara_output="$( "${YARA_BIN}" -w "${rules_file}" "${FILENAME}" 2>>"${LOG_FILE}" )"
-    yara_rc=$?
-
-    if (( yara_rc > 1 )); then
-        log_error "YARA fallo para category=${category} path=${FILENAME} rc=${yara_rc}"
-        return 1
-    fi
-
-    [[ -z "${yara_output}" ]] && return 0
-
-    while IFS= read -r line; do
-        [[ -z "${line}" ]] && continue
-
-        rule_name="${line%% *}"
-        scanned_path="${line#* }"
-
-        if [[ -z "${rule_name}" || -z "${scanned_path}" || "${rule_name}" == "${line}" ]]; then
-            log_error "Salida YARA inesperada para category=${category}: ${line}"
-            continue
-        fi
-
-        log_match "${category}" "${rule_name}" "${scanned_path}"
-    done <<< "${yara_output}"
-
-    return 0
-}
-
-run_scan "webshells" "${WEBSHELL_INDEX}"
-run_scan "malware" "${MALWARE_INDEX}"
-
-exit 0
-ORANGEBOX_YARA_SCRIPT
-
-chmod 750 "${SCRIPT_SRC}"
-bash -n "${SCRIPT_SRC}"
-
 if ! command -v git >/dev/null 2>&1; then
     echo "ERROR: git es requerido para descargar el ruleset oficial Yara-Rules." >&2
     exit 1
@@ -321,7 +146,13 @@ install -m 750 -o root -g "${WAZUH_GROUP}" "${SCRIPT_SRC}" "${DEST_BIN}/orangebo
 echo "==> Descargando Yara-Rules oficial..."
 git clone --depth 1 --branch "${YARA_RULES_BRANCH}"     "${YARA_RULES_REPO}" "${TMP_DIR}/rules"
 
-RULESET_COMMIT="$(git -C "${TMP_DIR}/rules" rev-parse HEAD)"
+ACTUAL_YARA_COMMIT="$(git -C "${TMP_DIR}/rules" rev-parse HEAD)"
+if [[ "${ACTUAL_YARA_COMMIT}" != "${YARA_RULES_COMMIT}" ]]; then
+    echo "ERROR: el HEAD de ${YARA_RULES_BRANCH} (${ACTUAL_YARA_COMMIT}) no coincide con el commit aprobado (${YARA_RULES_COMMIT})." >&2
+    echo "Use ORANGEBOX_YARA_RULES_COMMIT=<SHA> solamente al aprobar explícitamente una nueva revisión." >&2
+    exit 1
+fi
+RULESET_COMMIT="${ACTUAL_YARA_COMMIT}"
 
 # Validar el ruleset completo antes de reemplazar el instalado.
 for index in webshells_index.yar malware_index.yar; do
