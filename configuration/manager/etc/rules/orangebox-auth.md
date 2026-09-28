@@ -104,7 +104,7 @@ Un `su -> root` iniciado por UID 0 no se considera escalamiento porque el proces
 
 ### 10613 — Reconocimiento seguido de sudo → root
 
-`10613` requiere el evento actual `10005` y una coincidencia previa de `orangebox_recon` dentro de 600 segundos y en el mismo `location`. La frecuencia es `1`: no exige dos eventos de reconocimiento; exige un único reconocimiento previo y el `sudo → root` actual.
+`10613` requiere el evento actual `10005` y dos coincidencias previas de `10611` dentro de 600 segundos. No usa `same_location`, porque el reconocimiento puede llegar desde auditd y el sudo desde journald. La correlación usa directamente el SID `10611`. Al disparar, `10613` es la alerta final del evento sudo y escala a nivel 15.
 
 ## 10005 — SUDO hacia root
 
