@@ -43,32 +43,34 @@ Si no existe una base local operativa, usa como fallback la **DB-IP Free API** y
 
 `/var/ossec/reports/geoip-cache.json`
 
-La API gratuita de DB-IP tiene un límite de 500 consultas diarias; el script limita las consultas nuevas por ejecución a 450 por defecto y reutiliza la caché. Para producción conviene utilizar la base MMDB local, no depender de la API.
+La ejecución limita las consultas nuevas a 450 por defecto y reutiliza la caché. Para producción conviene utilizar una base MMDB local, evitando depender de una API externa para cada reporte.
 
 ## Ejecución de prueba
 
-El formato de argumentos es el mismo que el reporte detallado actual:
+Instala el script de prueba junto al reporte detallado, por ejemplo:
+
+`/var/ossec/reports/orangebox-detailed-security-report-geoip-test.py`
+
+Prueba sin enviar correo:
 
 ```bash
 python3 /var/ossec/reports/orangebox-detailed-security-report-geoip-test.py \
   --today \
   --group CTS \
-  --email soporte@orangebox.cl \
+  --email soporte@example.com \
   --dry-run
 ```
-
-El `--dry-run` genera el HTML pero no envía correo.
 
 Para una prueba real de correo:
 
 ```bash
-python3 /var/ossec/etc/reports/orangebox-detailed-security-report-geoip-test.py \
+python3 /var/ossec/reports/orangebox-detailed-security-report-geoip-test.py \
   --today \
   --group CTS \
-  --email soporte@orangebox.cl
+  --email soporte@example.com
 ```
 
-Ajustar la ruta al directorio real donde estén instalados los reportes.
+El archivo genera el HTML mediante el mismo motor del reporte detallado y conserva el reporte de producción sin modificaciones.
 
 ## Variables opcionales
 
@@ -84,9 +86,7 @@ ORANGEBOX_GEOIP_API_URL
 
 ## Producción
 
-Para producción recomiendo DB-IP Lite MMDB local. La versión Lite se actualiza mensualmente y está licenciada bajo CC BY 4.0; requiere atribución a DB-IP.
-
-La ubicación por IP es aproximada y no representa necesariamente la ubicación física real del atacante.
+Para producción recomiendo DB-IP Lite MMDB local. La geolocalización por IP es aproximada y no representa necesariamente la ubicación física real del origen.
 
 Fuentes:
 
