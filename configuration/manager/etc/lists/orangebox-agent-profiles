@@ -1,6 +1,6 @@
-cpanel.example.com:cpanel
-cpanel.example.com.cloudlatam.cl:cpanel
-mail.example.com:zimbra
-mail.example.com:zimbra
-mail.example.com:zimbra
-mail.example.com:zimbra
+cpanel01.example.com:cpanel
+cpanel01.example.net:cpanel
+mail01.example.com:zimbra
+mail02.example.com:zimbra
+mail03.example.com:zimbra
+mail04.example.com:zimbra
