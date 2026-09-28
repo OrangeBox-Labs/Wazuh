@@ -25,6 +25,8 @@ OSSEC_HOME="${OSSEC_HOME:-/var/ossec}"
 #   3) Lists: CDB de perfiles
 #   4) Integrations: custom-orangebox-email.py
 #   5) Agent groups: default/cpanel/zimbra
+#   6) Agent artifacts: validacion LOCAL del source versionado que luego
+#      se copia al agente; no se espera que exista bajo /var/ossec
 #
 # Adicionalmente busca SIDs duplicados criticos en el despliegue.
 # ============================================================
@@ -91,17 +93,47 @@ if [[ "${1:-}" == "--agent" ]]; then
     AGENT_YARA_SCRIPT="${OSSEC_HOME}/active-response/bin/orangebox-yara.sh"
     AGENT_YARA_DIR="${OSSEC_HOME}/active-response/bin/yara/rules/yara-rules"
     AGENT_YARA_META="${OSSEC_HOME}/active-response/bin/yara/rules"
+    AGENT_QUARANTINE="${OSSEC_HOME}/active-response/bin/orangebox-quarantine.py"
 
-    if [[ -f "$AGENT_YARA_SCRIPT" ]]; then
-        if bash -n "$AGENT_YARA_SCRIPT" 2>/dev/null; then
-            ok "orangebox-yara.sh existe y pasa bash -n"
+    if [[ -f "$ROOT/tools/orangebox-yara/orangebox-yara.sh" && -f "$AGENT_YARA_SCRIPT" ]]; then
+        if cmp -s "$ROOT/tools/orangebox-yara/orangebox-yara.sh" "$AGENT_YARA_SCRIPT"; then
+            ok "orangebox-yara.sh desplegado coincide con el source del repo"
         else
-            fail "orangebox-yara.sh tiene error de sintaxis"
+            fail "DIFERENCIA: source YARA del repo != runtime YARA del agente"
+            diff -u "$ROOT/tools/orangebox-yara/orangebox-yara.sh" "$AGENT_YARA_SCRIPT" || true
+        fi
+        if bash -n "$AGENT_YARA_SCRIPT" 2>/dev/null; then
+            ok "orangebox-yara.sh desplegado pasa bash -n"
+        else
+            fail "orangebox-yara.sh desplegado tiene error de sintaxis"
         fi
     else
-        fail "Falta desplegado: $AGENT_YARA_SCRIPT"
+        [[ -f "$ROOT/tools/orangebox-yara/orangebox-yara.sh" ]] || fail "Falta en repo: tools/orangebox-yara/orangebox-yara.sh"
+        [[ -f "$AGENT_YARA_SCRIPT" ]] || fail "Falta desplegado: $AGENT_YARA_SCRIPT"
     fi
 
+    if [[ -f "$ROOT/tools/orangebox-quarantine.py" && -f "$AGENT_QUARANTINE" ]]; then
+        if cmp -s "$ROOT/tools/orangebox-quarantine.py" "$AGENT_QUARANTINE"; then
+            ok "orangebox-quarantine.py desplegado coincide con el source del repo"
+        else
+            fail "DIFERENCIA: source quarantine del repo != runtime quarantine del agente"
+            diff -u "$ROOT/tools/orangebox-quarantine.py" "$AGENT_QUARANTINE" || true
+        fi
+        if python3 - "$AGENT_QUARANTINE" <<'PY' >/dev/null 2>&1
+import sys
+from pathlib import Path
+path = sys.argv[1]
+compile(Path(path).read_text(encoding="utf-8"), path, "exec")
+PY
+        then
+            ok "orangebox-quarantine.py desplegado pasa compilacion Python"
+        else
+            fail "orangebox-quarantine.py desplegado tiene error de sintaxis"
+        fi
+    else
+        [[ -f "$ROOT/tools/orangebox-quarantine.py" ]] || fail "Falta en repo: tools/orangebox-quarantine.py"
+        [[ -f "$AGENT_QUARANTINE" ]] || fail "Falta desplegado: $AGENT_QUARANTINE"
+    fi
     if [[ -d "$AGENT_YARA_DIR" ]]; then
         ok "Ruleset YARA oficial desplegado: $AGENT_YARA_DIR"
     else
@@ -269,14 +301,120 @@ else
     fail "Falta srv27:cpanel"
 fi
 
-if grep -q '^srv27.cloudlatam.cl:cpanel$' ${OSSEC_HOME}/etc/lists/orangebox-agent-profiles 2>/dev/null; then
-    ok "Perfil cPanel srv27.cloudlatam.cl"
+if grep -q '^srv27.example.com:cpanel$' ${OSSEC_HOME}/etc/lists/orangebox-agent-profiles 2>/dev/null; then
+    ok "Perfil cPanel srv27.example.com"
 else
-    fail "Falta srv27.cloudlatam.cl:cpanel"
+    fail "Falta srv27.example.com:cpanel"
 fi
 
 zimbra_profile_count="$(grep -c ':zimbra$' ${OSSEC_HOME}/etc/lists/orangebox-agent-profiles 2>/dev/null || true)"
 ok "Entradas de perfil zimbra registradas: $zimbra_profile_count"
+echo
+echo "=== CDB CRITICAS ==="
+
+WAZUH_GROUP="$(stat -c "%G" "$OSSEC_HOME" 2>/dev/null || echo wazuh)"
+[[ "$WAZUH_GROUP" == "UNKNOWN" || -z "$WAZUH_GROUP" ]] && WAZUH_GROUP="wazuh"
+
+CRITICAL_LISTS=(
+    "orangebox-agent-profiles"
+    "orangebox-private-networks"
+    "orangebox-backuppc-static"
+    "orangebox-backuppc-dynamic"
+    "orangebox-sftp-certcoopeuch"
+    "orangebox-web-auth-proxies"
+    "orangebox-web-discovery-proxies"
+    "orangebox-suspicious-programs"
+    "orangebox-recon-programs"
+)
+
+for name in "${CRITICAL_LISTS[@]}"; do
+    repo_list="$ROOT/configuration/manager/etc/lists/$name"
+    deployed_list="$OSSEC_HOME/etc/lists/$name"
+    if [[ ! -f "$repo_list" ]]; then
+        fail "Falta en repo: $repo_list"
+        continue
+    fi
+    if [[ ! -f "$deployed_list" ]]; then
+        fail "Falta desplegado: $deployed_list"
+        continue
+    fi
+    if cmp -s "$repo_list" "$deployed_list"; then
+        ok "CDB source $name coincide con repo"
+    else
+        fail "DIFERENCIA CDB source: $name"
+    fi
+    mode="$(stat -c "%a" "$deployed_list" 2>/dev/null || echo 0)"
+    owner="$(stat -c "%U" "$deployed_list" 2>/dev/null || echo UNKNOWN)"
+    group="$(stat -c "%G" "$deployed_list" 2>/dev/null || echo UNKNOWN)"
+    [[ "$mode" == "640" ]] && ok "Permiso 640: $deployed_list" || fail "Permiso inesperado $deployed_list: $mode (esperado 640)"
+    [[ "$owner" == "root" ]] && ok "Owner root: $deployed_list" || fail "Owner inesperado $deployed_list: $owner"
+    [[ "$group" == "$WAZUH_GROUP" ]] && ok "Grupo $WAZUH_GROUP: $deployed_list" || warn "Grupo CDB $deployed_list: $group (grupo Wazuh detectado: $WAZUH_GROUP)"
+    cdb="${deployed_list}.cdb"
+    if [[ ! -s "$cdb" ]]; then
+        fail "CDB binaria ausente/vacía: $cdb"
+    elif [[ "$cdb" -ot "$deployed_list" ]]; then
+        fail "CDB binaria desactualizada respecto al source: $cdb"
+    else
+        ok "CDB binaria presente y no más antigua que source: $name"
+    fi
+done
+
+echo
+echo "=== AGENT ARTIFACTS (REPO) ==="
+check_repo_executable() {
+    local repo_file="$1"
+    local mode
+
+    if [[ ! -f "$ROOT/$repo_file" ]]; then
+        fail "Falta en repo: $repo_file"
+        return
+    fi
+
+    mode="$(stat -c "%a" "$ROOT/$repo_file" 2>/dev/null || echo 0)"
+    [[ "$mode" == "755" ]] && ok "Permiso 755 en repo: $repo_file" || fail "Permiso inesperado en repo $repo_file: $mode (esperado 755)"
+
+    if git -C "$ROOT" ls-files --stage -- "$repo_file" | grep -Eq '^100755 [0-9a-f]+ 0\s'; then
+        ok "Git registra $repo_file como ejecutable (100755)"
+    else
+        fail "Git no registra $repo_file como ejecutable (100755)"
+    fi
+}
+
+check_repo_executable "tools/orangebox-yara/orangebox-yara.sh"
+if bash -n "$ROOT/tools/orangebox-yara/orangebox-yara.sh" 2>/dev/null; then
+    ok "Source orangebox-yara.sh pasa bash -n"
+else
+    fail "Source orangebox-yara.sh tiene error de sintaxis"
+fi
+
+check_repo_executable "tools/orangebox-yara/install-orangebox-yara.sh"
+if bash -n "$ROOT/tools/orangebox-yara/install-orangebox-yara.sh" 2>/dev/null; then
+    ok "Installer YARA pasa bash -n"
+else
+    fail "Installer YARA tiene error de sintaxis"
+fi
+
+check_repo_executable "tools/orangebox-quarantine.py"
+if python3 - "$ROOT/tools/orangebox-quarantine.py" <<'PY' >/dev/null 2>&1
+import sys
+from pathlib import Path
+path = sys.argv[1]
+compile(Path(path).read_text(encoding="utf-8"), path, "exec")
+PY
+then
+    ok "Source orangebox-quarantine.py pasa compilacion Python"
+else
+    fail "Source orangebox-quarantine.py tiene error de sintaxis"
+fi
+
+if grep -Fq 'SCRIPT_SRC="${SCRIPT_DIR}/orangebox-yara.sh"' "$ROOT/tools/orangebox-yara/install-orangebox-yara.sh" &&
+   grep -Fq 'install -m 750 -o root -g "${WAZUH_GROUP}" "${SCRIPT_SRC}" "${DEST_BIN}/orangebox-yara.sh"' "$ROOT/tools/orangebox-yara/install-orangebox-yara.sh"; then
+    ok "Installer YARA usa el source versionado y lo instala con modo 750"
+else
+    fail "Installer YARA no apunta al source versionado esperado o cambio el modo de instalacion"
+fi
+
+
 echo
 echo "============================================================"
 echo " Resultado"
