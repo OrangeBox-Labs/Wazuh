@@ -30,7 +30,8 @@ import ipaddress
 import json
 import os
 import re
-import sys
+import shutil
+import subprocess
 import urllib.error
 import urllib.request
 from collections import defaultdict
@@ -96,7 +97,6 @@ class GeoIPResolver:
         self.new_queries = 0
         self.api_exhausted = False
         self.errors = []
-
         self.cache = self._load_cache()
 
     @staticmethod
@@ -129,13 +129,10 @@ class GeoIPResolver:
     def _get_readers(self):
         if not self.city_db:
             return None, None
-
         if self._city_reader is not None:
             return self._city_reader, self._asn_reader
-
         try:
-            import maxminddb  # optional: solo necesario con MMDB local
-
+            import maxminddb
             self._city_reader = maxminddb.open_database(str(self.city_db))
             if self.asn_db:
                 self._asn_reader = maxminddb.open_database(str(self.asn_db))
@@ -143,7 +140,6 @@ class GeoIPResolver:
             self._city_import_error = str(exc)
             self._city_reader = None
             self._asn_reader = None
-
         return self._city_reader, self._asn_reader
 
     @staticmethod
@@ -157,36 +153,127 @@ class GeoIPResolver:
                     return str(item)
         return str(value) if value else ""
 
-    def _lookup_mmdb(self, ip):
-        city_reader, asn_reader = self._get_readers()
-        if city_reader is None:
+    @staticmethod
+    def _mmdblookup_text(db, ip, *path):
+        if shutil.which("mmdblookup") is None:
+            return ""
+        try:
+            result = subprocess.run(
+                ["mmdblookup", "--file", str(db), "--ip", str(ip), *path],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        if result.returncode != 0:
+            return ""
+        for line in result.stdout.splitlines():
+            match = re.match(r'^\s*"((?:\\.|[^"])*)"\s*<utf8_string>', line)
+            if match:
+                try:
+                    return json.loads(f'"{match.group(1)}"')
+                except json.JSONDecodeError:
+                    return match.group(1)
+        return ""
+
+    @staticmethod
+    def _mmdblookup_uint32(db, ip, *path):
+        if shutil.which("mmdblookup") is None:
+            return ""
+        try:
+            result = subprocess.run(
+                ["mmdblookup", "--file", str(db), "--ip", str(ip), *path],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        if result.returncode != 0:
+            return ""
+        match = re.search(r'(?m)^\s*(\d+)\s*<uint32>', result.stdout)
+        return match.group(1) if match else ""
+
+    def _lookup_mmdblookup(self, ip):
+        if not self.city_db:
             return None
 
-        city_record = city_reader.get(ip) or {}
-        country = city_record.get("country") or {}
-        city = city_record.get("city") or {}
-        subdivisions = city_record.get("subdivisions") or []
-        subdivision = subdivisions[0] if subdivisions else {}
+        country_code = self._mmdblookup_text(self.city_db, ip, "country", "iso_code")
+        country = (
+            self._mmdblookup_text(self.city_db, ip, "country", "names", "es")
+            or self._mmdblookup_text(self.city_db, ip, "country", "names", "en")
+        )
+        region = (
+            self._mmdblookup_text(self.city_db, ip, "subdivisions", "0", "names", "es")
+            or self._mmdblookup_text(self.city_db, ip, "subdivisions", "0", "names", "en")
+        )
+        city = (
+            self._mmdblookup_text(self.city_db, ip, "city", "names", "es")
+            or self._mmdblookup_text(self.city_db, ip, "city", "names", "en")
+        )
+
+        if not any((country_code, country, region, city)):
+            return None
 
         result = {
-            "country_code": str(country.get("iso_code") or "").upper(),
-            "country": self._localize_name(country.get("names")),
-            "region": self._localize_name(subdivision.get("names")),
-            "city": self._localize_name(city.get("names")),
+            "country_code": country_code.upper(),
+            "country": country,
+            "region": region,
+            "city": city,
             "asn": "",
             "asn_org": "",
-            "source": "DB-IP City Lite MMDB",
+            "source": "DB-IP City Lite MMDB (mmdblookup)",
         }
 
-        if asn_reader is not None:
-            asn_record = asn_reader.get(ip) or {}
-            result["asn"] = str(asn_record.get("autonomous_system_number") or "")
-            result["asn_org"] = str(
-                asn_record.get("autonomous_system_organization") or ""
+        if self.asn_db:
+            result["asn"] = self._mmdblookup_uint32(
+                self.asn_db, ip, "autonomous_system_number"
             )
-            result["source"] = "DB-IP City Lite + ASN Lite MMDB"
+            result["asn_org"] = (
+                self._mmdblookup_text(
+                    self.asn_db, ip, "autonomous_system_organization"
+                )
+                or ""
+            )
+            if result["asn"] or result["asn_org"]:
+                result["source"] = "DB-IP City Lite + ASN Lite MMDB (mmdblookup)"
 
         return result
+
+    def _lookup_mmdb(self, ip):
+        city_reader, asn_reader = self._get_readers()
+
+        if city_reader is not None:
+            city_record = city_reader.get(ip) or {}
+            country = city_record.get("country") or {}
+            city = city_record.get("city") or {}
+            subdivisions = city_record.get("subdivisions") or []
+            subdivision = subdivisions[0] if subdivisions else {}
+
+            result = {
+                "country_code": str(country.get("iso_code") or "").upper(),
+                "country": self._localize_name(country.get("names")),
+                "region": self._localize_name(subdivision.get("names")),
+                "city": self._localize_name(city.get("names")),
+                "asn": "",
+                "asn_org": "",
+                "source": "DB-IP City Lite MMDB",
+            }
+
+            if asn_reader is not None:
+                asn_record = asn_reader.get(ip) or {}
+                result["asn"] = str(asn_record.get("autonomous_system_number") or "")
+                result["asn_org"] = str(
+                    asn_record.get("autonomous_system_organization") or ""
+                )
+                result["source"] = "DB-IP City Lite + ASN Lite MMDB"
+
+            return result
+
+        return self._lookup_mmdblookup(ip)
 
     def _cache_valid(self, entry):
         if not isinstance(entry, dict):
@@ -227,7 +314,9 @@ class GeoIPResolver:
         except urllib.error.HTTPError as exc:
             if exc.code in (403, 429):
                 self.api_exhausted = True
-                self.errors.append(f"DB-IP API limit/restricción al consultar {ip}: HTTP {exc.code}")
+                self.errors.append(
+                    f"DB-IP API limit/restricción al consultar {ip}: HTTP {exc.code}"
+                )
             else:
                 self.errors.append(f"DB-IP API error para {ip}: HTTP {exc.code}")
             return None
@@ -274,14 +363,8 @@ class GeoIPResolver:
                 "city": "",
                 "asn": "",
                 "asn_org": "",
-                "source": "No aplica",
+                "source": "IP local",
             }
-
-        cached = self.cache.get(ip)
-        if self._cache_valid(cached):
-            data = dict(cached["data"])
-            data["cached"] = True
-            return data
 
         local = self._lookup_mmdb(ip)
         if local:
@@ -291,6 +374,12 @@ class GeoIPResolver:
             }
             self._save_cache()
             return dict(local)
+
+        cached = self.cache.get(ip)
+        if self._cache_valid(cached):
+            data = dict(cached["data"])
+            data["cached"] = True
+            return data
 
         remote = self._lookup_api(ip)
         if remote:
@@ -366,7 +455,6 @@ def collect_source_ips(group_sections):
 def render_geoip_section(group_sections):
     max_ips = int(os.environ.get("ORANGEBOX_GEOIP_MAX_IPS", str(DEFAULT_MAX_IPS)))
     resolver = GeoIPResolver()
-
     source_agents, blocked = collect_source_ips(group_sections)
 
     ranked_sources = sorted(
@@ -390,7 +478,6 @@ def render_geoip_section(group_sections):
     geo = {ip: resolver.lookup(ip) for ip in sorted(set(ranked_sources) | set(ranked_blocked))}
     api_limit_note = resolver.api_exhausted
 
-    # Email-safe HTML table. No JavaScript and no external assets.
     parts = [
         "<tr><td style='padding:14px 20px 8px;'>",
         "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
@@ -613,7 +700,17 @@ def geoip_generate_html(
     return body
 
 
-def geoip_generate_plain(prod_module, group_sections, period, total_agents, total_events, total_high, total_critical, total_attacks, vuln_error=None):
+def geoip_generate_plain(
+    prod_module,
+    group_sections,
+    period,
+    total_agents,
+    total_events,
+    total_high,
+    total_critical,
+    total_attacks,
+    vuln_error=None,
+):
     base = prod_module.generate_plain(
         group_sections,
         period,
@@ -647,7 +744,12 @@ def build_parser():
         modes.add_argument("--" + name, action="store_true")
     modes.add_argument("--date", help="Día específico YYYY-MM-DD")
     parser.add_argument("--group", required=True, help="Grupos Wazuh separados por comas")
-    parser.add_argument("--email", action="append", required=True, help="Destinatario; se puede repetir")
+    parser.add_argument(
+        "--email",
+        action="append",
+        required=True,
+        help="Destinatario; se puede repetir",
+    )
     parser.add_argument("--lang", choices=("es", "en"), default="es")
     parser.add_argument("--dry-run", action="store_true")
     return parser
@@ -676,8 +778,9 @@ def main():
     )
 
     prod = load_prod_module()
+    engine = prod.load_report_module()
     now = datetime.now().astimezone()
-    start, end, label = prod.period_bounds(mode, now)
+    start, end, label = engine.period_bounds(mode, now)
     agent_info = prod.parse_agent_control()
 
     groups = (
@@ -701,10 +804,10 @@ def main():
         raise SystemExit("No hay grupos con servidores asignados para generar el reporte.")
 
     agent_stats = prod.init_agent_stats(all_agent_ids, agent_info)
-    prod.aggregate_events(prod.load_report_module(), start, end, all_agent_ids, agent_stats)
+    prod.aggregate_events(engine, start, end, all_agent_ids, agent_stats)
 
-    cves, vuln_error = prod.fetch_critical_cves(prod.load_report_module(), all_agent_ids)
-    cloudlinux_agents = prod.fetch_cloudlinux_agents(prod.load_report_module(), all_agent_ids)
+    cves, vuln_error = prod.fetch_critical_cves(engine, all_agent_ids)
+    cloudlinux_agents = prod.fetch_cloudlinux_agents(engine, all_agent_ids)
     for agent_id, stat in agent_stats.items():
         stat["cves"] = cves.get(agent_id, [])
         stat["vd_unsupported"] = agent_id in cloudlinux_agents
@@ -731,7 +834,6 @@ def main():
         else "CLIENTE — Reporte detallado + GeoIP (TEST)"
     )
     subtitle = "Prueba de geolocalización de IPs de origen"
-
     period = f"{start.strftime('%d/%m/%Y %H:%M')} — {end.strftime('%d/%m/%Y %H:%M')}"
 
     body = geoip_generate_html(
