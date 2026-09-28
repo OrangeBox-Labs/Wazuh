@@ -50,43 +50,42 @@ DEFAULT_ALERT_RECIPIENT = "soporte@example.com"
 # ============================================================
 
 CLIENT_GROUPS = {
-    "CLIENTE": {
+    "CLIENTE_01": {
         "enabled": 0,
         "emails": [
             "security@example.com",
         ],
     },
 
-    "CLIENTE": {
-        "enabled": 0,
-        "emails": [
-            "pvial@example.com",
-            "etomicic@example.com",
-        ],
-    },
-
-    "CLOUDLATAM": {
+    "CLIENTE_02": {
         "enabled": 0,
         "emails": [
             "security@example.com",
         ],
     },
 
-    "NEXIT": {
+    "CLIENTE_03": {
+        "enabled": 0,
+        "emails": [
+            "security@example.com",
+        ],
+    },
+
+    "CLIENTE_04": {
         "enabled": 1,
         "emails": [
             "security@example.com",
         ],
     },
 
-    "CLIENTE": {
+    "CLIENTE_05": {
         "enabled": 0,
         "emails": [
-            "joseramirez@example.com",
+            "security@example.com",
         ],
     },
 
-    "CASAPIEDRA": {
+    "CLIENTE_06": {
         "enabled": 0,
         "emails": [
             "rfarias@example.com",
