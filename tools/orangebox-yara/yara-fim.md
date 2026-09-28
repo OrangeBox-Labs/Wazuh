@@ -103,7 +103,7 @@ Las firmas oficiales quedan en:
 
 WAZUH_HOME/active-response/bin/yara/rules/yara-rules/
 
-El instalador valida los índices oficiales antes de reemplazar el ruleset y registra:
+El instalador valida los índices oficiales antes de reemplazar el ruleset, exige un commit inmutable aprobado y registra:
 
 YARA-RULES-COMMIT
 YARA-RULES-REPOSITORY
@@ -151,7 +151,7 @@ No:
 Además:
 
 - ignora symlinks;
-- limita por defecto los archivos a 50 MiB;
+- limita por defecto los archivos a 5 MiB;
 - espera brevemente a que el tamaño se estabilice después de un evento FIM;
 - utiliza rutas conocidas para encontrar el binario YARA;
 - registra errores de ejecución en active-responses.log.
@@ -213,3 +213,6 @@ Después de instalar o reemplazar el runtime:
 systemctl restart wazuh-agent
 
 Esto es especialmente importante cuando se modifica el Active Response: el proceso wazuh-execd debe recargar el comando instalado.
+
+
+El runtime tiene una sola fuente de código: `tools/orangebox-yara/orangebox-yara.sh`. El instalador copia ese archivo y no mantiene otra implementación embebida.
