@@ -413,3 +413,19 @@ zimbra
 Las excepciones de aplicaciones utilizan esta CDB para reducir falsos positivos en el ruleset antes de que lleguen a la integración de correo.
 
 Después de modificar la CDB se debe reiniciar el Manager para que el motor cargue la nueva lista.
+
+## GeoIP local para reportes
+
+Los reportes OrangeBox utilizan DB-IP Lite desde una base MMDB local para enriquecer IPs públicas con país y bandera, sin depender de una consulta externa por cada IP.
+
+La base de producción es:
+
+```text
+/var/lib/orangebox/geoip/dbip-city-lite.mmdb
+```
+
+El updater diario `tools/update-orangebox-geoip.sh` instala y valida la release mensual disponible. No requiere reiniciar `wazuh-manager`.
+
+Las IP privadas o reservadas se presentan como `IP local` y no se consideran parte de los rankings geográficos públicos.
+
+La geolocalización es aproximada y se utiliza como contexto de seguridad, no como identificación física exacta del origen.
