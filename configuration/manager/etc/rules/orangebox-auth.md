@@ -65,13 +65,14 @@ No modifica `10001` ni afecta logins exitosos desde otras IP, otros usuarios o o
 
 La excepción `20008` se mantiene para el mensaje auxiliar `Accepted key ... found at ...`, que no representa una sesión autenticada completa.
 
+
 ## 10006 — Fuerza bruta SSH seguida de login exitoso
 
-`10006` correlaciona un login SSH exitoso (`10001`) con la detección nativa `5763` de fuerza bruta, exigiendo la misma IP de origen y una ventana de 5 minutos. La condición efectiva es `5763 -> 10001` y `same_source_ip`. La regla fue validada con una secuencia de fallos seguida por un login exitoso desde la misma IP.
+`10006` correlaciona un login SSH exitoso (`10001`) con la detección nativa `5763` de fuerza bruta, exigiendo la misma IP de origen y una ventana de 5 minutos. Es una detección de alta relevancia y puede activar `firewall-drop` según la configuración del Manager.
 
 ## 10008 — Movimiento lateral SSH
 
-`10008` detecta tres logins SSH exitosos desde la misma IP de origen hacia ubicaciones diferentes dentro de 5 minutos.
+`10008` detecta tres logins SSH exitosos desde la misma IP de origen hacia ubicaciones/agentes diferentes dentro de 5 minutos.
 
 Condiciones:
 
@@ -81,20 +82,11 @@ Condiciones:
   + ubicación diferente
   + correlación global entre agentes
   + 3 eventos / 300 segundos
-  = 10008 / nivel 13
+  = 10008
 ```
 
-La regla utiliza `global_frequency` para correlacionar eventos generados por distintos agentes y `different_location` para evitar que varios logins sobre un único origen de logs satisfagan la condición. Wazuh documenta ambos operadores como mecanismos de correlación temporal. citeturn0search0
+No tiene `firewall-drop`: una misma IP puede corresponder a un bastión, sistema administrativo u otra fuente legítima y la correlación requiere investigación.
 
-La prueba reproducible se realizó mediante la clase oficial `WazuhLogtest` contra el socket local de Logtest, manteniendo el mismo token y cambiando la `location` entre eventos:
-
-```text
-ubicación A -> 10001 / firedtimes 1
-ubicación B -> 10001 / firedtimes 2
-ubicación C -> 10008 / nivel 13
-```
-
-No tiene Active Response asociado: el patrón puede corresponder a un bastión o sistema administrativo legítimo y requiere investigación.
 
 ## 10004 — SU a root
 
@@ -104,7 +96,7 @@ Un `su -> root` iniciado por UID 0 no se considera escalamiento porque el proces
 
 ### 10613 — Reconocimiento seguido de sudo → root
 
-`10613` requiere el evento actual `10005` y dos coincidencias previas de `10611` dentro de 600 segundos. No usa `same_location`, porque el reconocimiento puede llegar desde auditd y el sudo desde journald. La correlación usa directamente el SID `10611`. Al disparar, `10613` es la alerta final del evento sudo y escala a nivel 15.
+`10613` requiere el evento actual `10005` y una coincidencia previa de `orangebox_recon` dentro de 600 segundos y en el mismo `location`. La frecuencia es `1`: no exige dos eventos de reconocimiento; exige un único reconocimiento previo y el `sudo → root` actual.
 
 ## 10005 — SUDO hacia root
 
@@ -126,13 +118,13 @@ No se utiliza UID o proceso como único mecanismo de confianza.
 
 ## Perfil cPanel — WP Toolkit
 
-El perfil se resuelve mediante `configuration/lists/orangebox-agent-profiles`.
+El perfil se resuelve mediante `configuration/manager/etc/lists/orangebox-agent-profiles`.
 
 Ejemplo:
 
 ```text
-servidor-cpanel.example.com:cpanel
-servidor-cpanel.example.com:cpanel
+servidor-cpanel:cpanel
+servidor-cpanel.<grupo_cliente>.cl:cpanel
 ```
 
 `20031` contiene comandos directos conocidos de WP Toolkit/cPanel.
@@ -166,7 +158,14 @@ Los árboles reconocidos son:
 /opt/zextras
 ```
 
-Los hosts se mantienen en la CDB de despliegue y no se publican identificadores operacionales.
+Hosts actualmente registrados en la CDB:
+
+```text
+mail.example.com:zimbra
+zimbra.example.com:zimbra
+mail2.example.com:zimbra
+mail.example.com:zimbra
+```
 
 ### 110100 — Comandos Zimbra/Carbonio autorizados
 
@@ -195,9 +194,9 @@ Para agregar otro BackupPC estático, agregar una línea `<IP>:` a la CDB estát
 
 Ambas excepciones producen `level 0` y no alteran la alerta base `10001`.
 
-### SFTP certcoopeuch
+### SFTP cliente-sftp
 
-`20004` valida el usuario `certcoopeuch` y consulta las IP de origen en `etc/lists/orangebox-sftp-certcoopeuch`.
+`20004` valida el usuario `cliente-sftp` y consulta las IP de origen en `etc/lists/orangebox-sftp-cliente-sftp`.
 
 Para agregar otro origen autorizado, agregar una nueva línea `<IP>:` a la CDB y reiniciar el Manager. No se crea una regla adicional por cada IP.
 
@@ -261,7 +260,7 @@ Cada nuevo wrapper debe probarse también con una variante que agregue `;`, `&&`
 - CDB `etc/lists/orangebox-agent-profiles`;
 - CDB `etc/lists/orangebox-backuppc-static`;
 - CDB `etc/lists/orangebox-backuppc-dynamic`;
-- CDB `etc/lists/orangebox-sftp-certcoopeuch`;
+- CDB `etc/lists/orangebox-sftp-cliente-sftp`;
 - CDB `etc/lists/orangebox-web-auth-proxies`;
 - CDB `etc/lists/orangebox-web-discovery-proxies`;
 - entrada de las CDB declarada en `manager/ossec.conf`;
