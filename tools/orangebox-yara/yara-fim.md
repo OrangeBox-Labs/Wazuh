@@ -186,7 +186,7 @@ grep '"10501"' /var/ossec/logs/alerts/alerts.json | tail
 
 El runtime espera como máximo unos segundos para que termine una escritura antes de ejecutar YARA. Esa espera no explica retrasos de minutos en la posterior integración de alertas.
 
-Durante la validación de srv27 se confirmó que una coincidencia oficial puede llegar a la alerta 10501. Si se observa un retraso posterior entre el timestamp del evento y la creación/entrega del buffer de correo, ese tramo debe investigarse de forma independiente del escaneo YARA.
+Durante la validación de servidor-cpanel se confirmó que una coincidencia oficial puede llegar a la alerta 10501. Si se observa un retraso posterior entre el timestamp del evento y la creación/entrega del buffer de correo, ese tramo debe investigarse de forma independiente del escaneo YARA.
 
 ## Actualización de firmas
 
