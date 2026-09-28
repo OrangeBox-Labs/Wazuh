@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLIENTE Wazuh - Resumen detallado por grupo.
+"""OrangeBox Wazuh - Resumen detallado por grupo.
 
 Reporte operativo orientado al cliente. Reutiliza el motor de extracción,
 clasificación y períodos de orangebox-security-report.py, pero presenta el
@@ -434,12 +434,28 @@ def build_agent_stats(events, agent_info, cves):
         cats = Counter(e.get("category", "other") for e in normal)
         ips = source_ips(normal)
 
+        ip_rules = defaultdict(Counter)
+        for e in normal:
+            srcip = e.get("srcip")
+            if not srcip:
+                continue
+            rule_key = (
+                str(e.get("rule_id", "unknown")),
+                e.get("description", "Detección sin descripción"),
+            )
+            ip_rules[srcip][rule_key] += 1
+
         blocked = defaultdict(lambda: {"count": 0, "reasons": Counter()})
         for e in ev:
             if e.get("outer_rule") != "651" or not e.get("srcip"):
                 continue
             blocked[e["srcip"]]["count"] += 1
             blocked[e["srcip"]]["reasons"][e.get("description", "Firewall Drop")] += 1
+            rule_key = (
+                str(e.get("rule_id", "unknown")),
+                e.get("description", "Firewall Drop"),
+            )
+            ip_rules[e["srcip"]][rule_key] += 1
 
         mitre = Counter()
         for e in normal:
@@ -470,6 +486,7 @@ def build_agent_stats(events, agent_info, cves):
             "critical": critical,
             "attacks": attacks,
             "ips": ips,
+            "ip_rules": ip_rules,
             "rules": rule_counts,
             "categories": cats,
             "blocked": blocked,
@@ -490,6 +507,7 @@ def empty_agent_stat(agent_id, info):
         "critical": 0,
         "attacks": 0,
         "ips": set(),
+        "ip_rules": defaultdict(Counter),
         "rules": Counter(),
         "categories": Counter(),
         "blocked": defaultdict(lambda: {"count": 0, "reasons": Counter()}),
@@ -552,6 +570,12 @@ def accumulate_event(agent_stats, event, module):
     srcip = event.get("srcip")
     if srcip:
         stat["ips"].add(srcip)
+        # El ranking GeoIP representa las mismas detecciones que el reporte
+        # ejecutivo: se excluyen eventos sin categoría ("other").
+        if category != "other":
+            stat["ip_rules"][srcip][
+                (str(event.get("rule_id", "unknown")), event.get("description", "Detección sin descripción"))
+            ] += 1
 
     values = event.get("mitre") or []
     if isinstance(values, str):
@@ -677,7 +701,7 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
 
         # Header corporativo alojado como imagen para máxima compatibilidad con clientes de correo.
         "<tr><td style='padding:0;background:#06141d;'>",
-        "<img src='https://www.example.com/obox/img/banner-reporte-wazuh.png' alt='CLIENTE - Reporte de Seguridad Wazuh' width='1120' style='display:block;width:100%;max-width:1120px;height:auto;border:0;'>",
+        "<img src='https://www.example.com/obox/img/banner-reporte-wazuh.png' alt='OrangeBox - Reporte de Seguridad Wazuh' width='1120' style='display:block;width:100%;max-width:1120px;height:auto;border:0;'>",
         "</td></tr>",
 
         # Report heading
@@ -743,6 +767,134 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
             f"<b>Vulnerabilidades:</b> no fue posible consultar el inventario CVE del Wazuh indexer en esta ejecución. {esc(vuln_error)}"
             "</div></td></tr>"
         )
+
+    # GeoIP consolidado: las IPs de origen representan detecciones de seguridad
+    # clasificadas por el reporte; las IPs bloqueadas se mantienen como ranking separado.
+    all_ip_rules = defaultdict(lambda: {"rules": Counter(), "servers": set()})
+    geo_blocked_ips = set()
+    for _, stats in group_sections:
+        for _, stat in stats.items():
+            geo_blocked_ips.update(stat.get("blocked", {}).keys())
+            for ip, rules in stat.get("ip_rules", {}).items():
+                for rule_key, count in rules.items():
+                    all_ip_rules[ip]["rules"][rule_key] += count
+                all_ip_rules[ip]["servers"].add(stat["name"])
+
+    geo_module = load_report_module()
+    geo = geo_module.geoip_country_map(set(all_ip_rules.keys()) | geo_blocked_ips)
+    source_country_rank = geo_module.geoip_country_ranking(all_ip_rules.keys(), geo)
+    blocked_country_rank = geo_module.geoip_country_ranking(geo_blocked_ips, geo)
+
+    source_rows = "".join(
+        f"<tr><td style='border-top:1px solid #e3e9ec;padding:7px;text-align:center;color:#78909c;font-size:11px;'>{i}</td>"
+        f"<td style='border-top:1px solid #e3e9ec;padding:6px;text-align:center;font-size:18px;'>{esc(geo_module.country_flag(code))}</td>"
+        f"<td style='border-top:1px solid #e3e9ec;padding:7px;font-size:11px;font-weight:bold;'>{esc(name)}</td>"
+        f"<td style='border-top:1px solid #e3e9ec;padding:7px;text-align:right;font-size:12px;font-weight:bold;'>{count:,}</td></tr>"
+        for i, ((code, name), count) in enumerate(source_country_rank, 1)
+    ) or "<tr><td colspan='4' style='padding:8px;color:#78909c;font-size:10px;'>Sin IPs públicas.</td></tr>"
+
+    blocked_rows = "".join(
+        f"<tr><td style='border-top:1px solid #e3e9ec;padding:7px;text-align:center;color:#78909c;font-size:11px;'>{i}</td>"
+        f"<td style='border-top:1px solid #e3e9ec;padding:6px;text-align:center;font-size:18px;'>{esc(geo_module.country_flag(code))}</td>"
+        f"<td style='border-top:1px solid #e3e9ec;padding:7px;font-size:11px;font-weight:bold;'>{esc(name)}</td>"
+        f"<td style='border-top:1px solid #e3e9ec;padding:7px;text-align:right;font-size:12px;font-weight:bold;'>{count:,}</td></tr>"
+        for i, ((code, name), count) in enumerate(blocked_country_rank, 1)
+    ) or "<tr><td colspan='4' style='padding:8px;color:#78909c;font-size:10px;'>No hubo IPs bloqueadas.</td></tr>"
+
+    page.append(
+        f"<tr><td style='padding:0 22px 20px;'>"
+        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='border:1px solid {border};border-radius:12px;background:#ffffff;'>"
+        f"<tr><td style='background:#ffffff;border-bottom:1px solid {border};padding:15px 16px;font-size:17px;font-weight:800;color:{text};'><span style='color:{orange};font-size:13px;'>🌍</span>&nbsp; Top países · eventos de seguridad</td></tr>"
+        f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:11px;'>IPs públicas únicas asociadas a detecciones de seguridad; no implica por sí solo un ataque confirmado.</td></tr>"
+        "<tr><td style='padding:0 8px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='8' border='0'><tr>"
+        "<td width='50%' valign='top' style='padding:0 4px 0 0;'>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+        "<tr><td colspan='4' style='background:#102d38;color:#fff;padding:9px;font-size:11px;font-weight:800;'>Top países · eventos de seguridad</td></tr>"
+        "<tr><td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:28px;'>#</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:34px;text-align:center;'>FLAG</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;'>PAÍS</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;text-align:right;'>IPS</td></tr>"
+        f"{source_rows}"
+
+        "</table></td>"
+        "<td width='50%' valign='top' style='padding:0 0 0 4px;'>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+        "<tr><td colspan='4' style='background:#102d38;color:#fff;padding:9px;font-size:11px;font-weight:800;'>Top países · IPs bloqueadas automáticamente</td></tr>"
+        "<tr><td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:28px;'>#</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:34px;text-align:center;'>FLAG</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;'>PAÍS</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;text-align:right;'>IPS</td></tr>"
+        f"{blocked_rows}"
+
+        "</table></td></tr></table></td></tr>"
+        "<tr><td style='padding:0 14px 10px;color:#78909c;font-size:10px;'>"
+        "El ranking de origen cuenta IPs públicas únicas asociadas a detecciones de seguridad clasificadas por el reporte. "
+        "El ranking de bloqueo cuenta IPs públicas únicas que activaron una respuesta automática firewall-drop."
+        "</td></tr></table></td></tr>"
+    )
+
+    page.append(
+        f"<tr><td style='padding:0 22px 20px;'>"
+        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='border:1px solid {border};border-radius:12px;background:#ffffff;'>"
+        f"<tr><td style='background:#ffffff;border-bottom:1px solid {border};padding:15px 16px;font-size:17px;font-weight:800;color:{text};'><span style='color:{orange};font-size:13px;'>🔎</span>&nbsp; IPs de origen · reglas detectadas</td></tr>"
+        f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:11px;'>Cada IP aparece una sola vez, agrupando las reglas y tipos de detección asociados en el período.</td></tr>"
+    )
+
+    ranked_ips = sorted(
+        all_ip_rules,
+        key=lambda ip: (
+            -sum(all_ip_rules[ip]["rules"].values()),
+            -len(all_ip_rules[ip]["servers"]),
+            ipaddress.ip_address(ip).version,
+            int(ipaddress.ip_address(ip)),
+        ),
+    )
+    max_detail_ips = int(os.environ.get("ORANGEBOX_DETAILED_GEOIP_MAX_IPS", "200"))
+    ranked_ips = ranked_ips[:max_detail_ips]
+
+    if ranked_ips:
+        page.append("<tr><td style='padding:0 8px 8px;overflow-wrap:anywhere;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>")
+        page.append(
+            f"<tr><td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;width:31%;'>IP</td>"
+            f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;width:19%;'>PAÍS</td>"
+            f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;'>TIPOS / REGLAS DETECTADAS</td></tr>"
+        )
+        for ip in ranked_ips:
+            item = geo.get(ip) or {}
+            country = (
+                f"{item.get('flag', '🌐')} {item.get('country', 'No disponible')}"
+                if item.get("country") and item.get("country") != "No disponible"
+                else "🌐 No disponible"
+            )
+            rule_items = []
+            for (rule_id, description), count in all_ip_rules[ip]["rules"].most_common(6):
+                rule_items.append(
+                    f"<div style='margin-bottom:3px;'><span style='font-family:monospace;color:#d65d00;font-weight:800;'>{esc(rule_id)}</span>"
+                    f" — {esc(description)} <span style='color:#78909c;'>({num(count)})</span></div>"
+                )
+            if len(all_ip_rules[ip]["rules"]) > 6:
+                rule_items.append(
+                    f"<div style='color:#78909c;font-size:10px;'>+ {len(all_ip_rules[ip]['rules']) - 6} reglas adicionales</div>"
+                )
+            page.append(
+                f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-size:11px;font-weight:bold;overflow-wrap:anywhere;'>{esc(ip)}</td>"
+                f"<td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;font-weight:bold;'>{esc(country)}</td>"
+                f"<td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:10px;line-height:1.45;'>{''.join(rule_items)}</td></tr>"
+            )
+        page.append("</table></td></tr>")
+        if len(all_ip_rules) > max_detail_ips:
+            page.append(
+                f"<tr><td style='padding:0 14px 12px;color:#78909c;font-size:11px;'>"
+                f"Mostrando las {max_detail_ips} IPs con más detecciones de un total de {len(all_ip_rules):,} IPs de origen.</td></tr>"
+            )
+    else:
+        page.append("<tr><td style='padding:10px 14px;color:#78909c;font-size:12px;'>No se encontraron IPs públicas de origen durante el período.</td></tr>")
+
+    page.append(
+        "<tr><td style='padding:0 14px 18px;color:#78909c;font-size:10px;'>"
+        "<b>GeoIP:</b> DB-IP. La geolocalización es aproximada y no representa necesariamente la ubicación física real del origen."
+        "</td></tr></table></td></tr>"
+    )
 
     for group_name, stats in group_sections:
         page.append(
@@ -819,7 +971,7 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
             # Firewall blocks
             page.append(
                 "<tr><td style='padding:10px 16px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
-                f"<tr><td colspan='3' style='padding:7px 0 8px;border-bottom:2px solid {orange};font-size:14px;font-weight:800;color:{text};'>IPs bloqueadas automáticamente</td></tr>"
+                f"<tr><td colspan='3' style='padding:7px 0 8px;border-bottom:2px solid {orange};font-size:14px;font-weight:800;color:{text};'>Top países · IPs bloqueadas automáticamente</td></tr>"
                 f"<tr><td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;'>IP</td>"
                 f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;'>Motivo</td>"
                 f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;text-align:right;'>Cantidad de bloqueos</td></tr>"
@@ -830,8 +982,14 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
                         f"{reason} ({num(count)})"
                         for reason, count in data["reasons"].most_common(3)
                     )
+                    geo_item = geo.get(ip) or {}
+                    ip_country = (
+                        f"{geo_item.get('flag', '🌐')} {geo_item.get('country')}"
+                        if geo_item.get('country') and geo_item.get('country') != 'No disponible'
+                        else '🌐 No disponible'
+                    )
                     page.append(
-                        f"<tr><td style='padding:7px;border-bottom:1px solid #edf1f3;font-family:monospace;font-size:11px;color:{text};'>{esc(ip)}</td>"
+                        f"<tr><td style='padding:7px;border-bottom:1px solid #edf1f3;font-family:monospace;font-size:11px;color:{text};'>{esc(ip)}<br><span style='font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:normal;color:#667b84;'>{esc(ip_country)}</span></td>"
                         f"<td style='padding:7px;border-bottom:1px solid #edf1f3;font-size:11px;line-height:1.35;color:{text};'>{esc(reason)}</td>"
                         f"<td style='padding:7px;border-bottom:1px solid #edf1f3;text-align:right;font-weight:800;font-size:11px;color:{text};'>{num(data['count'])}</td></tr>"
                     )
@@ -921,7 +1079,7 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
 
 def generate_plain(group_sections, period, total_agents, total_events, total_high, total_critical, total_attacks, vuln_error=None):
     lines = [
-        "CLIENTE — Resumen de Seguridad por Grupo",
+        "OrangeBox — Resumen de Seguridad por Grupo",
         f"Período: {period}",
         f"Servidores: {total_agents} | Eventos de seguridad: {total_events} | Alertas alta severidad (12–14): {total_high} | Alertas críticas (15–16): {total_critical} | Detecciones de ataque: {total_attacks}",
         "",
@@ -989,7 +1147,7 @@ def archive_html(body, filename):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="CLIENTE Wazuh Group Security Report")
+    parser = argparse.ArgumentParser(description="OrangeBox Wazuh Group Security Report")
     modes = parser.add_mutually_exclusive_group(required=True)
     for name in ("today", "yesterday", "thisweek", "lastweek", "thismonth", "lastmonth", "thisyear", "lastyear"):
         modes.add_argument("--" + name, action="store_true")
@@ -1066,9 +1224,9 @@ def main():
 
     client_name = args.group
     title = (
-        f"CLIENTE — Reporte detallado: {client_name}"
+        f"OrangeBox — Reporte detallado: {client_name}"
         if len(groups) == 1
-        else "CLIENTE — Reporte detallado"
+        else "OrangeBox — Reporte detallado"
     )
     subtitle = ""
     period = f"{start.strftime('%d/%m/%Y %H:%M')} — {end.strftime('%d/%m/%Y %H:%M')}"
