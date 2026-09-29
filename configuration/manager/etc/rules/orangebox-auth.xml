@@ -358,24 +358,24 @@
     </rule>
 
     <!--
-        SFTP externo - origenes autorizados.
+        SFTP certcoopeuch - origenes autorizados.
 
         Las IP de origen se mantienen en la CDB
-        "etc/lists/orangebox-sftp-external".
+        "etc/lists/orangebox-sftp-certcoopeuch".
 
         Para agregar otro origen autorizado se agrega una nueva línea
         "<IP>:" a esa CDB. No se debe crear una regla 200xx adicional
         solo por una IP nueva.
 
-        La condición de usuario "sftpuser" se conserva para que la
+        La condición de usuario "certcoopeuch" se conserva para que la
         excepción no convierta cualquier SSH desde una IP autorizada
         en una excepción global.
     -->
     <rule id="20004" level="0">
         <if_sid>10001</if_sid>
-        <list field="srcip" lookup="address_match_key">etc/lists/orangebox-sftp-external</list>
-        <user>sftpuser</user>
-        <description>EXCEPCION: Acceso SFTP automatizado legitimo de sftpuser desde origen autorizado.</description>
+        <list field="srcip" lookup="address_match_key">etc/lists/orangebox-sftp-certcoopeuch</list>
+        <user>certcoopeuch</user>
+        <description>EXCEPCION: Acceso SFTP automatizado legitimo de certcoopeuch desde origen autorizado.</description>
         <group>authentication_success,orangebox_exception,orangebox_whitelist,sftp,</group>
     </rule>
 
