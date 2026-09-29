@@ -96,3 +96,20 @@ Es especialmente importante considerar:
 - Active Response `firewall-drop` para `10453` y `10454`.
 
 La protección debe probarse en un servidor antes de aplicar cambios de umbral de manera general.
+
+
+## Active Response firewall-drop: persistencia sin ruido de correo
+
+La regla nativa Wazuh 651 (Host Blocked by firewall-drop Active Response) es de nivel 3. OrangeBox necesita conservar estos eventos porque los reportes de seguridad los utilizan para contabilizar y auditar los bloqueos ejecutados automáticamente. Wazuh define log_alert_level como el nivel mínimo que se almacena en alerts.json y alerts.log; con el valor anterior de 5, la regla 651 quedaba fuera de la persistencia. citeturn0search5
+
+Por ese motivo, log_alert_level se establece en 3. No se modifica artificialmente la severidad de la regla nativa 651.
+
+La regla hija OrangeBox 10458 utiliza nivel 15 para identificar explícitamente estos eventos en los reportes. email_alert_level permanece en 16, de modo que 10458 se registra pero no genera un correo individual por cada IP bloqueada. Wazuh documenta que email_alert_level es el umbral mínimo para generar correo. citeturn0search5
+
+La separación buscada es:
+
+- nivel 3: persistencia de la señal nativa 651;
+- nivel 15: señal OrangeBox 10458 para reportería;
+- nivel 16: umbral de correo, sin notificación por cada firewall-drop.
+
+La regla 651 sigue siendo la señal nativa de Wazuh y 10458 agrega únicamente una capa OrangeBox para reportería.
