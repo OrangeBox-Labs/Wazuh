@@ -104,7 +104,7 @@ La regla nativa Wazuh 651 (Host Blocked by firewall-drop Active Response) es de 
 
 Por ese motivo, log_alert_level se establece en 3. No se modifica artificialmente la severidad de la regla nativa 651.
 
-La regla hija OrangeBox 10458 utiliza nivel 15 para identificar explícitamente estos eventos en los reportes. email_alert_level permanece en 16, de modo que 10458 se registra pero no genera un correo individual por cada IP bloqueada. Wazuh documenta que email_alert_level es el umbral mínimo para generar correo. citeturn0search5
+La regla hija OrangeBox 10458 utiliza nivel 11 para identificar explícitamente estos eventos en los reportes. email_alert_level permanece en 16, de modo que 10458 se registra pero no genera un correo individual por cada IP bloqueada. Wazuh documenta que email_alert_level es el umbral mínimo para generar correo. citeturn0search5
 
 La separación buscada es:
 
