@@ -20,7 +20,6 @@
         the integration.
     -->
 
-    <!-- 10610: escáner detectado por auditd. Nivel 14 e inmediata; sin contención propia. -->
     <rule id="10610" level="14">
         <if_sid>80792</if_sid>
         <list field="audit.command" lookup="match_key_value" check_value="scanner">etc/lists/orangebox-suspicious-programs</list>
@@ -29,7 +28,6 @@
         <group>execution,discovery,network_service_scanning,attack,orangebox_behavior,orangebox_scanner,orangebox_immediate,</group>
     </rule>
 
-    <!-- 10611: reconocimiento detectado por auditd. Señal base para 10612/10613. -->
     <rule id="10611" level="5">
         <if_sid>80792</if_sid>
         <list field="audit.command" lookup="match_key_value" check_value="recon">etc/lists/orangebox-recon-programs</list>
@@ -38,7 +36,6 @@
         <group>discovery,command_execution,orangebox_behavior,orangebox_recon,</group>
     </rule>
 
-    <!-- 10612: tres eventos 10611, comandos diferentes, misma location, dentro de 5 minutos. -->
     <rule id="10612" level="14" frequency="3" timeframe="300">
         <if_matched_sid>10611</if_matched_sid>
         <same_location/>
@@ -48,7 +45,11 @@
         <group>discovery,network_service_scanning,attack,orangebox_behavior,orangebox_recon,</group>
     </rule>
 
-    <!-- 10613: dos coincidencias previas de 10611 dentro de 10 minutos y evento actual 10005. No usa same_location porque auditd y journald pueden entregar locations diferentes. -->
+    <!--
+        El evento actual debe ser 10005 (sudo -> root) y se requiere
+        al menos DOS coincidencias previas de 10611 dentro de
+        los 10 minutos; el evento actual debe ser 10005.
+    -->
     <rule id="10613" level="15" frequency="2" timeframe="600">
         <if_sid>10005</if_sid>
         <if_matched_sid>10611</if_matched_sid>
@@ -57,7 +58,6 @@
         <group>privilege_escalation,discovery,attack,orangebox_behavior,orangebox_killchain,orangebox_immediate,</group>
     </rule>
 
-    <!-- 10614: tres eventos orangebox_behavior en 10 minutos y misma location. Es una correlación amplia y puede participar en correlaciones posteriores. -->
     <rule id="10614" level="15" frequency="3" timeframe="600">
         <if_matched_group>orangebox_behavior</if_matched_group>
         <same_location/>
