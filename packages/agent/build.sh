@@ -112,3 +112,12 @@ echo
 echo "RPM generado correctamente por el procedimiento oficial de Wazuh:"
 ls -lh "${RPM}"
 echo "Instalación: /opt/ossec"
+
+# Publicar el artefacto directamente junto al instalador unificado.
+INSTALLER_DIR="${SCRIPT_DIR}/../../tools/agent"
+INSTALLER_RPM="${INSTALLER_DIR}/wazuh-agent_${WAZUH_VERSION}-0_x86_64_OPT.rpm"
+mkdir -p "${INSTALLER_DIR}"
+cp -f "${RPM}" "${INSTALLER_RPM}"
+chmod 0644 "${INSTALLER_RPM}"
+echo "RPM publicado para el instalador unificado:"
+ls -lh "${INSTALLER_RPM}"
