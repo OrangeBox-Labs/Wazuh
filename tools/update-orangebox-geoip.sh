@@ -151,7 +151,8 @@ update_db() {
 }
 
 update_db     "City"     "$CITY_PREFIX"     "$GEOIP_DIR/dbip-city-lite.mmdb"     validate_city_db
-update_db     "ASN"      "$ASN_PREFIX"      "$GEOIP_DIR/dbip-asn-lite.mmdb"      validate_asn_db
+
+update_db     "ASN"     "$ASN_PREFIX"     "$GEOIP_DIR/dbip-asn-lite.mmdb"     validate_asn_db
 
 echo
 echo "=== OrangeBox GeoIP local ==="
