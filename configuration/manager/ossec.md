@@ -471,7 +471,7 @@ La regla nativa Wazuh 651 (Host Blocked by firewall-drop Active Response) tiene 
 No se eleva artificialmente la severidad de la regla nativa 651. En su lugar:
 
 - log_alert_level=3 permite persistir la 651.
-- La regla OrangeBox 10458 hereda de 651 y utiliza nivel 15.
+- La regla OrangeBox 10458 hereda de 651 y utiliza nivel 11.
 - La integración personalizada usa `<level>12</level>`; `email_alert_level` nativo es independiente.
 - 10458 queda disponible para reportes pero no genera un correo por cada IP bloqueada.
 
