@@ -40,6 +40,7 @@ DEFAULT_ALERT_RECIPIENT = "soporte@example.com"
 # Estas opciones solamente controlan destinatarios adicionales.
 #
 # La comparacion de grupos es CASE-INSENSITIVE:
+#   CLIENTE_03 == CLIENTE_03 == cloudlatam
 #
 # Para agregar un cliente nuevo solamente hay que agregar una entrada
 # aqui. No es necesario modificar ninguna otra parte del script.
@@ -59,6 +60,7 @@ CLIENT_GROUPS = {
     "CLIENTE_02": {
         "enabled": 0,
         "emails": [
+            "security@example.com",
             "security@example.com",
         ],
     },
@@ -87,7 +89,7 @@ CLIENT_GROUPS = {
     "CLIENTE_06": {
         "enabled": 0,
         "emails": [
-            "rfarias@example.com",
+            "security@example.com",
         ],
     },
 
@@ -118,10 +120,10 @@ CLIENT_GROUPS = {
 #
 IMMEDIATE_RULES = {
     # Reglas historicas / nativas que no podemos marcar todas desde
-    # CLIENTE (por ejemplo 5715).
+    # OrangeBox (por ejemplo 5715).
     "5715",
 
-    # Compatibilidad con reglas CLIENTE existentes.
+    # Compatibilidad con reglas OrangeBox existentes.
     "10001",
     "10004",
     "10005",
@@ -280,9 +282,9 @@ def get_agent_groups_from_manager(agent_id):
     output = result.stdout or ""
 
     # Formato habitual:
-    #   has the group: '[u'CLIENTE', u'default']'
+    #   has the group: '[u'CLIENTE_04', u'default']'
     # y versiones:
-    #   belongs to groups: default, CLIENTE
+    #   belongs to groups: default, CLIENTE_04
     import re
 
     match = re.search(r"\[([^\]]*)\]", output)
@@ -343,7 +345,7 @@ def extract_agent_groups(alert_json):
 
 def build_recipients(default_recipient, agent_groups):
     """
-    Soporte CLIENTE siempre recibe el correo.
+    Soporte OrangeBox siempre recibe el correo.
     Los destinatarios de cliente dependen del grupo y su switch.
     """
     recipients = []
@@ -361,7 +363,7 @@ def build_recipients(default_recipient, agent_groups):
             seen.add(key)
             recipients.append(address)
 
-    # Soporte CLIENTE es SIEMPRE destinatario.
+    # Soporte OrangeBox es SIEMPRE destinatario.
     add_recipient(DEFAULT_ALERT_RECIPIENT)
 
     # Conservamos tambien el recipient entregado por Wazuh si difiere,
@@ -406,7 +408,7 @@ def extract_ssh_source_ip(full_log):
     no entrega data.srcip al decoder.
 
     Ejemplo esperado:
-        Accepted password for root from 192.0.2.22 port 60943 ssh2
+        Accepted password for root from 10.8.0.22 port 60943 ssh2
 
     Esta ruta de respaldo es necesaria porque algunos eventos
     provenientes de journald llegan al integrador sin srcip aunque
@@ -434,7 +436,7 @@ def ssh_already_notified(agent_id, srcip, event_timestamp, ssh_identity="", full
     """
     Deduplicacion SSH por marcadores atomicos.
 
-    Politica CLIENTE:
+    Politica OrangeBox:
         - maximo un correo SSH por agente + IP origen + dia;
         - 5715 y 10001 comparten el mismo estado;
         - si journald no entrega data.srcip, el caller intenta
@@ -569,7 +571,7 @@ def ssh_already_notified(agent_id, srcip, event_timestamp, ssh_identity="", full
         # Esta es la politica principal. Es la que debe resolver
         # exactamente el caso:
         #
-        #   Accepted password ... from 192.0.2.22
+        #   Accepted password ... from 10.8.0.22
         #
         # cinco veces durante el dia en el mismo agente -> un solo correo.
         #
@@ -900,13 +902,51 @@ full_log = alert_json.get(
     "No log fragment attached."
 )
 
+# Vulnerability Detection genera eventos estructurados sin log crudo.
+# En ese caso construimos un resumen tecnico para que el correo no
+# muestre un "No log fragment attached." vacio.
 if not full_log or full_log == "No log fragment attached.":
     vulnerability = alert_json.get("data", {}).get("vulnerability", {})
+
     if isinstance(vulnerability, dict) and vulnerability:
-        full_log = json.dumps(
-            vulnerability,
-            ensure_ascii=False,
-            indent=2
+        package = vulnerability.get("package", {})
+        if not isinstance(package, dict):
+            package = {}
+
+        scanner = vulnerability.get("scanner", {})
+        if not isinstance(scanner, dict):
+            scanner = {}
+
+        cve = vulnerability.get(
+            "cve",
+            vulnerability.get("id", "N/A")
+        )
+
+        severity = vulnerability.get("severity", "N/A")
+        status = vulnerability.get("status", "N/A")
+        package_name = package.get("name", "N/A")
+        package_version = package.get("version", "N/A")
+        package_arch = package.get("architecture", "N/A")
+        condition = (
+            package.get("condition")
+            or scanner.get("condition")
+            or "N/A"
+        )
+        vuln_description = vulnerability.get(
+            "description",
+            "N/A"
+        )
+
+        full_log = (
+            "[VULNERABILITY DETECTION]\n"
+            f"CVE: {cve}\n"
+            f"Severidad: {severity}\n"
+            f"Estado: {status}\n"
+            f"Paquete: {package_name}\n"
+            f"Version: {package_version}\n"
+            f"Arquitectura: {package_arch}\n"
+            f"Condicion: {condition}\n"
+            f"Descripcion: {vuln_description}"
         )
 
 rule_groups = alert_json.get("rule", {}).get("groups", [])
@@ -1049,7 +1089,7 @@ current_event = {
 #   - 10004 = su -> root
 #   - 10005 = SUDO -> root sin excepcion validada
 #   - 10008 = sudo -i / escalamiento equivalente
-#   - 10009 = otros escalamientos SUDO definidos por CLIENTE
+#   - 10009 = otros escalamientos SUDO definidos por OrangeBox
 #   - 5715 / 10001 = SSH exitoso (con su deduplicacion bloqueada arriba)
 #
 # No mover estas reglas al buffer ni cambiar su tratamiento sin
@@ -1073,7 +1113,7 @@ send_immediately = (
 # ------------------------------------------------------------
 #
 # 5715 = regla nativa de SSH exitoso.
-# 10001 = regla CLIENTE hija de 5715.
+# 10001 = regla OrangeBox hija de 5715.
 #
 # Ambas representan el mismo evento de autenticacion SSH.
 #
@@ -1745,7 +1785,7 @@ for idx, ev in enumerate(
 # ============================================================
 
 wazuh_url = (
-    "https://wazuh.example.com/app/threat-hunting"
+    "https://wazuh.orangebox.cl/app/threat-hunting"
     "#/overview/?tab=general&tabView=events"
     f"&agentId={final_data['agent_id']}"
     "&_a=(filters:!(('$state':(store:appState),"
@@ -1814,8 +1854,8 @@ html_template = f"""<!DOCTYPE html>
                             border-radius:20px 20px 0 0;
                         ">
 
-                        <img src="https://www.example.com/obox/img/logo-dark.png"
-                             alt="CLIENTE"
+                        <img src="https://www.orangebox.cl/obox/img/logo-dark.png"
+                             alt="OrangeBox"
                              border="0"
                              width="220"
                              style="
@@ -1833,7 +1873,7 @@ html_template = f"""<!DOCTYPE html>
                             font-weight:700;
                             letter-spacing:-0.3px;
                         ">
-                            CLIENTE
+                            OrangeBox
                             <span style="color:#f97316;">Seguridad</span>
                         </div>
 
@@ -2099,7 +2139,7 @@ html_template = f"""<!DOCTYPE html>
                             line-height:18px;
                         ">
                             Mensaje automatizado de
-                            <strong>CLIENTE SOC &amp; CyberSecurity</strong>
+                            <strong>OrangeBox SOC &amp; CyberSecurity</strong>
                         </div>
 
                         <div style="
