@@ -217,7 +217,7 @@ Para OrangeBox se fija explícitamente:
 </file_limit>
 ```
 
-El valor 175000 se eligió como ampliación moderada del límite original, tomando como referencia el tamaño observado de la base de referencia del agente. El tamaño físico final de SQLite no debe interpretarse como un límite exacto en MiB.
+El valor 175000 se eligió como ampliación moderada del límite original, tomando como referencia el tamaño observado de la base de cpanel01. El tamaño físico final de SQLite no debe interpretarse como un límite exacto en MiB.
 
 Importante: `file_limit` no controla el número de watches de inotify. En hosts cPanel con muchos subdirectorios bajo `public_html`, un exceso de watches puede producir errores `(6700) ... maximum limit of inotify watches has been reached` aunque la base FIM tenga capacidad disponible. Ambos límites deben vigilarse por separado.
 
