@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-HOSTNAME="backup01.example.com"
+HOSTNAME="vizcachas.orangebox.cl"
 CDB="/var/ossec/etc/lists/orangebox-backuppc-dynamic"
 LOCK="/var/run/orangebox-update-backuppc.lock"
 
