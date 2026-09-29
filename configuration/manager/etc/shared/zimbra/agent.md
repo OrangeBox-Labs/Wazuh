@@ -15,7 +15,7 @@ permite identificar el perfil funcional del agente.
 La whitelist de `sudo` no depende solamente de esta etiqueta. Las reglas del Manager utilizan la CDB:
 
 ```text
-configuration/manager/etc/lists/orangebox-agent-profiles
+configuration/lists/orangebox-agent-profiles
 ```
 
 con el formato:
@@ -89,10 +89,10 @@ La ventaja es que un comando que puede ser legítimo en un servidor Zimbra/Carbo
 Ejemplo:
 
 ```text
-mail.example.com:zimbra
-zimbra.example.com:zimbra
-mail2.example.com:zimbra
-mail.example.com:zimbra
+mail01.example.com:zimbra
+mail02.example.com:zimbra
+mail03.example.com:zimbra
+mail04.example.com:zimbra
 ```
 
 ## Carbonio CE
