@@ -23,8 +23,8 @@ Una misma máquina puede necesitar hostname corto y FQDN cuando ambas representa
 cPanel / WHM / WP Toolkit.
 
 ```text
-servidor-cpanel:cpanel
-servidor-cpanel.example.com:cpanel
+cpanel01:cpanel
+cpanel01.example.com:cpanel
 ```
 
 Se utiliza para las excepciones de WP Toolkit y para `cpanel_ssl_reissue`.
@@ -84,9 +84,9 @@ Formato:
 
 No editar esta lista manualmente salvo para recuperación controlada.
 
-## `orangebox-sftp-external`
+## `orangebox-sftp-certcoopeuch`
 
-Contiene los orígenes autorizados para un SFTP externo administrado por OrangeBox. La regla `20004` combina esta lista con la condición de usuario.
+Contiene los orígenes autorizados para el SFTP del usuario `certcoopeuch`. La regla `20004` combina esta lista con la condición de usuario.
 
 Agregar una IP nueva significa agregar una línea `<IP>:` y reiniciar el Manager.
 
