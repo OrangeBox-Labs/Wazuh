@@ -108,6 +108,28 @@ Shorewall > firewalld > iptables
 
 Si Shorewall está instalado, el instalador utiliza `/etc/shorewall/rules`, valida la configuración con `shorewall check` y reinicia Shorewall cuando la regla OrangeBox fue modificada.
 
+### Shorewall
+
+Si Shorewall está instalado, el instalador mantiene la integración OrangeBox mediante un bloque idempotente en:
+
+```text
+/etc/shorewall/started
+```
+
+El bloque marcado con `# BEGIN ORANGEBOX WAZUH FIREWALL` se ejecuta después de que Shorewall haya creado su firewall y:
+
+- crea `ORANGEBOX-FW` si no existe;
+- reconstruye solamente esa cadena para evitar duplicados;
+- detecta la IP privada y pública dinámicamente;
+- permite con `RETURN` el TCP SYN desde la IP pública del propio servidor hacia la IP privada;
+- registra TCP SYN con `20/second` y `burst 40`;
+- termina con `RETURN`, por lo que la regla OrangeBox solamente registra y no bloquea;
+- conecta `INPUT` con `ORANGEBOX-FW` una sola vez.
+
+No se utilizan `/etc/shorewall/actions` ni `action.OrangeBoxFW` para esta integración. Si existe una regla OrangeBox antigua en `/etc/shorewall/rules`, se elimina tras generar un backup. Antes de reiniciar se ejecuta `shorewall check`.
+
+El uso de `/etc/shorewall/started` permite que la cadena y la excepción de IP se reconstruyan también cuando Shorewall reinicia su propio conjunto de reglas.
+
 ### firewalld
 
 Si Shorewall no está instalado y firewalld está activo:
