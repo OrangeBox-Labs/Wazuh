@@ -13,14 +13,14 @@ La supresión de falsos positivos del SUDO de WP Toolkit no depende únicamente 
 El agente debe pertenecer al grupo Wazuh `cpanel` y su hostname debe estar registrado en:
 
 ```text
-configuration/manager/etc/lists/orangebox-agent-profiles
+configuration/lists/orangebox-agent-profiles
 ```
 
 Ejemplo:
 
 ```text
-servidor-cpanel:cpanel
-servidor-cpanel.<grupo_cliente>.cl:cpanel
+cpanel01:cpanel
+cpanel01.example.com:cpanel
 ```
 
 La pertenencia al grupo y la entrada CDB deben mantenerse sincronizadas.
