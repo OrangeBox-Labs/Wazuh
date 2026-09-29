@@ -460,3 +460,19 @@ El updater diario `tools/update-orangebox-geoip.sh` instala y valida la release 
 Las IP privadas o reservadas se presentan como `IP local` y no se consideran parte de los rankings geográficos públicos.
 
 La geolocalización es aproximada y se utiliza como contexto de seguridad, no como identificación física exacta del origen.
+
+
+## Persistencia de firewall-drop y umbral de correo
+
+La configuración de alertas utiliza log_alert_level=3 y email_alert_level=16.
+
+La regla nativa Wazuh 651 (Host Blocked by firewall-drop Active Response) tiene nivel 3. OrangeBox necesita conservar ese evento porque los reportes utilizan la información de Active Response para contabilizar y auditar los bloqueos automáticos. Con log_alert_level=5, esos eventos quedaban fuera de alerts.json y no podían utilizarse de forma fiable en los reportes. Wazuh define log_alert_level como el nivel mínimo para almacenar alertas. citeturn0search5turn1search0
+
+No se eleva artificialmente la severidad de la regla nativa 651. En su lugar:
+
+- log_alert_level=3 permite persistir la 651.
+- La regla OrangeBox 10458 hereda de 651 y utiliza nivel 15.
+- email_alert_level=16 permanece sin cambios.
+- 10458 queda disponible para reportes pero no genera un correo por cada IP bloqueada.
+
+Esta separación es importante: la persistencia de un evento y su envío por correo son controles diferentes. El objetivo es tener trazabilidad completa de Active Response sin convertir cada bloqueo automático en ruido operacional.
