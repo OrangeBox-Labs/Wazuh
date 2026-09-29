@@ -678,7 +678,7 @@ def period_label(mode):
 
 
 def generate_html(group_sections, title, subtitle, period, total_agents, total_events, total_high, total_critical, total_attacks, vuln_error=None, mitre_descriptions=None):
-    logo_url = "https://www.example.com/obox/img/logo-dark.png"
+    logo_url = "https://www.orangebox.cl/obox/img/logo-dark.png"
     dark = "#102d38"
     orange = "#ff5a2f"
     coral = "#ff6b4a"
@@ -701,7 +701,7 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
 
         # Header corporativo alojado como imagen para máxima compatibilidad con clientes de correo.
         "<tr><td style='padding:0;background:#06141d;'>",
-        "<img src='https://www.example.com/obox/img/banner-reporte-wazuh.png' alt='OrangeBox - Reporte de Seguridad Wazuh' width='1120' style='display:block;width:100%;max-width:1120px;height:auto;border:0;'>",
+        "<img src='https://www.orangebox.cl/obox/img/banner-reporte-wazuh.png' alt='OrangeBox - Reporte de Seguridad Wazuh' width='1120' style='display:block;width:100%;max-width:1120px;height:auto;border:0;'>",
         "</td></tr>",
 
         # Report heading
