@@ -2,7 +2,7 @@
 
 > Reglas, configuración y herramientas Wazuh para seguridad, FIM, YARA, Active Response y monitoreo de servidores Linux.
 
-[![OrangeBox IT Services](https://img.shields.io/badge/OrangeBox-IT%20Services-ff6a00?style=for-the-badge)](https://TU_HOSTNAME/)
+[![OrangeBox IT Services](https://img.shields.io/badge/OrangeBox-IT%20Services-ff6a00?style=for-the-badge)](https://www.orangebox.cl/)
 [![Wazuh](https://img.shields.io/badge/Wazuh-security-0073c6?style=for-the-badge)](https://wazuh.com/)
 [![Bash](https://img.shields.io/badge/Bash-tooling-121011?style=for-the-badge&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 
@@ -16,14 +16,10 @@ El proyecto está orientado a operaciones reales de seguridad: detección de mal
 
 ```text
 configuration/
-└── manager/            # Configuración del Wazuh Manager
+├── manager/            # Configuración del Wazuh Manager
+└── agents/common/      # Configuración común de agentes
 
-packages/
-└── agent/              # Herramientas para construir el RPM OPT
-
-tools/
-├── agent/              # Instalador unificado del agente
-└── ...                 # Herramientas operativas
+tools/                  # Instaladores y herramientas auxiliares
 ```
 
 Los árboles `configuration/` mantienen la estructura de instalación de Wazuh para facilitar despliegues mediante `rsync`.
@@ -42,40 +38,23 @@ configuration/manager/etc/shared/
 
 El perfil común cubre mecanismos generales de compromiso, persistencia, credenciales y escalamiento. Los perfiles específicos agregan solamente las rutas y controles propios de cada plataforma.
 
-## Instalador unificado del agente
-
-El despliegue del agente se realiza con un único instalador:
-
-```bash
-cd tools/agent
-./install.sh
-```
-
-El instalador pregunta si el servidor es **Linux normal** o **cPanel/CSF** y configura de forma idempotente el agente, firewall OrangeBox, auditd, YARA, ruleset oficial Yara-Rules y las validaciones finales.
-
-**No hay que ejecutar instaladores secundarios.**
-
-El RPM OPT para cPanel se distribuye junto al instalador:
-
-```text
-tools/agent/
-├── install.sh
-├── README.md
-├── INSTALL.md
-└── wazuh-agent_4.14.7-0_x86_64_OPT.rpm
-```
-
 ## YARA + Wazuh
 
 La integración **FIM → YARA** permite analizar archivos detectados por Wazuh usando reglas oficiales de Yara-Rules.
 
-El instalador unificado genera directamente en el cliente:
+El instalador se encuentra en:
 
 ```text
-<WAZUH_HOME>/active-response/bin/orangebox-yara.sh
+tools/orangebox-yara/install-orangebox-yara.sh
 ```
 
-No se mantiene un instalador YARA separado en el repositorio. El ruleset oficial se valida antes de activarse y se registra el commit utilizado para facilitar auditoría y trazabilidad.
+y el runtime desplegable en:
+
+```text
+configuration/agents/common/active-response/bin/orangebox-yara.sh
+```
+
+El proyecto registra la versión/commit del ruleset descargado para facilitar auditoría y trazabilidad.
 
 ## Active Response
 
@@ -106,7 +85,17 @@ Wazuh Manager:
 rsync -a configuration/manager/ /var/ossec/
 ```
 
-Para endpoints, utilizar el instalador unificado de `tools/agent/` en lugar de copiar configuraciones de agente manualmente.
+Agente Linux:
+
+```bash
+rsync -a configuration/agents/common/ /var/ossec/
+```
+
+Instalaciones con `/opt/ossec`:
+
+```bash
+rsync -a configuration/agents/common/ /opt/ossec/
+```
 
 ## Filosofía OrangeBox
 
@@ -118,7 +107,7 @@ Las reglas y scripts deben poder revisarse, probarse y desplegarse sin depender 
 
 Enterprise Linux · Wazuh · Security · Monitoring · Zimbra · VMware · Infrastructure
 
-https://TU_HOSTNAME/
+https://www.orangebox.cl/
 
 ### Keywords
 
@@ -126,4 +115,4 @@ Wazuh, Wazuh Manager, Wazuh Agent, Wazuh rules, Wazuh FIM, File Integrity Monito
 
 ## Documentación
 
-La documentación técnica se mantiene junto al componente que documenta, usando el mismo nombre base con extensión `.md`. Para el agente, la documentación principal es `tools/agent/README.md` y `tools/agent/INSTALL.md`.
+La documentación técnica se mantiene junto al componente que documenta, usando el mismo nombre base con extensión `.md`. Por ejemplo: `orangebox-auth.xml` + `orangebox-auth.md`, `agent.conf` + `agent.md` y `custom-orangebox-email.py` + `custom-orangebox-email.md`.
