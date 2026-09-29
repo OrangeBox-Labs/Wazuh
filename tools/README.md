@@ -1,20 +1,67 @@
-# Herramientas de Wazuh
+# Herramientas de Wazuh OrangeBox
 
-Scripts operativos para instalar y validar componentes.
+## Instalador unificado de agentes
 
-- `wazuh.install.rhel.sh`: instala el agente Linux.
-- `wazuh.install.cpanel.sh`: instala el agente OrangeBox/OPT.
-- `tools/orangebox-yara/install-orangebox-yara.sh`: instala el runtime YARA y las firmas oficiales.
-- `verify-deployed-config.sh`: valida el espejo del Manager, los artefactos de agente desde el source del repo y, con `--agent`, los runtimes realmente desplegados en el agente contra esos mismos sources.
-- `update-orangebox-ioc-lists.sh`: actualiza las listas IOC y reinicia Wazuh solo cuando hubo cambios; usa lock para evitar ejecuciones simultáneas.
-- `update-orangebox-geoip.sh`: actualiza las bases GeoIP DB-IP Lite locales y conserva la versión vigente ante errores.
-- `install-orangebox-geoip.sh`: instala el updater, crea el cron diario y ejecuta la primera actualización.
-- `check-orangebox-wazuh.sh`: realiza un chequeo simple de salud del stack.
-- `install-orangebox-exec-audit.sh`: configura auditd para detectar ejecuciones desde directorios temporales delicados.
+Existe un único instalador:
 
-Las firmas YARA no viven en el repositorio OrangeBox: se descargan desde `Yara-Rules/rules` usando un commit aprobado.
+```bash
+cd tools/agent
+./install.sh
+```
 
+Al ejecutarlo pregunta si el servidor es **cPanel/CSF**.
 
-## Documentación
+- **Linux normal:** instala el Wazuh Agent oficial y usa `/var/ossec`.
+- **cPanel:** instala el RPM OrangeBox OPT y usa `/opt/ossec`.
 
-Cada herramienta funcional debe mantener su documentación junto al script, con el mismo nombre base: `script.sh` + `script.md` o `script.py` + `script.md`.
+Después, el mismo flujo verifica y configura de forma idempotente:
+
+1. Wazuh Agent.
+2. Firewall OrangeBox.
+3. auditd para monitoreo de ejecución.
+4. YARA y sus dependencias.
+5. Ruleset oficial Yara-Rules.
+6. `orangebox-yara.sh`, generado directamente en el cliente.
+7. Validaciones finales y arranque del agente.
+
+**No hay que ejecutar instaladores secundarios.**
+
+El RPM OPT requerido para cPanel está junto al instalador:
+
+```text
+tools/agent/
+├── install.sh
+├── README.md
+├── INSTALL.md
+└── wazuh-agent_4.14.7-0_x86_64_OPT.rpm
+```
+
+## Firewall Shorewall
+
+Cuando Shorewall está instalado, el instalador mantiene la integración OrangeBox en `/etc/shorewall/started`. El bloque está delimitado por `BEGIN/END ORANGEBOX WAZUH FIREWALL`, se agrega una sola vez y se vuelve a ejecutar con cada ciclo de arranque/reinicio de Shorewall.
+
+La cadena `ORANGEBOX-FW` registra TCP SYN a 20 eventos/s con burst 40, incluye la excepción de tráfico desde la IP pública del servidor hacia su IP privada y termina en `RETURN`. La regla OrangeBox antigua de `/etc/shorewall/rules` se elimina de forma controlada durante la migración.
+
+## auditd
+
+Las reglas OrangeBox de ejecución usan `/etc/audit/rules.d/orangebox-wazuh.rules` como archivo canónico. El instalador migra `99-orangebox-exec.rules` si contiene reglas OrangeBox, genera reglas para `/tmp`, `/var/tmp`, `/dev/shm` y para ejecutables de scanner/reconocimiento realmente presentes, y valida la carga con `augenrules`/`auditctl`.
+
+## Herramientas operativas
+
+Estas herramientas no forman parte del despliegue base del agente:
+
+- `check-orangebox-wazuh.sh`
+- `verify-deployed-config.sh`
+- `install-orangebox-geoip.sh`
+- `update-orangebox-geoip.sh`
+- `update-orangebox-ioc-lists.sh`
+- `update-orangebox-backuppc.sh`
+- `orangebox-quarantine.py`
+
+## Build del RPM
+
+`packages/agent/build.sh` conserva el proceso para construir el RPM OPT. El artefacto de producción se copia al directorio `tools/agent/` para que el instalador sea autosuficiente.
+
+## Authd
+
+No existe un instalador de `authd` para los endpoints en este repo. El enrollment del agente se realiza mediante la configuración de Wazuh; `wazuh-authd` pertenece al Manager.
