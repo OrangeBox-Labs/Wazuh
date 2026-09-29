@@ -466,12 +466,12 @@ La geolocalización es aproximada y se utiliza como contexto de seguridad, no co
 
 La configuración de alertas utiliza log_alert_level=3 y email_alert_level=16.
 
-La regla nativa Wazuh 651 (Host Blocked by firewall-drop Active Response) tiene nivel 3. OrangeBox necesita conservar ese evento porque los reportes utilizan la información de Active Response para contabilizar y auditar los bloqueos automáticos. Con log_alert_level=5, esos eventos quedaban fuera de alerts.json y no podían utilizarse de forma fiable en los reportes. Wazuh define log_alert_level como el nivel mínimo para almacenar alertas. citeturn0search5turn1search0
+La regla nativa Wazuh 651 (Host Blocked by firewall-drop Active Response) tiene nivel 3. OrangeBox necesita conservar ese evento porque los reportes utilizan la información de Active Response para contabilizar y auditar los bloqueos automáticos. Con log_alert_level=5, esos eventos quedaban fuera de alerts.json y no podían utilizarse de forma fiable en los reportes. Wazuh define log_alert_level como el nivel mínimo para almacenar alertas.
 
 No se eleva artificialmente la severidad de la regla nativa 651. En su lugar:
 
 - log_alert_level=3 permite persistir la 651.
-- La regla OrangeBox 10458 hereda de 651 y utiliza nivel 11.
+- La regla OrangeBox 10458 hereda de 651 y utiliza nivel 15.
 - La integración personalizada usa `<level>12</level>`; `email_alert_level` nativo es independiente.
 - 10458 queda disponible para reportes pero no genera un correo por cada IP bloqueada.
 
