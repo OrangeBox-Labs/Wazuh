@@ -193,13 +193,18 @@
         alerts.json/alerts.log. No elevamos artificialmente la 651: bajamos
         log_alert_level a 3 para conservar la señal nativa.
 
-        La regla hija 10458 queda en nivel 15 para identificar el evento en
-        reportería sin convertir cada bloqueo en correo. email_alert_level
-        permanece en 16, por lo que 10458 se registra pero no genera correo.
+        La regla hija 10458 queda en nivel 11: es el nivel inmediatamente
+        inferior al umbral de 12 configurado en la integracion
+        custom-orangebox-email.py. Asi el evento queda persistido y
+        disponible para los reportes, pero la integracion de correo no
+        siquiera procesa la alerta y no genera un correo por cada IP.
+
+        El email_alert_level nativo de Wazuh es independiente de esta
+        politica y no controla nuestra integracion personalizada.
 
         Esto separa deliberadamente persistencia/reporteria de notificacion.
     -->
-    <rule id="10458" level="15">
+    <rule id="10458" level="11">
         <if_sid>651</if_sid>
         <description>ORANGEBOX: Active Response firewall-drop ejecutado; bloqueo registrado para reportes.</description>
         <group>orangebox,firewall,active_response,reporting,</group>
