@@ -16,10 +16,14 @@ El proyecto está orientado a operaciones reales de seguridad: detección de mal
 
 ```text
 configuration/
-├── manager/            # Configuración del Wazuh Manager
-└── agents/common/      # Configuración común de agentes
+└── manager/            # Configuración del Wazuh Manager
 
-tools/                  # Instaladores y herramientas auxiliares
+packages/
+└── agent/              # Herramientas para construir el RPM OPT
+
+tools/
+├── agent/              # Instalador unificado del agente
+└── ...                 # Herramientas operativas
 ```
 
 Los árboles `configuration/` mantienen la estructura de instalación de Wazuh para facilitar despliegues mediante `rsync`.
@@ -38,23 +42,40 @@ configuration/manager/etc/shared/
 
 El perfil común cubre mecanismos generales de compromiso, persistencia, credenciales y escalamiento. Los perfiles específicos agregan solamente las rutas y controles propios de cada plataforma.
 
+## Instalador unificado del agente
+
+El despliegue del agente se realiza con un único instalador:
+
+```bash
+cd tools/agent
+./install.sh
+```
+
+El instalador pregunta si el servidor es **Linux normal** o **cPanel/CSF** y configura de forma idempotente el agente, firewall OrangeBox, auditd, YARA, ruleset oficial Yara-Rules y las validaciones finales.
+
+**No hay que ejecutar instaladores secundarios.**
+
+El RPM OPT para cPanel se distribuye junto al instalador:
+
+```text
+tools/agent/
+├── install.sh
+├── README.md
+├── INSTALL.md
+└── wazuh-agent_4.14.7-0_x86_64_OPT.rpm
+```
+
 ## YARA + Wazuh
 
 La integración **FIM → YARA** permite analizar archivos detectados por Wazuh usando reglas oficiales de Yara-Rules.
 
-El instalador se encuentra en:
+El instalador unificado genera directamente en el cliente:
 
 ```text
-tools/orangebox-yara/install-orangebox-yara.sh
+<WAZUH_HOME>/active-response/bin/orangebox-yara.sh
 ```
 
-y el runtime desplegable en:
-
-```text
-configuration/agents/common/active-response/bin/orangebox-yara.sh
-```
-
-El proyecto registra la versión/commit del ruleset descargado para facilitar auditoría y trazabilidad.
+No se mantiene un instalador YARA separado en el repositorio. El ruleset oficial se valida antes de activarse y se registra el commit utilizado para facilitar auditoría y trazabilidad.
 
 ## Active Response
 
@@ -85,17 +106,7 @@ Wazuh Manager:
 rsync -a configuration/manager/ /var/ossec/
 ```
 
-Agente Linux:
-
-```bash
-rsync -a configuration/agents/common/ /var/ossec/
-```
-
-Instalaciones con `/opt/ossec`:
-
-```bash
-rsync -a configuration/agents/common/ /opt/ossec/
-```
+Para endpoints, utilizar el instalador unificado de `tools/agent/` en lugar de copiar configuraciones de agente manualmente.
 
 ## Filosofía OrangeBox
 
@@ -115,4 +126,4 @@ Wazuh, Wazuh Manager, Wazuh Agent, Wazuh rules, Wazuh FIM, File Integrity Monito
 
 ## Documentación
 
-La documentación técnica se mantiene junto al componente que documenta, usando el mismo nombre base con extensión `.md`. Por ejemplo: `orangebox-auth.xml` + `orangebox-auth.md`, `agent.conf` + `agent.md` y `custom-orangebox-email.py` + `custom-orangebox-email.md`.
+La documentación técnica se mantiene junto al componente que documenta, usando el mismo nombre base con extensión `.md`. Para el agente, la documentación principal es `tools/agent/README.md` y `tools/agent/INSTALL.md`.
