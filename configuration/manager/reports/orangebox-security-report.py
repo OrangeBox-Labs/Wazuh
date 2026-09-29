@@ -36,7 +36,7 @@ INDEXER_CONFIG = "/var/ossec/etc/orangebox-indexer.conf"
 FIREWALL_RULE = "651"
 FIREWALL_RE = re.compile(r"active-response/bin/firewall-drop:\s*(\{.*\})$")
 WAZUH_OSSEC_CONF = "/var/ossec/etc/ossec.conf"
-LOGO_URL = "https://www.example.com/obox/img/logo-dark.png"
+LOGO_URL = "https://www.orangebox.cl/obox/img/logo-dark.png"
 
 AUTH_RULES = {"5710", "5712", "5715", "5716", "5720", "5760", "5763", "10001", "10006", "10007", "10008", "10009", "40101"}
 WEB_RULES = {"31101", "10023", "10024", "10025", "10026"}
@@ -822,7 +822,7 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
     page.append(f"<tr><td style='height:6px;background:{orange};font-size:0;line-height:0;'>&nbsp;</td></tr>")
     page.append("<tr><td align='center' style='padding:18px 10px 34px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;max-width:1120px;background:#ffffff;border:1px solid #e1e5e4;'>")
     page.append("<tr><td style='padding:0;background:#06141d;'>"
-                 "<img src='https://www.example.com/obox/img/banner-reporte-wazuh.png' alt='OrangeBox - Reporte de Seguridad Wazuh' width='1120' style='display:block;width:100%;max-width:1120px;height:auto;border:0;'>"
+                 "<img src='https://www.orangebox.cl/obox/img/banner-reporte-wazuh.png' alt='OrangeBox - Reporte de Seguridad Wazuh' width='1120' style='display:block;width:100%;max-width:1120px;height:auto;border:0;'>"
                  "</td></tr>")
     page.append(f"<tr><td style='padding:26px 26px 16px;'><div style='color:{orange};font-size:10px;font-weight:800;letter-spacing:1.8px;'>ORANGEBOX SECURITY · WAZUH</div><div style='font-size:30px;line-height:1.12;font-weight:800;margin-top:6px;color:{text};'>{esc(title)}</div><div style='font-size:14px;line-height:1.5;color:{muted};padding-top:7px;'>{esc(subtitle)}</div><table role='presentation' cellpadding='0' cellspacing='0' border='0' style='margin-top:16px;'><tr><td style='background:#f3f5f4;border:0;border-radius:20px;padding:9px 14px;font-size:11px;color:#526873;'><b>CLIENTE</b>&nbsp; {esc(group)}</td><td width='8'></td><td style='background:{orange};border-radius:20px;padding:9px 14px;font-size:11px;color:#ffffff;'><b>PERÍODO</b>&nbsp; {esc(period)}</td></tr></table></td></tr>")
     page.append("<tr><td style='padding:0 22px 24px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='8' border='0'><tr>")
