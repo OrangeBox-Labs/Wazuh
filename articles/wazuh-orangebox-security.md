@@ -51,7 +51,7 @@ Eso es lo que contiene el repositorio público de OrangeBox:
 
 El repositorio privado de desarrollo y operación contiene la configuración completa y es la fuente de donde sale lo que finalmente se despliega.
 
-![Arquitectura OrangeBox Wazuh](https://TU_HOSTNAME/blog/images/wazuh-repo/fig1.svg)
+![Arquitectura OrangeBox Wazuh](https://www.orangebox.cl/blog/images/wazuh-repo/fig1.svg)
 
 ---
 
@@ -834,7 +834,7 @@ La capa YARA sigue siendo la que analiza el contenido.
 
 ---
 
-![Flujo FIM YARA IOC](https://TU_HOSTNAME/blog/images/wazuh-repo/fig2.svg)
+![Flujo FIM YARA IOC](https://www.orangebox.cl/blog/images/wazuh-repo/fig2.svg)
 
 # 19. Las firmas YARA también tienen una decisión importante
 
@@ -1096,7 +1096,7 @@ La automatización se reserva para eventos donde la respuesta es suficientemente
 
 ---
 
-![De la señal al bloqueo](https://TU_HOSTNAME/blog/images/wazuh-repo/fig3.svg)
+![De la señal al bloqueo](https://www.orangebox.cl/blog/images/wazuh-repo/fig3.svg)
 
 # 25. La protección no está en una regla gigante
 
