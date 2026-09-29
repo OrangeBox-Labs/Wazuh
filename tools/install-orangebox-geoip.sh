@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # OrangeBox - instala el soporte local DB-IP Lite para los reportes Wazuh.
-# Ejecutar desde la raiz del repositorio.
+# Ejecutar desde la raiz del repo Wazuh-OrangeBox como root.
 
 SCRIPT_SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/update-orangebox-geoip.sh"
 SCRIPT_DEST="/usr/local/sbin/update-orangebox-geoip.sh"
