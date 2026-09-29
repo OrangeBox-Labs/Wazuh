@@ -182,4 +182,27 @@
         <group>orangebox,firewall,flood,denial_of_service,ddos,</group>
     </rule>
 
+    <!--
+        10458 - REGISTRO DEL ACTIVE RESPONSE FIREWALL-DROP
+
+        La regla nativa 651 ("Host Blocked by firewall-drop Active Response")
+        tiene nivel 3. OrangeBox necesita conservar ese evento porque los
+        reportes de seguridad lo utilizan para contabilizar y auditar bloqueos.
+
+        log_alert_level estaba en 5, por lo que la 651 quedaba fuera de
+        alerts.json/alerts.log. No elevamos artificialmente la 651: bajamos
+        log_alert_level a 3 para conservar la señal nativa.
+
+        La regla hija 10458 queda en nivel 15 para identificar el evento en
+        reportería sin convertir cada bloqueo en correo. email_alert_level
+        permanece en 16, por lo que 10458 se registra pero no genera correo.
+
+        Esto separa deliberadamente persistencia/reporteria de notificacion.
+    -->
+    <rule id="10458" level="15">
+        <if_sid>651</if_sid>
+        <description>ORANGEBOX: Active Response firewall-drop ejecutado; bloqueo registrado para reportes.</description>
+        <group>orangebox,firewall,active_response,reporting,</group>
+    </rule>
+
 </group>
