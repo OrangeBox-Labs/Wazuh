@@ -71,18 +71,18 @@ La validación exitosa se realizó con la IP origen:
 y tres destinos diferentes:
 
 ```text
-ssh-server-a.example.com
-ssh-server-b.example.com
-ssh-server-c.example.com
+fw-gtd.cts.cl
+fw-entel.cts.cl
+www.cliente02.example.com
 ```
 
 Los tres eventos fueron logins SSH exitosos de `root`:
 
 | Orden | Destino | Hora | Evento |
 |---|---|---|---|
-| 1 | `ssh-server-a.example.com` | 09:04:40 | `Accepted publickey for root from 203.0.113.10` |
-| 2 | `ssh-server-b.example.com` | 09:05:10 | `Accepted publickey for root from 203.0.113.10` |
-| 3 | `ssh-server-c.example.com` | 09:05:38 | `Accepted publickey for root from 203.0.113.10` |
+| 1 | `fw-gtd.cts.cl` | 09:04:40 | `Accepted publickey for root from 203.0.113.10` |
+| 2 | `fw-entel.cts.cl` | 09:05:10 | `Accepted publickey for root from 203.0.113.10` |
+| 3 | `www.cliente02.example.com` | 09:05:38 | `Accepted publickey for root from 203.0.113.10` |
 
 El tercer evento completó la correlación y produjo la alerta:
 
@@ -106,9 +106,9 @@ La forma correcta de reproducir la prueba es generar tres autenticaciones SSH ex
 Ejemplo:
 
 ```bash
-ssh root@ssh-server-a.example.com
-ssh root@ssh-server-b.example.com
-ssh root@ssh-server-c.example.com
+ssh root@fw-gtd.cts.cl
+ssh root@fw-entel.cts.cl
+ssh root@www.cliente02.example.com
 ```
 
 Las tres conexiones deben completarse dentro de 300 segundos.
@@ -190,9 +190,9 @@ La contención automática debe mantenerse separada de esta correlación.
 La validación de producción quedó confirmada con tres conexiones SSH exitosas desde `203.0.113.10`:
 
 ```text
-09:04:40  ssh-server-a.example.com
-09:05:10  ssh-server-b.example.com
-09:05:38  ssh-server-c.example.com
+09:04:40  fw-gtd.cts.cl
+09:05:10  fw-entel.cts.cl
+09:05:38  www.cliente02.example.com
 ```
 
 Resultado:
