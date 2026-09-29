@@ -56,7 +56,7 @@ Prueba sin enviar correo:
 ```bash
 python3 /var/ossec/reports/orangebox-detailed-security-report-geoip-test.py \
   --today \
-  --group CTS \
+  --group CLIENTE_01 \
   --email soporte@example.com \
   --dry-run
 ```
@@ -66,7 +66,7 @@ Para una prueba real de correo:
 ```bash
 python3 /var/ossec/reports/orangebox-detailed-security-report-geoip-test.py \
   --today \
-  --group CTS \
+  --group CLIENTE_01 \
   --email soporte@example.com
 ```
 
