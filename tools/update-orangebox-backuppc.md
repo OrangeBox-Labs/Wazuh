@@ -14,7 +14,7 @@ Contiene las IP autorizadas manualmente. **El updater nunca modifica esta lista.
 
 `/var/ossec/etc/lists/orangebox-backuppc-dynamic`
 
-Contiene la IP actual obtenida desde DNS para `backup01.example.com`.
+Contiene la IP actual obtenida desde DNS para `vizcachas.orangebox.cl`.
 
 Cuando DNS cambia, el script reemplaza completamente esta lista por la nueva IP. No conserva IPs dinamicas historicas.
 
