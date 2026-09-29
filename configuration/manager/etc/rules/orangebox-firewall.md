@@ -109,7 +109,8 @@ La regla hija OrangeBox 10458 utiliza nivel 15 para identificar explícitamente 
 La separación buscada es:
 
 - nivel 3: persistencia de la señal nativa 651;
-- nivel 15: señal OrangeBox 10458 para reportería;
-- nivel 16: umbral de correo, sin notificación por cada firewall-drop.
+- nivel 11: señal OrangeBox 10458 para reportería;
+- nivel 12: umbral de entrada de la integración custom-orangebox-email.py;
+- el email_alert_level nativo de Wazuh es independiente de esta integración.
 
 La regla 651 sigue siendo la señal nativa de Wazuh y 10458 agrega únicamente una capa OrangeBox para reportería.
