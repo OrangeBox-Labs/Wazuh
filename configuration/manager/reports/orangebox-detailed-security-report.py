@@ -837,7 +837,7 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
         f"<tr><td style='padding:0 22px 20px;'>"
         f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='border:1px solid {border};border-radius:12px;background:#ffffff;'>"
         f"<tr><td style='background:#ffffff;border-bottom:1px solid {border};padding:15px 16px;font-size:17px;font-weight:800;color:{text};'><span style='color:{orange};font-size:13px;'>🔎</span>&nbsp; IPs de origen · reglas detectadas</td></tr>"
-        f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:11px;'>Cada IP aparece una sola vez, agrupando las reglas y tipos de detección asociados en el período.</td></tr>"
+        f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:11px;'>Cada IP aparece una sola vez, agrupando las reglas, tipos de detección y agentes que registraron esa IP durante el período.</td></tr>"
     )
 
     ranked_ips = sorted(
@@ -855,8 +855,9 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
     if ranked_ips:
         page.append("<tr><td style='padding:0 8px 8px;overflow-wrap:anywhere;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>")
         page.append(
-            f"<tr><td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;width:31%;'>IP</td>"
+            f"<tr><td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;width:110px;white-space:nowrap;'>IP</td>"
             f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;width:19%;'>PAÍS</td>"
+            f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;width:21%;'>AGENTES</td>"
             f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;'>TIPOS / REGLAS DETECTADAS</td></tr>"
         )
         for ip in ranked_ips:
@@ -876,9 +877,11 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
                 rule_items.append(
                     f"<div style='color:#78909c;font-size:10px;'>+ {len(all_ip_rules[ip]['rules']) - 6} reglas adicionales</div>"
                 )
+            agent_items = "<br>".join(f"→ {esc(name)}" for name in sorted(all_ip_rules[ip]["servers"], key=str.lower))
             page.append(
-                f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-size:11px;font-weight:bold;overflow-wrap:anywhere;'>{esc(ip)}</td>"
+                f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-size:11px;font-weight:bold;white-space:nowrap;width:110px;'>{esc(ip)}</td>"
                 f"<td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;font-weight:bold;'>{esc(country)}</td>"
+                f"<td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:10px;line-height:1.45;overflow-wrap:anywhere;'>{agent_items}</td>"
                 f"<td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:10px;line-height:1.45;'>{''.join(rule_items)}</td></tr>"
             )
         page.append("</table></td></tr>")
