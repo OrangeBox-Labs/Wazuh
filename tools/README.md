@@ -21,7 +21,7 @@ Después, el mismo flujo verifica y configura de forma idempotente:
 3. auditd para monitoreo de ejecución.
 4. YARA y sus dependencias.
 5. Ruleset oficial Yara-Rules.
-6. Active Response YARA, tomado desde `configuration/agent/active-response/`.
+6. Active Response YARA y cuarentena, generados directamente por el instalador del agente.
 7. Validaciones finales y arranque del agente.
 
 **No hay que ejecutar instaladores secundarios.**
