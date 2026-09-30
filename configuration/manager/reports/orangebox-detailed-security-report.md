@@ -133,7 +133,7 @@ El reporte reutiliza `orangebox-security-report.py` para:
 - lectura de logs históricos comprimidos;
 - parseo de alertas;
 - clasificación de categorías;
-- reconstrucción de `firewall-drop` desde las alertas 651.
+- reconstrucción de `firewall-drop` desde las alertas 10458.
 
 Esto mantiene ambos reportes alineados en cuanto a qué se considera una detección.
 
