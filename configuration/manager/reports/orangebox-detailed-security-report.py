@@ -1023,7 +1023,7 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
                 "</td></tr>",
 
                 # Resumen del servidor: primero, breve y visible.
-                "<tr><td style='padding:10px 16px 2px;'><div style='font-size:14px;font-weight:800;color:{text};'>Resumen del servidor</div></td></tr>",
+                f"<tr><td style='padding:10px 16px 2px;'><div style='font-size:14px;font-weight:800;color:{text};'>Resumen del servidor</div></td></tr>",
 
                 # Server metric cards
                 "<tr><td style='padding:12px 12px 4px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>",
@@ -1034,8 +1034,9 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
                 f"<td style='padding:4px;'><div style='background:{panel};border-radius:9px;text-align:center;padding:10px 5px;'><div style='font-size:19px;font-weight:800;color:{text};'>{num(len(s['ips']))}</div><div style='font-size:8px;color:{muted};font-weight:800;letter-spacing:.7px;'>IPS ORIGEN</div></div></td>",
                 f"<td style='padding:4px;'><div style='background:{panel};border-radius:9px;text-align:center;padding:10px 5px;'><div style='font-size:19px;font-weight:800;color:{text};'>{num(len(s['blocked']))}</div><div style='font-size:8px;color:{muted};font-weight:800;letter-spacing:.7px;'>IPS BLOQUEADAS</div></div></td>",
                 "</tr></table></td></tr>",
+            ])
 
-                # Top rules by human-readable description
+            # Top rules by human-readable description
             page.append(
                 "<tr><td style='padding:10px 16px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
                 f"<tr><td colspan='2' style='padding:7px 0 8px;border-bottom:2px solid {orange};font-size:14px;font-weight:800;color:{text};'>Principales detecciones</td></tr>"
