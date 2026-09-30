@@ -420,6 +420,10 @@ def parse_events_for_agents(module, start, end, allowed):
                     continue
 
             event = module.parse_event(outer)
+            if event:
+                data = outer.get("data") or {}
+                syscheck = outer.get("syscheck") or data.get("syscheck") or {}
+                event["fim_path"] = str(syscheck.get("path") or data.get("path") or "").strip()
             if not event or event["timestamp"] < start or event["timestamp"] >= end:
                 continue
 
@@ -611,7 +615,7 @@ def accumulate_event(agent_stats, event, module):
         stat["auth_events"] += 1
         if srcip:
             stat["auth_ips"][srcip] += 1
-    elif category == "fim":
+    if category == "fim" or event.get("fim_path"):
         stat["fim_events"] += 1
         path = event.get("fim_path")
         bucket = fim_bucket(path)
@@ -835,6 +839,17 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
     source_country_rank = geo_module.geoip_country_ranking(all_ip_rules.keys(), geo)
     blocked_country_rank = geo_module.geoip_country_ranking(geo_blocked_ips, geo)
 
+    blocked_ip_counts = Counter()
+    for _, stats in group_sections:
+        for _, stat in stats.items():
+            for ip, data in stat.get("blocked", {}).items():
+                try:
+                    if ipaddress.ip_address(ip).is_global:
+                        blocked_ip_counts[ip] += int(data.get("count", 0) or 0)
+                except ValueError:
+                    continue
+    blocked_ip_top10 = blocked_ip_counts.most_common(10)
+
     source_rows = "".join(
         f"<tr><td style='border-top:1px solid #e3e9ec;padding:7px;text-align:center;color:#78909c;font-size:11px;'>{i}</td>"
         f"<td style='border-top:1px solid #e3e9ec;padding:6px;text-align:center;font-size:18px;'>{esc(geo_module.country_flag(code))}</td>"
@@ -851,21 +866,45 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
         for i, ((code, name), count) in enumerate(blocked_country_rank, 1)
     ) or "<tr><td colspan='4' style='padding:8px;color:#78909c;font-size:10px;'>No hubo IPs bloqueadas.</td></tr>"
 
+    blocked_top_rows = "".join(
+        f"<tr><td style='border-top:1px solid #e3e9ec;padding:7px;text-align:center;color:#78909c;font-size:11px;'>{i}</td>"
+        f"<td style='border-top:1px solid #e3e9ec;padding:7px;font-family:monospace;font-size:11px;font-weight:bold;'>{esc(ip)}</td>"
+        f"<td style='border-top:1px solid #e3e9ec;padding:6px;text-align:center;font-size:18px;'>{esc((geo.get(ip) or {}).get('flag', '🌐'))}</td>"
+        f"<td style='border-top:1px solid #e3e9ec;padding:7px;font-size:11px;font-weight:bold;'>{esc((geo.get(ip) or {}).get('country', 'No disponible'))}</td>"
+        f"<td style='border-top:1px solid #e3e9ec;padding:7px;text-align:right;font-size:12px;font-weight:bold;'>{num(count)}</td></tr>"
+        for i, (ip, count) in enumerate(blocked_ip_top10, 1)
+    ) or "<tr><td colspan='5' style='padding:8px;color:#78909c;font-size:10px;'>No hubo IPs bloqueadas automáticamente.</td></tr>"
+
     page.append(
         f"<tr><td style='padding:0 22px 20px;'>"
         f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='border:1px solid {border};border-radius:12px;background:#ffffff;'>"
-        f"<tr><td style='background:#ffffff;border-bottom:1px solid {border};padding:15px 16px;font-size:17px;font-weight:800;color:{text};'><span style='color:{orange};font-size:13px;'>🌍</span>&nbsp; Top países · eventos de seguridad</td></tr>"
-        f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:11px;'>IPs públicas únicas asociadas a detecciones de seguridad; no implica por sí solo un ataque confirmado.</td></tr>"
-        "<tr><td style='padding:0 8px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
-        "<tr><td colspan='4' style='background:#102d38;color:#fff;padding:9px;font-size:11px;font-weight:800;'>Top países · eventos de seguridad</td></tr>"
-        "<tr><td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:28px;'>#</td>"
-        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:34px;text-align:center;'>FLAG</td>"
-        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;'>PAÍS</td>"
-        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;text-align:right;'>IPS</td></tr>"
+        f"<tr><td style='padding:12px 10px;'>"
+        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>"
+        f"<td valign='top' width='50%' style='padding:0 6px 0 0;'>"
+        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+        f"<tr><td style='background:#ffffff;border-bottom:1px solid {border};padding:13px 14px;font-size:16px;font-weight:800;color:{text};'><span style='color:{orange};font-size:13px;'>🌍</span>&nbsp; Top países · eventos de seguridad</td></tr>"
+        f"<tr><td style='padding:7px 10px 5px;color:#78909c;font-size:10px;'>IPs públicas únicas asociadas a detecciones de seguridad.</td></tr>"
+        "<tr><td style='padding:0 4px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+        "<tr><td style='background:#102d38;color:#fff;padding:6px;font-size:9px;font-weight:bold;width:24px;'>#</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:9px;font-weight:bold;width:28px;text-align:center;'>FLAG</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:9px;font-weight:bold;'>PAÍS</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:9px;font-weight:bold;text-align:right;'>IPS</td></tr>"
         f"{source_rows}"
         "</table></td></tr>"
-        "<tr><td style='padding:0 14px 10px;color:#78909c;font-size:10px;'>"
-        "El ranking cuenta IPs públicas únicas asociadas a detecciones de seguridad clasificadas por el reporte."
+        "</table></td>"
+        f"<td valign='top' width='50%' style='padding:0 0 0 6px;'>"
+        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+        f"<tr><td style='background:#ffffff;border-bottom:1px solid {border};padding:13px 14px;font-size:16px;font-weight:800;color:{text};'><span style='color:{orange};font-size:13px;'>🛡</span>&nbsp; Top 10 · IPs bloqueadas</td></tr>"
+        f"<tr><td style='padding:7px 10px 5px;color:#78909c;font-size:10px;'>IPs públicas con más ejecuciones de firewall-drop durante el período.</td></tr>"
+        "<tr><td style='padding:0 4px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+        "<tr><td style='background:#102d38;color:#fff;padding:6px;font-size:9px;font-weight:bold;width:24px;'>#</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:9px;font-weight:bold;'>IP</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:9px;font-weight:bold;width:28px;text-align:center;'>FLAG</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:9px;font-weight:bold;'>PAÍS</td>"
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:9px;font-weight:bold;text-align:right;'>BLOQUEOS</td></tr>"
+        f"{blocked_top_rows}"
+        "</table></td></tr>"
+        "</table></td></tr></table>"
         "</td></tr></table></td></tr>"
     )
 
@@ -1077,26 +1116,6 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
                 page.append(
                     "<tr><td colspan='2' style='padding:8px 5px;color:#78909c;font-size:11px;'>Sin técnicas MITRE observadas durante el período.</td></tr>"
                 )
-            page.append("</table></td></tr>")
-
-            # Authentication source IPs
-            page.append(
-                "<tr><td style='padding:10px 16px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
-                f"<tr><td colspan='2' style='padding:7px 0 8px;border-bottom:2px solid {orange};font-size:14px;font-weight:800;color:{text};'>Autenticación · IPs de origen relevantes</td></tr>"
-                "<tr><td colspan='2' style='padding:0 5px 8px;color:#78909c;font-size:10px;'>IPs de origen con más eventos de autenticación y acceso registrados en este servidor durante el período.</td></tr>"
-            )
-            if s["auth_ips"]:
-                page.append(
-                    f"<tr><td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;'>IP DE ORIGEN</td>"
-                    f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;text-align:right;'>EVENTOS DE AUTENTICACIÓN</td></tr>"
-                )
-                for ip, count in s["auth_ips"].most_common(8):
-                    page.append(
-                        f"<tr><td style='padding:7px 5px;border-bottom:1px solid #edf1f3;font-family:monospace;font-size:11px;color:{text};'>{esc(ip)}</td>"
-                        f"<td style='padding:7px 5px;border-bottom:1px solid #edf1f3;text-align:right;font-weight:800;font-size:11px;color:{text};'>{num(count)}</td></tr>"
-                    )
-            else:
-                page.append("<tr><td colspan='2' style='padding:8px 5px;color:#78909c;font-size:11px;'>Sin eventos de autenticación durante el período.</td></tr>")
             page.append("</table></td></tr>")
 
             # FIM summary by location
