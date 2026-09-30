@@ -105,7 +105,7 @@ if [[ "${1:-}" == "--agent" ]]; then
         fail "Falta desplegado: $AGENT_YARA_SCRIPT"
     fi
 
-    if [[ -f "$ROOT/configuration/manager/active-response/bin/orangebox-quarantine.py" && -f "$AGENT_QUARANTINE" ]]; then
+    if [[ -f "$ROOT/configuration/agent/active-response/bin/orangebox-quarantine.py" && -f "$AGENT_QUARANTINE" ]]; then
         if cmp -s "$ROOT/tools/orangebox-quarantine.py" "$AGENT_QUARANTINE"; then
             ok "orangebox-quarantine.py desplegado coincide con el source del repo"
         else
