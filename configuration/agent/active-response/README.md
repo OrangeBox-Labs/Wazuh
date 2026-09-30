@@ -9,6 +9,8 @@ configuration/agent/active-response/bin/
 -> /var/ossec/active-response/bin/
 ```
 
+El instalador del agente **genera estos archivos directamente en el servidor**. No es necesario copiarlos ni hacer rsync después de instalar. La copia versionada aquí sirve para mantener la estructura del runtime, revisar cambios y documentar exactamente qué debe existir.
+
 Los scripts personalizados deben quedar como `root:wazuh` y `0750`.
 
 ## Archivos
