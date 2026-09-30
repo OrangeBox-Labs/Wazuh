@@ -401,7 +401,7 @@ def parse_events_for_agents(module, start, end, allowed):
                 seen.add(alert_id)
 
             if event["outer_rule"] == module.FIREWALL_RULE:
-                # Active response 651 is included only once and is treated
+                # Active response 10458 is included only once and is treated
                 # as a response, not as a normal security detection.
                 if event.get("command") != "add":
                     continue
@@ -420,7 +420,7 @@ def build_agent_stats(events, agent_info, cves):
     all_ids = sorted(set(agent_info) | set(by_agent))
     for agent_id in all_ids:
         ev = by_agent.get(agent_id, [])
-        normal = [e for e in ev if e.get("outer_rule") != "651"]
+        normal = [e for e in ev if e.get("outer_rule") != module.FIREWALL_RULE]
 
         high = sum(LEVEL_HIGH_MIN <= int(e.get("level", 0)) < LEVEL_CRITICAL_MIN for e in normal)
         critical = sum(int(e.get("level", 0)) >= LEVEL_CRITICAL_MIN for e in normal)
@@ -447,7 +447,7 @@ def build_agent_stats(events, agent_info, cves):
 
         blocked = defaultdict(lambda: {"count": 0, "reasons": Counter()})
         for e in ev:
-            if e.get("outer_rule") != "651" or not e.get("srcip"):
+            if e.get("outer_rule") != module.FIREWALL_RULE or not e.get("srcip"):
                 continue
             blocked[e["srcip"]]["count"] += 1
             blocked[e["srcip"]]["reasons"][e.get("description", "Firewall Drop")] += 1
@@ -589,7 +589,7 @@ def aggregate_events(module, start, end, allowed, agent_stats):
     """Agrega eventos usando la misma mecánica de extracción del reporte ejecutivo.
 
     Se mantienen los límites de período, la exclusión de eventos no reportables,
-    la excepción systemd-user y la deduplicación diaria. Los 651 de
+    la excepción systemd-user y la deduplicación diaria. Los 10458 de
     firewall-drop se procesan como Active Response reales.
     """
     files = list(module.iter_log_files(start, end))
