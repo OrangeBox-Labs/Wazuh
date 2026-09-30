@@ -1082,12 +1082,15 @@ def main():
         allowed.update(group_members(group))
     if not allowed:
         raise SystemExit("No se pudieron obtener servidores de los grupos seleccionados.")
+    # Etiqueta visible del encabezado: usar los grupos efectivos,
+    # especialmente cuando --group all resuelve múltiples grupos.
+    group_label = ", ".join(groups)
     summary=load_events(start,end,allowed)
     cve_summary, cve_error = fetch_critical_cves(allowed)
     summary["cve_summary"] = cve_summary
     if cve_error:
         summary["cve_summary"]["error"] = cve_error
-    period=f"{start.strftime('%d/%m/%Y %H:%M')} — {end.strftime('%d/%m/%Y %H:%M') if end < now else 'ahora'}"; L=labels(args.lang); body=generate_html(summary,L["report"],L["subtitle"],period,args.group,args.lang); archive=archive_html(body,f"{args.group}-{mode.replace(':','-')}-{start:%Y%m%d}-{end:%Y%m%d}")
+    period=f"{start.strftime('%d/%m/%Y %H:%M')} — {end.strftime('%d/%m/%Y %H:%M') if end < now else 'ahora'}"; L=labels(args.lang); body=generate_html(summary,L["report"],L["subtitle"],period,group_label,args.lang); archive=archive_html(body,f"{args.group}-{mode.replace(':','-')}-{start:%Y%m%d}-{end:%Y%m%d}")
     subject_prefix={
         "today": "Reporte Diario de Seguridad",
         "yesterday": "Reporte Diario de Seguridad",
