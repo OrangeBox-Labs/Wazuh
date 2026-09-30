@@ -1607,6 +1607,10 @@ run_scan "malware" "${RULES_DIR}/malware_index.yar"
 exit 0
 
 ORANGEBOX_YARA_RUNTIME
+    local WAZUH_GROUP
+    WAZUH_GROUP="$(stat -c '%G' "$WAZUH_HOME/active-response/bin" 2>/dev/null || echo wazuh)"
+    [[ -n "$WAZUH_GROUP" && "$WAZUH_GROUP" != "UNKNOWN" ]] || WAZUH_GROUP="wazuh"
+    chown root:"$WAZUH_GROUP" "$SCRIPT_SRC" || fail "No se pudo asignar propietario a $SCRIPT_SRC"
     chmod 750 "$SCRIPT_SRC" || fail "No se pudieron establecer permisos en $SCRIPT_SRC"
 
     # OrangeBox Wazuh - instalador YARA para agentes
