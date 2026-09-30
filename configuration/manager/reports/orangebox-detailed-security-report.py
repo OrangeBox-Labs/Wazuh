@@ -451,12 +451,13 @@ def build_agent_stats(events, agent_info, cves):
             )
             ip_rules[srcip][rule_key] += 1
 
-        blocked = defaultdict(lambda: {"count": 0, "reasons": Counter()})
+        blocked = defaultdict(lambda: {"count": 0, "reasons": Counter(), "rules": Counter()})
         for e in ev:
             if e.get("outer_rule") != module.FIREWALL_RULE or not e.get("srcip"):
                 continue
             blocked[e["srcip"]]["count"] += 1
             blocked[e["srcip"]]["reasons"][e.get("description", "Firewall Drop")] += 1
+            blocked[e["srcip"]]["rules"][str(e.get("rule_id", "unknown"))] += 1
             rule_key = (
                 str(e.get("rule_id", "unknown")),
                 e.get("description", "Firewall Drop"),
@@ -516,7 +517,7 @@ def empty_agent_stat(agent_id, info):
         "ip_rules": defaultdict(Counter),
         "rules": Counter(),
         "categories": Counter(),
-        "blocked": defaultdict(lambda: {"count": 0, "reasons": Counter()}),
+        "blocked": defaultdict(lambda: {"count": 0, "reasons": Counter(), "rules": Counter()}),
         "mitre": Counter(),
         "cves": [],
         "vd_unsupported": False,
@@ -547,6 +548,7 @@ def accumulate_event(agent_stats, event, module):
         blocked = stat["blocked"][srcip]
         blocked["count"] += 1
         blocked["reasons"][event.get("description", "Firewall Drop")] += 1
+        blocked["rules"][str(event.get("rule_id", "unknown"))] += 1
         return
 
     category = module.classify(
@@ -812,30 +814,78 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
         f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='border:1px solid {border};border-radius:12px;background:#ffffff;'>"
         f"<tr><td style='background:#ffffff;border-bottom:1px solid {border};padding:15px 16px;font-size:17px;font-weight:800;color:{text};'><span style='color:{orange};font-size:13px;'>🌍</span>&nbsp; Top países · eventos de seguridad</td></tr>"
         f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:11px;'>IPs públicas únicas asociadas a detecciones de seguridad; no implica por sí solo un ataque confirmado.</td></tr>"
-        "<tr><td style='padding:0 8px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='8' border='0'><tr>"
-        "<td width='50%' valign='top' style='padding:0 4px 0 0;'>"
-        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+        "<tr><td style='padding:0 8px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
         "<tr><td colspan='4' style='background:#102d38;color:#fff;padding:9px;font-size:11px;font-weight:800;'>Top países · eventos de seguridad</td></tr>"
         "<tr><td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:28px;'>#</td>"
         "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:34px;text-align:center;'>FLAG</td>"
         "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;'>PAÍS</td>"
         "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;text-align:right;'>IPS</td></tr>"
         f"{source_rows}"
-
-        "</table></td>"
-        "<td width='50%' valign='top' style='padding:0 0 0 4px;'>"
-        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
-        "<tr><td colspan='4' style='background:#102d38;color:#fff;padding:9px;font-size:11px;font-weight:800;'>Top países · IPs bloqueadas automáticamente</td></tr>"
-        "<tr><td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:28px;'>#</td>"
-        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:34px;text-align:center;'>FLAG</td>"
-        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;'>PAÍS</td>"
-        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;text-align:right;'>IPS</td></tr>"
-        f"{blocked_rows}"
-
-        "</table></td></tr></table></td></tr>"
+        "</table></td></tr>"
         "<tr><td style='padding:0 14px 10px;color:#78909c;font-size:10px;'>"
-        "El ranking de origen cuenta IPs públicas únicas asociadas a detecciones de seguridad clasificadas por el reporte. "
-        "El ranking de bloqueo cuenta IPs públicas únicas que activaron una respuesta automática firewall-drop."
+        "El ranking cuenta IPs públicas únicas asociadas a detecciones de seguridad clasificadas por el reporte."
+        "</td></tr></table></td></tr>"
+    )
+
+    blocked_detail = defaultdict(lambda: {"reasons": Counter(), "rules": Counter(), "servers": set(), "count": 0})
+    for _, stats in group_sections:
+        for _, stat in stats.items():
+            for ip, data in stat.get("blocked", {}).items():
+                blocked_detail[ip]["count"] += int(data.get("count", 0) or 0)
+                blocked_detail[ip]["servers"].add(stat["name"])
+                for reason, count in data.get("reasons", {}).items():
+                    normalized_reason = re.sub(
+                        r"\s+DESDE IP (?:PUBLICA|MALICIOSA CONOCIDA)\s+\S+\.?$",
+                        "",
+                        str(reason or "").strip(),
+                        flags=re.IGNORECASE,
+                    ).strip()
+                    blocked_detail[ip]["reasons"][normalized_reason] += count
+                for rule_id, count in data.get("rules", {}).items():
+                    blocked_detail[ip]["rules"][str(rule_id)] += count
+
+    blocked_ips_ranked = sorted(
+        blocked_detail,
+        key=lambda ip: (-blocked_detail[ip]["count"], ipaddress.ip_address(ip).version, int(ipaddress.ip_address(ip))),
+    )
+
+    page.append(
+        f"<tr><td style='padding:0 22px 20px;'>"
+        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='border:1px solid {border};border-radius:12px;background:#ffffff;'>"
+        f"<tr><td style='background:#ffffff;border-bottom:1px solid {border};padding:15px 16px;font-size:17px;font-weight:800;color:{text};'><span style='color:{orange};font-size:13px;'>🛡</span>&nbsp; IPs bloqueadas automáticamente</td></tr>"
+        f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:11px;'>Cada IP aparece una sola vez, mostrando bandera, país, servidores que ejecutaron el bloqueo, tipo de regla y cantidad de bloqueos registrados.</td></tr>"
+    )
+    if blocked_ips_ranked:
+        page.append("<tr><td style='padding:0 8px 8px;overflow-wrap:anywhere;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>")
+        page.append(
+            f"<tr><td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;width:110px;white-space:nowrap;'>IP</td>"
+            f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;width:18%;'>PAÍS</td>"
+            f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;width:21%;'>SERVIDORES</td>"
+            f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;'>TIPO DE REGLA</td>"
+            f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;text-align:right;width:90px;'>BLOQUEOS</td></tr>"
+        )
+        for ip in blocked_ips_ranked:
+            item = geo.get(ip) or {}
+            country = f"{item.get('flag', '🌐')} {item.get('country', 'No disponible')}" if item.get("country") and item.get("country") != "No disponible" else "🌐 No disponible"
+            servers = "<br>".join(f"→ {esc(name)}" for name in sorted(blocked_detail[ip]["servers"], key=str.lower))
+            rules = ", ".join(sorted(blocked_detail[ip]["rules"].keys()))
+            reasons = "<br>".join(
+                f"<span style='font-family:monospace;color:#d65d00;font-weight:800;'>{esc(rules)}</span> — {esc(reason)}"
+                for reason in list(blocked_detail[ip]["reasons"].keys())[:6]
+            )
+            page.append(
+                f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-size:11px;font-weight:bold;white-space:nowrap;width:110px;'>{esc(ip)}</td>"
+                f"<td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;font-weight:bold;'>{esc(country)}</td>"
+                f"<td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:10px;line-height:1.45;overflow-wrap:anywhere;'>{servers}</td>"
+                f"<td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:10px;line-height:1.45;'>{reasons}</td>"
+                f"<td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:right;font-weight:800;font-size:11px;color:{text};'>{num(blocked_detail[ip]['count'])}</td></tr>"
+            )
+        page.append("</table></td></tr>")
+    else:
+        page.append("<tr><td style='padding:10px 14px;color:#78909c;font-size:12px;'>No se registraron bloqueos automáticos durante el período.</td></tr>")
+    page.append(
+        "<tr><td style='padding:0 14px 18px;color:#78909c;font-size:10px;'>"
+        "La columna BLOQUEOS indica cuántas ejecuciones de bloqueo se registraron para cada IP durante el período."
         "</td></tr></table></td></tr>"
     )
 
@@ -843,7 +893,7 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
         f"<tr><td style='padding:0 22px 20px;'>"
         f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='border:1px solid {border};border-radius:12px;background:#ffffff;'>"
         f"<tr><td style='background:#ffffff;border-bottom:1px solid {border};padding:15px 16px;font-size:17px;font-weight:800;color:{text};'><span style='color:{orange};font-size:13px;'>🔎</span>&nbsp; IPs de origen · reglas detectadas</td></tr>"
-        f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:11px;'>Cada IP aparece una sola vez, agrupando las reglas, tipos de detección y agentes que registraron esa IP durante el período.</td></tr>"
+        f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:11px;'>Cada IP aparece una sola vez, agrupando las reglas, tipos de detección y servidores que registraron esa IP durante el período.</td></tr>"
     )
 
     ranked_ips = sorted(
@@ -863,7 +913,7 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
         page.append(
             f"<tr><td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;width:110px;white-space:nowrap;'>IP</td>"
             f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;width:19%;'>PAÍS</td>"
-            f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;width:21%;'>AGENTES</td>"
+            f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;width:21%;'>SERVIDORES</td>"
             f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;'>TIPOS / REGLAS DETECTADAS</td></tr>"
         )
         for ip in ranked_ips:
@@ -974,37 +1024,6 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
             if not s["rules"]:
                 page.append(
                     "<tr><td colspan='2' style='padding:8px 5px;color:#78909c;font-size:11px;'>Sin reglas de detección durante el período.</td></tr>"
-                )
-            page.append("</table></td></tr>")
-
-            # Firewall blocks
-            page.append(
-                "<tr><td style='padding:10px 16px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
-                f"<tr><td colspan='3' style='padding:7px 0 8px;border-bottom:2px solid {orange};font-size:14px;font-weight:800;color:{text};'>Top países · IPs bloqueadas automáticamente</td></tr>"
-                f"<tr><td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;'>IP</td>"
-                f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;'>Motivo</td>"
-                f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;text-align:right;'>Cantidad de bloqueos</td></tr>"
-            )
-            if s["blocked"]:
-                for ip, data in sorted(s["blocked"].items(), key=lambda item: (-item[1]["count"], ipaddress.ip_address(item[0]).version, int(ipaddress.ip_address(item[0])))):
-                    reason = "; ".join(
-                        f"{reason} ({num(count)})"
-                        for reason, count in data["reasons"].most_common(3)
-                    )
-                    geo_item = geo.get(ip) or {}
-                    ip_country = (
-                        f"{geo_item.get('flag', '🌐')} {geo_item.get('country')}"
-                        if geo_item.get('country') and geo_item.get('country') != 'No disponible'
-                        else '🌐 No disponible'
-                    )
-                    page.append(
-                        f"<tr><td style='padding:7px;border-bottom:1px solid #edf1f3;font-family:monospace;font-size:11px;color:{text};'>{esc(ip)}<br><span style='font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:normal;color:#667b84;'>{esc(ip_country)}</span></td>"
-                        f"<td style='padding:7px;border-bottom:1px solid #edf1f3;font-size:11px;line-height:1.35;color:{text};'>{esc(reason)}</td>"
-                        f"<td style='padding:7px;border-bottom:1px solid #edf1f3;text-align:right;font-weight:800;font-size:11px;color:{text};'>{num(data['count'])}</td></tr>"
-                    )
-            else:
-                page.append(
-                    "<tr><td colspan='3' style='padding:8px 5px;color:#78909c;font-size:11px;'>No hubo bloqueos automáticos registrados.</td></tr>"
                 )
             page.append("</table></td></tr>")
 
