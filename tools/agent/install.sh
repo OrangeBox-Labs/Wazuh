@@ -2029,8 +2029,10 @@ import stat
 import sys
 import tempfile
 
-QUARANTINE_ROOT = "/var/ossec/quarantine"
-LOG_FILE = "/var/ossec/logs/active-responses.log"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+WAZUH_HOME = os.path.abspath(os.path.join(SCRIPT_DIR, "../.."))
+QUARANTINE_ROOT = os.path.join(WAZUH_HOME, "quarantine")
+LOG_FILE = os.path.join(WAZUH_HOME, "logs", "active-responses.log")
 
 
 def log(message):
@@ -2247,6 +2249,7 @@ if __name__ == "__main__":
 
 ORANGEBOX_QUARANTINE_RUNTIME
 
+    command -v python3 >/dev/null 2>&1 || fail "python3 es requerido por orangebox-quarantine.py."
     WAZUH_GROUP="$(stat -c '%G' "$WAZUH_HOME/active-response/bin" 2>/dev/null || echo wazuh)"
     [[ -n "$WAZUH_GROUP" && "$WAZUH_GROUP" != "UNKNOWN" ]] || WAZUH_GROUP="wazuh"
 
