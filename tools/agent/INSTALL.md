@@ -17,7 +17,7 @@ El instalador pregunta si el servidor es cPanel/CSF.
 4. Verifica/configura el firewall OrangeBox.
 5. Verifica/configura auditd.
 6. Verifica/configura YARA y sus dependencias.
-7. Genera `orangebox-yara.sh` directamente en el cliente.
+7. Genera `orangebox-yara.sh` y `orangebox-quarantine.py` directamente en el cliente.
 8. Descarga y valida el ruleset oficial Yara-Rules.
 9. Reinicia/valida el agente.
 10. Ejecuta las validaciones finales.
@@ -98,4 +98,4 @@ o, en cPanel:
 /opt/ossec/active-response/bin/orangebox-yara.sh
 ```
 
-No se requiere copiar ni ejecutar otro instalador YARA.
+No se requiere copiar scripts ni ejecutar otro instalador YARA.
