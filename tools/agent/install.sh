@@ -2255,8 +2255,15 @@ ORANGEBOX_QUARANTINE_RUNTIME
 
     chown root:"$WAZUH_GROUP" "$SCRIPT_SRC" || fail "No se pudo asignar propietario a $SCRIPT_SRC"
     chmod 750 "$SCRIPT_SRC" || fail "No se pudieron establecer permisos en $SCRIPT_SRC"
-    python3 -m py_compile "$SCRIPT_SRC" >/dev/null 2>&1 || fail "orangebox-quarantine.py tiene un error de sintaxis."
-    rm -f "${SCRIPT_SRC}c"
+    if ! python3 - "$SCRIPT_SRC" <<'PY' >/dev/null 2>&1
+import sys
+from pathlib import Path
+path = sys.argv[1]
+compile(Path(path).read_text(encoding="utf-8"), path, "exec")
+PY
+    then
+        fail "orangebox-quarantine.py tiene un error de sintaxis."
+    fi
 }
 
 configure_components() {
