@@ -1,13 +1,21 @@
-# Active Response
+# Active Response del Manager
 
-La configuracion del Manager define cuando se ejecuta cada Active Response. El runtime de los scripts vive en `configuration/agent/active-response/`.
+El Manager define **cuándo** se ejecuta cada Active Response mediante sus reglas y comandos.
 
-Al desplegar el árbol correspondiente, deben terminar en:
+Los ejecutables pertenecen al agente y están versionados en:
 
 ```text
-/var/ossec/active-response/bin/
+configuration/agent/active-response/bin/
+-> /var/ossec/active-response/bin/
 ```
 
-Los scripts personalizados se despliegan en los agentes y deben quedar como `root:wazuh` y `0750`.
+El instalador del agente genera directamente:
 
-`tools/` no contiene estos ejecutables. Allí quedan solo herramientas de instalación, revisión y mantenimiento.
+- `orangebox-yara.sh`
+- `orangebox-quarantine.py`
+
+No se deben copiar desde el Manager ni hacer rsync como parte de la instalación.
+
+Si el mismo host del Manager también tiene un Wazuh Agent instalado y recibe Active Response con `location=local`, ese agente usa los mismos scripts que cualquier otro endpoint.
+
+Los scripts personalizados deben quedar como `root:wazuh` y `0750`.
