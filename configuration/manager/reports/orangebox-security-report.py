@@ -49,6 +49,9 @@ FIM_GROUPS = {"syscheck", "syscheck_entry_added", "syscheck_entry_modified", "sy
 MALWARE_GROUPS = {"malware", "webshell", "orangebox_malware", "orangebox_webshell"}
 ATTACK_GROUPS = {"attack", "brute_force", "reconnaissance", "credential_discovery", "sensitive_file", "lateral_movement"}
 REPORT_EXCLUDED_GROUPS = {"orangebox_exception", "orangebox_whitelist"}
+
+# Grupos funcionales/tecnicos que no representan clientes cuando se usa --group all.
+REPORT_NON_CLIENT_GROUPS = {"default", "cpanel", "zimbra"}
 REPORT_EXCLUDED_RULES = {"5402"}
 
 RULE_CANONICAL_DESCRIPTIONS = {
@@ -568,6 +571,27 @@ def iter_json(path):
                 if isinstance(obj,dict): yield obj
             except (json.JSONDecodeError, UnicodeDecodeError, ValueError): continue
 
+def all_groups():
+    """Obtiene grupos con agentes, excluyendo grupos tecnicos al usar --group all."""
+    try:
+        process=subprocess.run([AGENT_GROUPS_BIN, "-l"], capture_output=True, text=True, timeout=15)
+    except (OSError,subprocess.SubprocessError) as exc:
+        raise SystemExit(f"No se pudieron obtener los grupos Wazuh: {exc}") from exc
+    output=process.stdout+"\\n"+process.stderr
+    if process.returncode != 0:
+        raise SystemExit(f"agent_groups -l fallo: {output.strip()}")
+    groups=[]
+    for line in output.splitlines():
+        match=re.match(r"^\\s*(.+?)\\s*\\((\\d+)\\)\\s*$", line)
+        if not match:
+            continue
+        group_name=match.group(1).strip()
+        count=int(match.group(2))
+        if count <= 0 or group_name.lower() in REPORT_NON_CLIENT_GROUPS:
+            continue
+        groups.append(group_name)
+    return groups
+
 def group_members(group):
     groups = [value.strip() for value in str(group).split(",") if value.strip()]
     if not groups:
@@ -1045,7 +1069,16 @@ def main():
     for recipient in recipients:
         if not re.fullmatch(r"[^\s@]+@[^\s@]+",recipient): raise SystemExit(f"Dirección de correo inválida: {recipient}")
     mode=args.date and f"date:{args.date}" or next(name for name in ("today","yesterday","thisweek","lastweek","thismonth","lastmonth","thisyear","lastyear") if getattr(args,name))
-    now=datetime.now().astimezone(); start,end,label=period_bounds(mode,now); allowed=group_members(args.group); summary=load_events(start,end,allowed)
+    now=datetime.now().astimezone(); start,end,label=period_bounds(mode,now)
+    groups = all_groups() if args.group.lower() == "all" else [value.strip() for value in args.group.split(",") if value.strip()]
+    if not groups:
+        raise SystemExit("No hay grupos Wazuh con servidores asignados para generar el reporte.")
+    allowed=set()
+    for group in groups:
+        allowed.update(group_members(group))
+    if not allowed:
+        raise SystemExit("No se pudieron obtener servidores de los grupos seleccionados.")
+    summary=load_events(start,end,allowed)
     cve_summary, cve_error = fetch_critical_cves(allowed)
     summary["cve_summary"] = cve_summary
     if cve_error:
