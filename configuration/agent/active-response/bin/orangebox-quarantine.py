@@ -23,8 +23,10 @@ import stat
 import sys
 import tempfile
 
-QUARANTINE_ROOT = "/var/ossec/quarantine"
-LOG_FILE = "/var/ossec/logs/active-responses.log"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+WAZUH_HOME = os.path.abspath(os.path.join(SCRIPT_DIR, "../.."))
+QUARANTINE_ROOT = os.path.join(WAZUH_HOME, "quarantine")
+LOG_FILE = os.path.join(WAZUH_HOME, "logs", "active-responses.log")
 
 
 def log(message):
