@@ -161,19 +161,25 @@ def group_members(group):
 
 
 def all_groups():
-    code, out, err = run_cmd([AGENT_GROUPS, "-l"])
-    if code != 0:
-        raise SystemExit(f"agent_groups -l falló: {err.strip()}")
-    groups = []
-    for line in out.splitlines():
-        m = re.match(r"^\s{2}(.+?)\s+\((\d+)\)\s*$", line)
-        if m and int(m.group(2)) > 0:
-            group_name = m.group(1).strip()
-            if group_name.lower() in REPORT_NON_CLIENT_GROUPS:
-                continue
-            groups.append(group_name)
+    """Obtiene grupos con agentes, excluyendo grupos tecnicos al usar --group all."""
+    try:
+        process=subprocess.run([AGENT_GROUPS, "-l"], capture_output=True, text=True, timeout=15)
+    except (OSError,subprocess.SubprocessError) as exc:
+        raise SystemExit(f"No se pudieron obtener los grupos Wazuh: {exc}") from exc
+    output=process.stdout+"\n"+process.stderr
+    if process.returncode != 0:
+        raise SystemExit(f"agent_groups -l fallo: {output.strip()}")
+    groups=[]
+    for line in output.splitlines():
+        match=re.match(r"^\s{2}(.+?)\s+\((\d+)\)\s*$", line)
+        if not match:
+            continue
+        group_name=match.group(1).strip()
+        count=int(match.group(2))
+        if count <= 0 or group_name.lower() in REPORT_NON_CLIENT_GROUPS:
+            continue
+        groups.append(group_name)
     return groups
-
 
 def fetch_critical_cves(module, agent_ids):
     """Consulta CVE críticos actuales usando el mismo acceso al Indexer del reporte ejecutivo.
