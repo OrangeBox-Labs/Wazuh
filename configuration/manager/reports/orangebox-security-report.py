@@ -1005,7 +1005,7 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
             )
             for item in cve_rows:
                 page.append(
-                    f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;overflow-wrap:anywhere;'>{esc(item.get('name') or 'Agente desconocido')}</td>"
+                    f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;overflow-wrap:anywhere;'>{esc(item.get('name') or 'Servidor desconocido')}</td>"
                     f"<td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{int(item.get('count',0)):,}</td></tr>"
                 )
             page.append("</table></td></tr>")
@@ -1021,7 +1021,7 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
                 )
             )
             page.append(
-                f"<tr><td style='padding:10px 14px;color:#8a5a20;font-size:12px;'>{esc(L['cve_unsupported'])}<br><b>Agentes:</b> {esc(names)}</td></tr>"
+                f"<tr><td style='padding:10px 14px;color:#8a5a20;font-size:12px;'>{esc(L['cve_unsupported'])}<br><b>Servidores:</b> {esc(names)}</td></tr>"
             )
     page.append(section_close())
 
