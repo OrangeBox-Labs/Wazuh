@@ -878,9 +878,24 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
     if not source_rows:
         source_rows = "<tr><td colspan='4' style='padding:8px;color:#78909c;font-size:10px;'>Sin IPs públicas.</td></tr>"
 
-    blocked_rows = render_country_ranking_rows(blocked_country_rank)
-    if not blocked_rows:
-        blocked_rows = "<tr><td colspan='4' style='padding:8px;color:#78909c;font-size:10px;'>No hubo IPs bloqueadas.</td></tr>"
+    # Bloqueos: una fila por IP y servidor que ejecutó el firewall-drop.
+    # El país y el servidor quedan en columnas independientes para mantener
+    # la tabla alineada aunque el nombre del país tenga distinta longitud.
+    blocked_server_rows = []
+    for row in firewall_rows:
+        for src in row["ips"]:
+            geo_item = geo.get(src) or {}
+            country = geo_item.get("country") if geo_item.get("country") and geo_item.get("country") != "No disponible" else "No disponible"
+            flag = geo_item.get("flag", "🌐") if country != "No disponible" else "🌐"
+            blocked_server_rows.append((src, f"{flag} {country}", row["agent_name"] or "Servidor desconocido"))
+    blocked_server_rows = sorted(
+        set(blocked_server_rows),
+        key=lambda item: (
+            ipaddress.ip_address(item[0]).version,
+            ipaddress.ip_address(item[0]),
+            item[2].lower(),
+        ),
+    )
 
     page.append(section_open(
         "🌍",
@@ -901,12 +916,16 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
         "</table></td>"
         "<td width='50%' valign='top' style='padding:0 0 0 4px;'>"
         "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
-        "<tr><td colspan='4' style='background:#102d38;color:#fff;padding:9px;font-size:11px;font-weight:800;'>Top países · IPs bloqueadas automáticamente</td></tr>"
-        "<tr><td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:28px;'>#</td>"
-        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:34px;text-align:center;'>FLAG</td>"
+        "<tr><td colspan='3' style='background:#102d38;color:#fff;padding:9px;font-size:11px;font-weight:800;'>IPs bloqueadas automáticamente</td></tr>"
+        "<tr><td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;'>IP bloqueada</td>"
         "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;'>PAÍS</td>"
-        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;text-align:right;'>IPS</td></tr>"
-        + blocked_rows +
+        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;'>Servidor que ejecutó el bloqueo</td></tr>"
+        + ("".join(
+            f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:7px;font-family:monospace;font-size:11px;font-weight:bold;white-space:nowrap;'>{esc(src)}</td>"
+            f"<td valign='top' style='border-top:1px solid #e3e9ec;padding:7px;font-size:11px;white-space:nowrap;'>{esc(country)}</td>"
+            f"<td valign='top' style='border-top:1px solid #e3e9ec;padding:7px;font-size:11px;overflow-wrap:anywhere;'>→ {esc(agent_name)}</td></tr>"
+            for src,country,agent_name in blocked_server_rows
+        ) or "<tr><td colspan='3' style='padding:8px;color:#78909c;font-size:10px;'>No hubo IPs bloqueadas.</td></tr>") +
         "</table></td>"
         "</tr></table></td></tr>"
     )
