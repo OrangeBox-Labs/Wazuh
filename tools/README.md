@@ -74,3 +74,9 @@ No existe un instalador de `authd` para los endpoints en este repo. El enrollmen
 - `check-orangebox-wazuh.sh`: comprueba la salud del stack. No modifica nada.
 - `verify-deployed-config.sh`: compara Git contra `/var/ossec`. No modifica nada.
 - `verify-ossec-permissions.sh`: revisa o repara permisos. Solo cambia archivos con `--fix`.
+
+## Depuración de reglas y Active Response
+
+Guía práctica para probar eventos, revisar `archives.json` y `alerts.json`, usar `wazuh-logtest` y seguir una alerta hasta correo o Active Response:
+
+- [tools/WAZUH-RULE-DEBUG.md](WAZUH-RULE-DEBUG.md)
