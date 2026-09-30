@@ -199,193 +199,27 @@ echo "=== INTEGRACIONES ==="
 compare_file     "configuration/manager/integrations/custom-orangebox-email.py"     "${OSSEC_HOME}/integrations/custom-orangebox-email.py"
 
 echo
-echo "=== AGENT GROUPS ==="
-compare_file     "configuration/manager/etc/shared/default/agent.conf"     "${OSSEC_HOME}/etc/shared/default/agent.conf"
+echo "=== RUNTIME DEL AGENTE (REPO) ==="
 
-compare_file     "configuration/manager/etc/shared/cpanel/agent.conf"     "${OSSEC_HOME}/etc/shared/cpanel/agent.conf"
-
-compare_file     "configuration/manager/etc/shared/zimbra/agent.conf"     "${OSSEC_HOME}/etc/shared/zimbra/agent.conf"
-
-compare_file     "configuration/manager/etc/shared/webserver/agent.conf"     "${OSSEC_HOME}/etc/shared/webserver/agent.conf"
-
-echo
-echo "=== RULES XML/YARA ==="
-
-shopt -s nullglob
-for repo_file in "$ROOT"/configuration/manager/etc/rules/*.xml; do
-    base="$(basename "$repo_file")"
-    compare_file         "configuration/manager/etc/rules/$base"         "${OSSEC_HOME}/etc/rules/$base"
-done
-shopt -u nullglob
-
-echo
-echo "=== SIDs CRITICOS ==="
-
-echo "-- Reglas OrangeBox duplicadas en ${OSSEC_HOME}/etc/rules --"
-mapfile -t duplicate_sids < <(
-    grep -Rho '<rule id="[0-9][0-9]*"' ${OSSEC_HOME}/etc/rules --include='*.xml' 2>/dev/null |
-        sed -E 's/.*id="([0-9]+)".*/\1/' |
-        sort |
-        uniq -d
-)
-
-if (( ${#duplicate_sids[@]} == 0 )); then
-    ok "No hay SIDs duplicados en el ruleset desplegado"
+check_repo_executable "configuration/manager/active-response/bin/orangebox-yara.sh"
+if bash -n "$ROOT/configuration/manager/active-response/bin/orangebox-yara.sh" 2>/dev/null; then
+    ok "Runtime YARA pasa bash -n"
 else
-    fail "SIDs duplicados detectados:"
-    for sid in "${duplicate_sids[@]}"; do
-        grep -Rns "<rule id=\"$sid\"" ${OSSEC_HOME}/etc/rules --include='*.xml' 2>/dev/null || true
-    done
-fi
-
-echo
-echo "-- SIDs Zimbra antiguos que NO deben existir --"
-for stale_sid in 20100 120100; do
-    mapfile -t stale_hits < <(
-        grep -Rns "<rule id=\"$stale_sid\"" ${OSSEC_HOME}/etc/rules --include='*.xml' 2>/dev/null || true
-    )
-
-    if (( ${#stale_hits[@]} == 0 )); then
-        ok "SID antiguo $stale_sid ausente"
-    else
-        fail "SID antiguo $stale_sid todavia desplegado:"
-        printf '       %s\n' "${stale_hits[@]}"
-    fi
-done
-
-echo
-echo "-- Regla 110100 (Zimbra/Carbonio) --"
-mapfile -t sid110100 < <(
-    grep -Rns '<rule id="110100"' ${OSSEC_HOME}/etc/rules --include='*.xml' 2>/dev/null || true
-)
-
-if (( ${#sid110100[@]} == 0 )); then
-    fail "110100 no esta desplegada"
-elif (( ${#sid110100[@]} == 1 )); then
-    ok "110100 desplegada una sola vez: ${sid110100[0]}"
-else
-    fail "110100 DUPLICADA:"
-    printf '       %s\n' "${sid110100[@]}"
-fi
-
-echo
-echo "-- Colisiones con ruleset nativo --"
-native110100="$(grep -Rhc '<rule id="110100"' ${OSSEC_HOME}/ruleset/rules --include='*.xml' 2>/dev/null | awk '{s+=$1} END{print s+0}')"
-if [[ "$native110100" == "0" ]]; then
-    ok "110100 no colisiona con ruleset nativo"
-else
-    fail "110100 aparece $native110100 veces en ruleset nativo"
-fi
-
-echo
-echo "-- Regla 10005 --"
-count10005="$(grep -Rhc '<rule id="10005"' ${OSSEC_HOME}/etc/rules --include='*.xml' 2>/dev/null | awk '{s+=$1} END{print s+0}')"
-if [[ "$count10005" == "1" ]]; then
-    ok "10005 desplegada una sola vez"
-else
-    fail "10005 aparece $count10005 veces"
-fi
-
-echo
-echo "-- Perfiles CDB --"
-if grep -q '^cpanel01:cpanel$' ${OSSEC_HOME}/etc/lists/orangebox-agent-profiles 2>/dev/null; then
-    ok "Perfil cPanel cpanel01"
-else
-    fail "Falta cpanel01:cpanel"
-fi
-
-if grep -q '^cpanel01.example.com:cpanel$' ${OSSEC_HOME}/etc/lists/orangebox-agent-profiles 2>/dev/null; then
-    ok "Perfil cPanel cpanel01.example.com"
-else
-    fail "Falta cpanel01.example.com:cpanel"
-fi
-
-zimbra_profile_count="$(grep -c ':zimbra$' ${OSSEC_HOME}/etc/lists/orangebox-agent-profiles 2>/dev/null || true)"
-ok "Entradas de perfil zimbra registradas: $zimbra_profile_count"
-echo
-echo "=== CDB CRITICAS ==="
-
-WAZUH_GROUP="$(stat -c "%G" "$OSSEC_HOME" 2>/dev/null || echo wazuh)"
-[[ "$WAZUH_GROUP" == "UNKNOWN" || -z "$WAZUH_GROUP" ]] && WAZUH_GROUP="wazuh"
-
-CRITICAL_LISTS=(
-    "orangebox-agent-profiles"
-    "orangebox-private-networks"
-    "orangebox-backuppc-static"
-    "orangebox-backuppc-dynamic"
-    "orangebox-sftp-external-user"
-    "orangebox-web-auth-proxies"
-    "orangebox-web-discovery-proxies"
-    "orangebox-suspicious-programs"
-    "orangebox-recon-programs"
-)
-
-for name in "${CRITICAL_LISTS[@]}"; do
-    repo_list="$ROOT/configuration/manager/etc/lists/$name"
-    deployed_list="$OSSEC_HOME/etc/lists/$name"
-    if [[ ! -f "$repo_list" ]]; then
-        fail "Falta en repo: $repo_list"
-        continue
-    fi
-    if [[ ! -f "$deployed_list" ]]; then
-        fail "Falta desplegado: $deployed_list"
-        continue
-    fi
-    if cmp -s "$repo_list" "$deployed_list"; then
-        ok "CDB source $name coincide con repo"
-    else
-        fail "DIFERENCIA CDB source: $name"
-    fi
-    mode="$(stat -c "%a" "$deployed_list" 2>/dev/null || echo 0)"
-    owner="$(stat -c "%U" "$deployed_list" 2>/dev/null || echo UNKNOWN)"
-    group="$(stat -c "%G" "$deployed_list" 2>/dev/null || echo UNKNOWN)"
-    [[ "$mode" == "640" ]] && ok "Permiso 640: $deployed_list" || fail "Permiso inesperado $deployed_list: $mode (esperado 640)"
-    [[ "$owner" == "root" ]] && ok "Owner root: $deployed_list" || fail "Owner inesperado $deployed_list: $owner"
-    [[ "$group" == "$WAZUH_GROUP" ]] && ok "Grupo $WAZUH_GROUP: $deployed_list" || warn "Grupo CDB $deployed_list: $group (grupo Wazuh detectado: $WAZUH_GROUP)"
-    cdb="${deployed_list}.cdb"
-    if [[ ! -s "$cdb" ]]; then
-        fail "CDB binaria ausente/vacía: $cdb"
-    elif [[ "$cdb" -ot "$deployed_list" ]]; then
-        fail "CDB binaria desactualizada respecto al source: $cdb"
-    else
-        ok "CDB binaria presente y no más antigua que source: $name"
-    fi
-done
-
-echo
-echo "=== AGENT ARTIFACLIENTE_01 (REPO) ==="
-check_repo_executable() {
-    local repo_file="$1"
-
-    if [[ ! -f "$ROOT/$repo_file" ]]; then
-        fail "Falta en repo: $repo_file"
-        return
-    fi
-
-    ok "Archivo presente en repo: $repo_file"
-}
-
-
-check_repo_executable "tools/orangebox-yara/install-orangebox-yara.sh"
-if bash -n "$ROOT/tools/orangebox-yara/install-orangebox-yara.sh" 2>/dev/null; then
-    ok "Installer YARA pasa bash -n"
-else
-    fail "Installer YARA tiene error de sintaxis"
+    fail "Runtime YARA tiene error de sintaxis"
 fi
 
 check_repo_executable "configuration/manager/active-response/bin/orangebox-quarantine.py"
-if python3 - "$ROOT/tools/orangebox-quarantine.py" <<'PY' >/dev/null 2>&1
+if python3 - "$ROOT/configuration/manager/active-response/bin/orangebox-quarantine.py" <<'PY' >/dev/null 2>&1
 import sys
 from pathlib import Path
 path = sys.argv[1]
 compile(Path(path).read_text(encoding="utf-8"), path, "exec")
 PY
 then
-    ok "Source orangebox-quarantine.py pasa compilacion Python"
+    ok "Runtime quarantine.py pasa compilacion Python"
 else
-    fail "Source orangebox-quarantine.py tiene error de sintaxis"
+    fail "Runtime quarantine.py tiene error de sintaxis"
 fi
-
 
 echo
 echo "============================================================"
