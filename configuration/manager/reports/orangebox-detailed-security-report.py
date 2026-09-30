@@ -1225,12 +1225,10 @@ def main():
         total_attacks += sum(stat["attacks"] for stat in stats.values())
         rendered_sections.append((group, stats))
 
-    client_name = args.group
-    title = (
-        f"OrangeBox — Reporte detallado: {client_name}"
-        if len(groups) == 1
-        else "OrangeBox — Reporte detallado"
-    )
+    # Mostrar siempre los grupos efectivos. Con --group all se usan los
+    # grupos funcionales realmente resueltos, no la etiqueta literal "all".
+    client_name = ", ".join(group_memberships.keys())
+    title = f"OrangeBox — Reporte detallado: {client_name}"
     subtitle = ""
     period = f"{start.strftime('%d/%m/%Y %H:%M')} — {end.strftime('%d/%m/%Y %H:%M')}"
     body = generate_html(
