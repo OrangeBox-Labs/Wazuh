@@ -577,12 +577,12 @@ def all_groups():
         process=subprocess.run([AGENT_GROUPS_BIN, "-l"], capture_output=True, text=True, timeout=15)
     except (OSError,subprocess.SubprocessError) as exc:
         raise SystemExit(f"No se pudieron obtener los grupos Wazuh: {exc}") from exc
-    output=process.stdout+"\\n"+process.stderr
+    output=process.stdout+"\n"+process.stderr
     if process.returncode != 0:
         raise SystemExit(f"agent_groups -l fallo: {output.strip()}")
     groups=[]
     for line in output.splitlines():
-        match=re.match(r"^\\s*(.+?)\\s*\\((\\d+)\\)\\s*$", line)
+        match=re.match(r"^\s{2}(.+?)\s+\((\d+)\)\s*$", line)
         if not match:
             continue
         group_name=match.group(1).strip()
