@@ -21,7 +21,7 @@ Después, el mismo flujo verifica y configura de forma idempotente:
 3. auditd para monitoreo de ejecución.
 4. YARA y sus dependencias.
 5. Ruleset oficial Yara-Rules.
-6. `orangebox-yara.sh`, generado directamente en el cliente.
+6. Active Response YARA, instalado desde el árbol de configuración del agente.
 7. Validaciones finales y arranque del agente.
 
 **No hay que ejecutar instaladores secundarios.**
@@ -56,7 +56,6 @@ Estas herramientas no forman parte del despliegue base del agente:
 - `update-orangebox-geoip.sh`
 - `update-orangebox-ioc-lists.sh`
 - `update-orangebox-backuppc.sh`
-- `orangebox-quarantine.py`
 
 ## Build del RPM
 
@@ -65,3 +64,13 @@ Estas herramientas no forman parte del despliegue base del agente:
 ## Authd
 
 No existe un instalador de `authd` para los endpoints en este repo. El enrollment del agente se realiza mediante la configuración de Wazuh; `wazuh-authd` pertenece al Manager.
+
+## Permisos
+
+`verify-ossec-permissions.sh` revisa y, con `--fix`, repara los dueños, grupos y permisos definidos para `/var/ossec`. Por defecto solo revisa.
+
+## Salud y despliegue
+
+- `check-orangebox-wazuh.sh`: comprueba la salud del stack. No modifica nada.
+- `verify-deployed-config.sh`: compara Git contra `/var/ossec`. No modifica nada.
+- `verify-ossec-permissions.sh`: revisa o repara permisos. Solo cambia archivos con `--fix`.
