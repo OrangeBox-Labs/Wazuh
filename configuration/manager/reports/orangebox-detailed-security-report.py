@@ -3,10 +3,10 @@
 
 Reporte operativo orientado al cliente. Reutiliza el motor de extracción,
 clasificación y períodos de orangebox-security-report.py, pero presenta el
-detalle completo por agente.
+detalle completo por servidor.
 
-Incluye por agente:
-- estado e IP del agente;
+Incluye por servidor:
+- estado e IP del servidor;
 - eventos de seguridad;
 - severidad alta (12-14) y crítica (15-16);
 - detecciones clasificadas como ataque;
@@ -99,6 +99,32 @@ def num(value):
         return f"{int(value):,}".replace(",", ".")
     except (TypeError, ValueError):
         return esc(value)
+
+def fim_bucket(path):
+    """Agrupa cambios FIM por ubicación para evitar listados interminables."""
+    value = str(path or "").strip()
+    if not value:
+        return "Ubicación no disponible"
+    normalized = value.rstrip("/") or "/"
+    if normalized == "/etc" or normalized.startswith("/etc/"):
+        return "/etc"
+    if normalized == "/tmp" or normalized.startswith("/tmp/") or normalized == "/var/tmp" or normalized.startswith("/var/tmp/") or normalized == "/dev/shm" or normalized.startswith("/dev/shm/"):
+        return "Temporales (/tmp · /var/tmp · /dev/shm)"
+    if normalized == "/var/www" or normalized.startswith("/var/www/"):
+        return "/var/www"
+    if normalized == "/var" or normalized.startswith("/var/"):
+        return "/var"
+    if normalized == "/home" or normalized.startswith("/home/"):
+        return "/home"
+    if normalized == "/opt" or normalized.startswith("/opt/"):
+        return "/opt"
+    if normalized == "/usr" or normalized.startswith("/usr/"):
+        return "/usr"
+    if normalized == "/root" or normalized.startswith("/root/"):
+        return "/root"
+    if normalized == "/srv" or normalized.startswith("/srv/"):
+        return "/srv"
+    return "Otros"
 
 
 def load_report_module():
@@ -519,6 +545,11 @@ def empty_agent_stat(agent_id, info):
         "categories": Counter(),
         "blocked": defaultdict(lambda: {"count": 0, "reasons": Counter(), "rules": Counter()}),
         "mitre": Counter(),
+        "auth_ips": Counter(),
+        "auth_events": 0,
+        "fim_events": 0,
+        "fim_groups": Counter(),
+        "fim_paths": defaultdict(set),
         "cves": [],
         "vd_unsupported": False,
     }
@@ -576,6 +607,17 @@ def accumulate_event(agent_stats, event, module):
     stat["categories"][category] += 1
 
     srcip = event.get("srcip")
+    if category == "authentication":
+        stat["auth_events"] += 1
+        if srcip:
+            stat["auth_ips"][srcip] += 1
+    elif category == "fim":
+        stat["fim_events"] += 1
+        path = event.get("fim_path")
+        bucket = fim_bucket(path)
+        stat["fim_groups"][bucket] += 1
+        if path:
+            stat["fim_paths"][bucket].add(path)
     if srcip:
         stat["ips"].add(srcip)
         # El ranking GeoIP representa las mismas detecciones que el reporte
@@ -740,7 +782,7 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
 
 
     # CVE summary: unique CVE IDs and unique package/version combinations
-    # across the selected agents. Repeated group membership is de-duplicated.
+    # across the selected servers. Repeated server membership is de-duplicated.
     cve_ids = set()
     cve_packages = set()
     cve_agents = set()
@@ -980,7 +1022,10 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
                 f"<div style='display:inline-block;background:#1d414e;color:#d8e1e4;border:1px solid #3c5963;border-radius:14px;padding:4px 9px;margin-top:8px;font-size:9px;font-weight:800;letter-spacing:.5px;'>ESTADO: {esc(s['status'])}</div>"
                 "</td></tr>",
 
-                # Agent metric cards
+                # Resumen del servidor: primero, breve y visible.
+                "<tr><td style='padding:10px 16px 2px;'><div style='font-size:14px;font-weight:800;color:{text};'>Resumen del servidor</div></td></tr>",
+
+                # Server metric cards
                 "<tr><td style='padding:12px 12px 4px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>",
                 f"<td style='padding:4px;'><div style='background:{panel};border-radius:9px;text-align:center;padding:10px 5px;'><div style='font-size:19px;font-weight:800;color:{text};'>{num(s['events'])}</div><div style='font-size:8px;color:{muted};font-weight:800;letter-spacing:.7px;'>EVENTOS</div></div></td>",
                 f"<td style='padding:4px;'><div style='background:#fff7f2;border-radius:9px;text-align:center;padding:10px 5px;'><div style='font-size:19px;font-weight:800;color:{coral};'>{num(s['high'])}</div><div style='font-size:8px;color:{muted};font-weight:800;letter-spacing:.7px;'>ALERTAS ALTA SEVERIDAD (12–14)</div></div></td>",
@@ -990,28 +1035,7 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
                 f"<td style='padding:4px;'><div style='background:{panel};border-radius:9px;text-align:center;padding:10px 5px;'><div style='font-size:19px;font-weight:800;color:{text};'>{num(len(s['blocked']))}</div><div style='font-size:8px;color:{muted};font-weight:800;letter-spacing:.7px;'>IPS BLOQUEADAS</div></div></td>",
                 "</tr></table></td></tr>",
 
-                # Category summary
-                "<tr><td style='padding:10px 16px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>",
-                f"<tr><td colspan='2' style='padding:7px 0 8px;border-bottom:2px solid {orange};font-size:14px;font-weight:800;color:{text};'>Actividad detectada por categoría</td></tr>",
-            ])
-
-            cat_order = ["authentication", "web", "fim", "malware", "privilege", "attack", "active_response", "other"]
-            any_cat = False
-            for cat in cat_order:
-                count = s["categories"].get(cat, 0)
-                if count:
-                    any_cat = True
-                    page.append(
-                        f"<tr><td style='padding:7px 5px;border-bottom:1px solid #edf1f3;font-size:11px;color:{text};'>{esc(CATEGORY_LABELS.get(cat, cat))}</td>"
-                        f"<td style='padding:7px 5px;border-bottom:1px solid #edf1f3;text-align:right;font-size:11px;font-weight:800;color:{text};'>{num(count)}</td></tr>"
-                    )
-            if not any_cat:
-                page.append(
-                    "<tr><td colspan='2' style='padding:8px 5px;color:#78909c;font-size:11px;'>Sin detecciones categorizadas.</td></tr>"
-                )
-            page.append("</table></td></tr>")
-
-            # Top rules by human-readable description
+                # Top rules by human-readable description
             page.append(
                 "<tr><td style='padding:10px 16px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
                 f"<tr><td colspan='2' style='padding:7px 0 8px;border-bottom:2px solid {orange};font-size:14px;font-weight:800;color:{text};'>Principales detecciones</td></tr>"
@@ -1052,6 +1076,48 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
                 page.append(
                     "<tr><td colspan='2' style='padding:8px 5px;color:#78909c;font-size:11px;'>Sin técnicas MITRE observadas durante el período.</td></tr>"
                 )
+            page.append("</table></td></tr>")
+
+            # Authentication source IPs
+            page.append(
+                "<tr><td style='padding:10px 16px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+                f"<tr><td colspan='2' style='padding:7px 0 8px;border-bottom:2px solid {orange};font-size:14px;font-weight:800;color:{text};'>Autenticación · IPs de origen relevantes</td></tr>"
+                "<tr><td colspan='2' style='padding:0 5px 8px;color:#78909c;font-size:10px;'>IPs de origen con más eventos de autenticación y acceso registrados en este servidor durante el período.</td></tr>"
+            )
+            if s["auth_ips"]:
+                page.append(
+                    f"<tr><td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;'>IP DE ORIGEN</td>"
+                    f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;text-align:right;'>EVENTOS DE AUTENTICACIÓN</td></tr>"
+                )
+                for ip, count in s["auth_ips"].most_common(8):
+                    page.append(
+                        f"<tr><td style='padding:7px 5px;border-bottom:1px solid #edf1f3;font-family:monospace;font-size:11px;color:{text};'>{esc(ip)}</td>"
+                        f"<td style='padding:7px 5px;border-bottom:1px solid #edf1f3;text-align:right;font-weight:800;font-size:11px;color:{text};'>{num(count)}</td></tr>"
+                    )
+            else:
+                page.append("<tr><td colspan='2' style='padding:8px 5px;color:#78909c;font-size:11px;'>Sin eventos de autenticación durante el período.</td></tr>")
+            page.append("</table></td></tr>")
+
+            # FIM summary by location
+            page.append(
+                "<tr><td style='padding:10px 16px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+                f"<tr><td colspan='3' style='padding:7px 0 8px;border-bottom:2px solid {orange};font-size:14px;font-weight:800;color:{text};'>Integridad de archivos · resumen FIM</td></tr>"
+                "<tr><td colspan='3' style='padding:0 5px 8px;color:#78909c;font-size:10px;'>Cambios FIM agrupados por ubicación para mostrar tendencias sin llenar el informe con cientos de archivos.</td></tr>"
+            )
+            if s["fim_groups"]:
+                page.append(
+                    f"<tr><td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;'>UBICACIÓN</td>"
+                    f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;text-align:right;'>EVENTOS</td>"
+                    f"<td style='background:{header_light};color:#fff;padding:8px;font-size:10px;font-weight:800;text-align:right;'>RUTAS ÚNICAS</td></tr>"
+                )
+                for bucket, count in s["fim_groups"].most_common():
+                    page.append(
+                        f"<tr><td style='padding:7px 5px;border-bottom:1px solid #edf1f3;font-size:11px;color:{text};'>{esc(bucket)}</td>"
+                        f"<td style='padding:7px 5px;border-bottom:1px solid #edf1f3;text-align:right;font-weight:800;font-size:11px;color:{text};'>{num(count)}</td>"
+                        f"<td style='padding:7px 5px;border-bottom:1px solid #edf1f3;text-align:right;font-weight:800;font-size:11px;color:{text};'>{num(len(s["fim_paths"].get(bucket, set())))}</td></tr>"
+                    )
+            else:
+                page.append("<tr><td colspan='3' style='padding:8px 5px;color:#78909c;font-size:11px;'>Sin cambios FIM durante el período.</td></tr>")
             page.append("</table></td></tr>")
 
             # Critical CVEs
