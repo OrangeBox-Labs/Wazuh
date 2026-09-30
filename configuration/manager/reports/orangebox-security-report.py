@@ -324,7 +324,7 @@ def fetch_critical_cves(allowed):
             agent_id = str(agent.get("id", "")).strip()
             if not agent_id:
                 continue
-            agent_name = str(agent.get("name") or f"Agente {agent_id}")
+            agent_name = str(agent.get("name") or f"Servidor {agent_id}")
             record = results.setdefault(agent_id, {"name": agent_name, "count": 0})
             record["count"] += 1
 
@@ -372,7 +372,7 @@ def fetch_critical_cves(allowed):
                 # de plataforma heredado.
                 if agent_id and is_cloudlinux and not is_almalinux:
                     unsupported_agents[agent_id] = {
-                        "name": str(agent.get("name") or f"Agente {agent_id}")
+                        "name": str(agent.get("name") or f"Servidor {agent_id}")
                     }
 
     total = total_reported if total_reported is not None else sum(item["count"] for item in results.values())
@@ -608,7 +608,7 @@ def group_members(group):
         if ids:
             all_ids.update(ids)
         elif not re.search(r"0\s+agent\(s\)",output,re.I):
-            raise SystemExit(f"No se pudieron obtener agentes del grupo {group_name}")
+            raise SystemExit(f"No se pudieron obtener servidores del grupo {group_name}")
     return all_ids
 
 def classify(rule_id, groups, level):
@@ -1014,7 +1014,7 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
 
         if unsupported_agents:
             names=", ".join(
-                str(item.get("name") or f"Agente {agent_id}")
+                str(item.get("name") or f"Servidor {agent_id}")
                 for agent_id,item in sorted(
                     unsupported_agents.items(),
                     key=lambda item:str(item[1].get("name","")).lower(),
