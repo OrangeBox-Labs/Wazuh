@@ -1115,7 +1115,7 @@ def generate_html(group_sections, title, subtitle, period, total_agents, total_e
                     page.append(
                         f"<tr><td style='padding:7px 5px;border-bottom:1px solid #edf1f3;font-size:11px;color:{text};'>{esc(bucket)}</td>"
                         f"<td style='padding:7px 5px;border-bottom:1px solid #edf1f3;text-align:right;font-weight:800;font-size:11px;color:{text};'>{num(count)}</td>"
-                        f"<td style='padding:7px 5px;border-bottom:1px solid #edf1f3;text-align:right;font-weight:800;font-size:11px;color:{text};'>{num(len(s["fim_paths"].get(bucket, set())))}</td></tr>"
+                        f"<td style='padding:7px 5px;border-bottom:1px solid #edf1f3;text-align:right;font-weight:800;font-size:11px;color:{text};'>{num(len(s['fim_paths'].get(bucket, set())))}</td></tr>"
                     )
             else:
                 page.append("<tr><td colspan='3' style='padding:8px 5px;color:#78909c;font-size:11px;'>Sin cambios FIM durante el período.</td></tr>")
