@@ -709,6 +709,7 @@ def parse_event(outer):
         "mitre":mitre.get("id",[]),
         "techniques":mitre.get("technique",[]),
         "url":data.get("url"),
+        "fim_path": str(data.get("path") or ((data.get("syscheck") or {}).get("path")) or "").strip(),
     }
 
 def load_events(start,end,allowed):
