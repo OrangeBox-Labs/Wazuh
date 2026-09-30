@@ -925,7 +925,16 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
         # una ejecución/alerta asociada al mismo bloqueo.
         firewall_by_reason=defaultdict(lambda: {"ips":set(), "attempts":0, "rules":set()})
         for row in firewall_rows:
-            reason_key=(row["rule_id"],row["description"])
+            # El motivo se agrupa sin la IP dinámica incluida en la descripción.
+            # Así 400 SYN FLOOD de IPs distintas aparecen como una sola fila,
+            # conservando el total de IPs bloqueadas y de intentos detectados.
+            reason= re.sub(
+                r"\\s+DESDE IP (?:PUBLICA|MALICIOSA CONOCIDA)\\s+\\S+\\.?$",
+                "",
+                str(row["description"] or "").strip(),
+                flags=re.IGNORECASE,
+            ).strip()
+            reason_key=(row["rule_id"],reason)
             firewall_by_reason[reason_key]["ips"].update(row["ips"])
             firewall_by_reason[reason_key]["attempts"] += row["attempts"]
             firewall_by_reason[reason_key]["rules"].add(row["rule_id"])
