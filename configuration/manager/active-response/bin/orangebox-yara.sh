@@ -7,7 +7,7 @@ set -o pipefail
 # Esta etapa detecta; no elimina ni modifica el archivo.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-WAZUH_HOME="$(cd -- "${SCRIPT_DIR}/../../.." && pwd -P)"
+WAZUH_HOME="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 LOG_FILE="${WAZUH_HOME}/logs/active-responses.log"
 RULES_DIR="${SCRIPT_DIR}/yara/rules/yara-rules"
 MAX_FILE_SIZE='5242880'
