@@ -1531,7 +1531,7 @@ configure_yara() {
     # coincida con /var/ossec/active-response/bin al desplegarlo.
     local REPO_ROOT
     REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
-    local SCRIPT_SRC="${REPO_ROOT}/configuration/manager/active-response/bin/orangebox-yara.sh"
+    local SCRIPT_SRC="${REPO_ROOT}/configuration/agent/active-response/bin/orangebox-yara.sh"
 
     if [[ ! -f "${SCRIPT_SRC}" ]]; then
         echo "ERROR: falta el runtime YARA versionado: ${SCRIPT_SRC}" >&2
