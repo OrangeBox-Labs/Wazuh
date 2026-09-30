@@ -91,27 +91,23 @@ if [[ "${1:-}" == "--agent" ]]; then
     echo "=== AGENT RUNTIME ==="
 
     AGENT_YARA_SCRIPT="${OSSEC_HOME}/active-response/bin/orangebox-yara.sh"
+    AGENT_YARA_SOURCE="$ROOT/configuration/agent/active-response/bin/orangebox-yara.sh"
     AGENT_YARA_DIR="${OSSEC_HOME}/active-response/bin/yara/rules/yara-rules"
     AGENT_YARA_META="${OSSEC_HOME}/active-response/bin/yara/rules"
     AGENT_QUARANTINE="${OSSEC_HOME}/active-response/bin/orangebox-quarantine.py"
+    AGENT_QUARANTINE_SOURCE="$ROOT/configuration/agent/active-response/bin/orangebox-quarantine.py"
 
+    compare_file "configuration/agent/active-response/bin/orangebox-yara.sh" "$AGENT_YARA_SCRIPT"
     if [[ -f "$AGENT_YARA_SCRIPT" ]]; then
         if bash -n "$AGENT_YARA_SCRIPT" 2>/dev/null; then
             ok "orangebox-yara.sh desplegado pasa bash -n"
         else
             fail "orangebox-yara.sh desplegado tiene error de sintaxis"
         fi
-    else
-        fail "Falta desplegado: $AGENT_YARA_SCRIPT"
     fi
 
-    if [[ -f "$ROOT/configuration/agent/active-response/bin/orangebox-quarantine.py" && -f "$AGENT_QUARANTINE" ]]; then
-        if cmp -s "$ROOT/tools/orangebox-quarantine.py" "$AGENT_QUARANTINE"; then
-            ok "orangebox-quarantine.py desplegado coincide con el source del repo"
-        else
-            fail "DIFERENCIA: source quarantine del repo != runtime quarantine del agente"
-            diff -u "$ROOT/tools/orangebox-quarantine.py" "$AGENT_QUARANTINE" || true
-        fi
+    compare_file "configuration/agent/active-response/bin/orangebox-quarantine.py" "$AGENT_QUARANTINE"
+    if [[ -f "$AGENT_QUARANTINE" ]]; then
         if python3 - "$AGENT_QUARANTINE" <<'PY' >/dev/null 2>&1
 import sys
 from pathlib import Path
@@ -123,10 +119,8 @@ PY
         else
             fail "orangebox-quarantine.py desplegado tiene error de sintaxis"
         fi
-    else
-        [[ -f "$ROOT/tools/orangebox-quarantine.py" ]] || fail "Falta en repo: tools/orangebox-quarantine.py"
-        [[ -f "$AGENT_QUARANTINE" ]] || fail "Falta desplegado: $AGENT_QUARANTINE"
     fi
+
     if [[ -d "$AGENT_YARA_DIR" ]]; then
         ok "Ruleset YARA oficial desplegado: $AGENT_YARA_DIR"
     else
@@ -145,11 +139,12 @@ PY
         if [[ -s "$AGENT_YARA_META/$meta" ]]; then
             ok "Metadata YARA presente: $meta"
         else
-            fail "Falta metadata YARA: $AGENT_YARA_META/$meta"
+            fail "Falta metadata YARA: $meta"
         fi
     done
 
-    if [[ -s "$AGENT_YARA_META/YARA-RULES-REPOSITORY" ]] &&        grep -qx 'https://github.com/Yara-Rules/rules.git' "$AGENT_YARA_META/YARA-RULES-REPOSITORY"; then
+    if [[ -s "$AGENT_YARA_META/YARA-RULES-REPOSITORY" ]] &&
+       grep -qx 'https://github.com/Yara-Rules/rules.git' "$AGENT_YARA_META/YARA-RULES-REPOSITORY"; then
         ok "Ruleset YARA proviene del repositorio oficial"
     elif [[ -e "$AGENT_YARA_META/YARA-RULES-REPOSITORY" ]]; then
         fail "Repositorio YARA desplegado no coincide con Yara-Rules/rules"
@@ -199,27 +194,8 @@ echo "=== INTEGRACIONES ==="
 compare_file     "configuration/manager/integrations/custom-orangebox-email.py"     "${OSSEC_HOME}/integrations/custom-orangebox-email.py"
 
 echo
-echo "=== RUNTIME DEL AGENTE (REPO) ==="
-
-check_repo_executable "configuration/manager/active-response/bin/orangebox-yara.sh"
-if bash -n "$ROOT/configuration/manager/active-response/bin/orangebox-yara.sh" 2>/dev/null; then
-    ok "Runtime YARA pasa bash -n"
-else
-    fail "Runtime YARA tiene error de sintaxis"
-fi
-
-check_repo_executable "configuration/manager/active-response/bin/orangebox-quarantine.py"
-if python3 - "$ROOT/configuration/manager/active-response/bin/orangebox-quarantine.py" <<'PY' >/dev/null 2>&1
-import sys
-from pathlib import Path
-path = sys.argv[1]
-compile(Path(path).read_text(encoding="utf-8"), path, "exec")
-PY
-then
-    ok "Runtime quarantine.py pasa compilacion Python"
-else
-    fail "Runtime quarantine.py tiene error de sintaxis"
-fi
+echo "=== ACTIVE RESPONSE DEL MANAGER ==="
+ok "La configuracion de Active Response del Manager se valida con sus reglas/commands; los ejecutables viven en configuration/agent/active-response/ y los genera el instalador del agente."
 
 echo
 echo "============================================================"
