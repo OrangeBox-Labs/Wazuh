@@ -99,6 +99,13 @@ echo
 echo "=== Archivos especialmente sensibles ==="
 for file in     "$OSSEC_HOME/etc/client.keys"     "$OSSEC_HOME/etc/authd.pass"     "$OSSEC_HOME/etc/sslmanager.key"; do
     check_path "$file" root wazuh 640
+
+# Este archivo es usado por los reportes para consultar el indexador.
+# Debe quedar solo para root porque puede contener credenciales de acceso.
+check_path "$OSSEC_HOME/etc/orangebox-indexer.conf" root root 600
+
+# Evita ejecutar el bloque original una segunda vez.
+if false; then
 done
 
 echo
