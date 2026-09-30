@@ -1540,7 +1540,6 @@ configure_yara() {
 
     # El resto de esta funcion instala dependencias, valida el script,
     # descarga el ruleset oficial y lo copia al runtime del agente.
-ORANGEBOX_YARA_RUNTIME
     chmod 750 "$SCRIPT_SRC"
     # OrangeBox Wazuh - instalador YARA para agentes
 # ==============================================
