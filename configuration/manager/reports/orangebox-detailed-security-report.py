@@ -181,7 +181,7 @@ def group_members(group):
         if ids:
             all_ids.update(ids)
         elif not re.search(r"0\s+agent\(s\)", out, re.I):
-            raise SystemExit(f"No se pudieron obtener agentes del grupo {group_name}")
+            raise SystemExit(f"No se pudieron obtener servidores del grupo {group_name}")
 
     return all_ids
 
