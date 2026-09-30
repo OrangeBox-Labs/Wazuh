@@ -18,7 +18,7 @@ El script utiliza los logs JSON de alertas de Wazuh:
 
 Los históricos `.json.gz` se leen directamente con `gzip`, sin descomprimirlos a disco.
 
-No se utiliza `active-responses.log` como fuente histórica principal. Las ejecuciones de `firewall-drop` se reconstruyen desde las alertas `651`, cuyo `full_log` contiene el JSON de Active Response.
+No se utiliza `active-responses.log` como fuente histórica principal. Las ejecuciones de `firewall-drop` se reconstruyen desde las alertas `10458`, cuya alerta contiene el JSON de Active Response dentro de `data.parameters.alert` y `full_log`.
 
 ## Períodos
 
