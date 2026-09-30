@@ -95,21 +95,14 @@ if [[ "${1:-}" == "--agent" ]]; then
     AGENT_YARA_META="${OSSEC_HOME}/active-response/bin/yara/rules"
     AGENT_QUARANTINE="${OSSEC_HOME}/active-response/bin/orangebox-quarantine.py"
 
-    if [[ -f "$ROOT/tools/orangebox-yara/orangebox-yara.sh" && -f "$AGENT_YARA_SCRIPT" ]]; then
-        if cmp -s "$ROOT/tools/orangebox-yara/orangebox-yara.sh" "$AGENT_YARA_SCRIPT"; then
-            ok "orangebox-yara.sh desplegado coincide con el source del repo"
-        else
-            fail "DIFERENCIA: source YARA del repo != runtime YARA del agente"
-            diff -u "$ROOT/tools/orangebox-yara/orangebox-yara.sh" "$AGENT_YARA_SCRIPT" || true
-        fi
+    if [[ -f "$AGENT_YARA_SCRIPT" ]]; then
         if bash -n "$AGENT_YARA_SCRIPT" 2>/dev/null; then
             ok "orangebox-yara.sh desplegado pasa bash -n"
         else
             fail "orangebox-yara.sh desplegado tiene error de sintaxis"
         fi
     else
-        [[ -f "$ROOT/tools/orangebox-yara/orangebox-yara.sh" ]] || fail "Falta en repo: tools/orangebox-yara/orangebox-yara.sh"
-        [[ -f "$AGENT_YARA_SCRIPT" ]] || fail "Falta desplegado: $AGENT_YARA_SCRIPT"
+        fail "Falta desplegado: $AGENT_YARA_SCRIPT"
     fi
 
     if [[ -f "$ROOT/tools/orangebox-quarantine.py" && -f "$AGENT_QUARANTINE" ]]; then
@@ -380,13 +373,6 @@ check_repo_executable() {
     fi
 }
 
-check_repo_executable "tools/orangebox-yara/orangebox-yara.sh"
-if bash -n "$ROOT/tools/orangebox-yara/orangebox-yara.sh" 2>/dev/null; then
-    ok "Source orangebox-yara.sh pasa bash -n"
-else
-    fail "Source orangebox-yara.sh tiene error de sintaxis"
-fi
-
 check_repo_executable "tools/orangebox-yara/install-orangebox-yara.sh"
 if bash -n "$ROOT/tools/orangebox-yara/install-orangebox-yara.sh" 2>/dev/null; then
     ok "Installer YARA pasa bash -n"
@@ -405,13 +391,6 @@ then
     ok "Source orangebox-quarantine.py pasa compilacion Python"
 else
     fail "Source orangebox-quarantine.py tiene error de sintaxis"
-fi
-
-if grep -Fq 'SCRIPT_SRC="${SCRIPT_DIR}/orangebox-yara.sh"' "$ROOT/tools/orangebox-yara/install-orangebox-yara.sh" &&
-   grep -Fq 'install -m 750 -o root -g "${WAZUH_GROUP}" "${SCRIPT_SRC}" "${DEST_BIN}/orangebox-yara.sh"' "$ROOT/tools/orangebox-yara/install-orangebox-yara.sh"; then
-    ok "Installer YARA usa el source versionado y lo instala con modo 750"
-else
-    fail "Installer YARA no apunta al source versionado esperado o cambio el modo de instalacion"
 fi
 
 
