@@ -48,8 +48,9 @@ El instalador crea directamente en el cliente:
 
 ```text
 <WAZUH_HOME>/active-response/bin/orangebox-yara.sh
+<WAZUH_HOME>/active-response/bin/orangebox-quarantine.py
 ```
 
-No se copia un `orangebox-yara.sh` adicional desde el repositorio.
+No se copian estos scripts desde el repositorio ni se requiere rsync. La versión bajo `configuration/agent/active-response/bin/` mantiene la misma estructura del runtime y sirve como referencia versionada.
 
 Las reglas se descargan desde el repositorio oficial Yara-Rules y se fijan al commit aprobado por el instalador.
