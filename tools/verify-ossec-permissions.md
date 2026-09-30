@@ -31,6 +31,7 @@ sudo ./tools/verify-ossec-permissions.sh --path /var/ossec
 - `integrations/`: `root:wazuh`, scripts `0750`.
 - `logs/`, `queue/`, `stats/` y `var/`: `wazuh:wazuh`, directorios `0750` y archivos `0640`.
 - `client.keys`, `authd.pass` y `sslmanager.key` se mantienen como archivos protegidos `0640`.
+- `etc/orangebox-indexer.conf` debe quedar como `root:root` y `0600`; el reporte lo usa para consultar el indexador y puede contener credenciales.
 
 El script no modifica `/var/lib/wazuh-indexer`. El indexador tiene su propio árbol, usuario y permisos y debe revisarse por separado.
 
