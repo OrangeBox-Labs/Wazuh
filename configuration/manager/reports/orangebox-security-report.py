@@ -929,7 +929,7 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
             # Así 400 SYN FLOOD de IPs distintas aparecen como una sola fila,
             # conservando el total de IPs bloqueadas y de intentos detectados.
             reason= re.sub(
-                r"\\s+DESDE IP (?:PUBLICA|MALICIOSA CONOCIDA)\\s+\\S+\\.?$",
+                r"\s+DESDE IP (?:PUBLICA|MALICIOSA CONOCIDA)\s+\S+\.?$",
                 "",
                 str(row["description"] or "").strip(),
                 flags=re.IGNORECASE,
