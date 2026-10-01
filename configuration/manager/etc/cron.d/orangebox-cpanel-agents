@@ -1,3 +1,16 @@
 # OrangeBox Wazuh - sincronizacion automatica de agentes cPanel
-# Fuente de verdad: grupo Wazuh "cpanel". No mantener una lista manual.
-*/10 * * * * root /var/ossec/bin/update-orangebox-cpanel-agents.sh >/dev/null 2>&1
+# ===============================================================
+#
+# Mantiene actualizada la CDB orangebox-cpanel-agents a partir del grupo
+# Wazuh "cpanel". No requiere una lista manual de agentes.
+#
+# IMPORTANTE:
+# Aunque este script usa reload y no restart, se evita la ventana 23:50-00:14
+# para no coincidir con la rotacion diaria de logs y cualquier operacion
+# de ciclo de vida del wazuh-manager.
+#
+# Frecuencia: cada 10 minutos fuera de la ventana de medianoche.
+#
+*/10 1-22 * * * root /var/ossec/bin/update-orangebox-cpanel-agents.sh >/dev/null 2>&1
+5-45/10 23 * * * root /var/ossec/bin/update-orangebox-cpanel-agents.sh >/dev/null 2>&1
+15-55/10 0 * * * root /var/ossec/bin/update-orangebox-cpanel-agents.sh >/dev/null 2>&1
