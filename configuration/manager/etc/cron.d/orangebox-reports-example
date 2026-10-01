@@ -1,0 +1,21 @@
+# OrangeBox Wazuh - ejemplo de programación de reportes
+# =====================================================
+# Valores genéricos: reemplazar ClienteEjemplo y el destinatario antes de usar.
+
+# Ejecutivo diario
+15 1 * * * root /var/ossec/reports/orangebox-security-report.py --yesterday --group ClienteEjemplo --email soporte@example.invalid
+
+# Ejecutivo semanal - lunes
+30 4 * * 1 root /var/ossec/reports/orangebox-security-report.py --lastweek --group ClienteEjemplo --email soporte@example.invalid
+
+# Ejecutivo mensual - día 1
+0 8 1 * * root /var/ossec/reports/orangebox-security-report.py --lastmonth --group ClienteEjemplo --email soporte@example.invalid
+
+# Detallado diario
+0 3 * * * root /var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group ClienteEjemplo --email soporte@example.invalid
+
+# Detallado semanal - lunes
+30 6 * * 1 root /var/ossec/reports/orangebox-detailed-security-report.py --lastweek --group ClienteEjemplo --email soporte@example.invalid
+
+# Detallado mensual - día 1
+0 10 1 * * root /var/ossec/reports/orangebox-detailed-security-report.py --lastmonth --group ClienteEjemplo --email soporte@example.invalid
