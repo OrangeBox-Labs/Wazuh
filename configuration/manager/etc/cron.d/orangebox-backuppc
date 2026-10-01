@@ -1,0 +1,2 @@
+# OrangeBox Wazuh - actualizacion dinamica de whitelist BackupPC
+*/5 * * * * root /var/ossec/bin/update-orangebox-backuppc.sh >/dev/null 2>&1
