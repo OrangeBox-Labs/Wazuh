@@ -50,10 +50,16 @@ No se publican direcciones de correo, nombres de clientes ni grupos reales en es
 
 ## Ejemplo de tarea de sistema
 
+Las tareas que pueden recargar o reiniciar el Manager deben evitar la ventana
+de la rotación diaria de logs alrededor de medianoche. En particular, no se
+programan ejecuciones entre las 23:50 y las 00:10.
+
 ```cron
 # Sincroniza automáticamente la CDB asociada al grupo cPanel.
-# El script debe actualizar la lista y recargar Wazuh solo cuando haya cambios.
-*/10 * * * * root /var/ossec/etc/lists/update-orangebox-cpanel-agents.sh >/dev/null 2>&1
+# El script recarga Wazuh solo cuando hay cambios.
+*/10 1-22 * * * root /var/ossec/bin/update-orangebox-cpanel-agents.sh >/dev/null 2>&1
+5-45/10 23 * * * root /var/ossec/bin/update-orangebox-cpanel-agents.sh >/dev/null 2>&1
+15-55/10 0 * * * root /var/ossec/bin/update-orangebox-cpanel-agents.sh >/dev/null 2>&1
 ```
 
 ## Instalación
