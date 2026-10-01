@@ -1,0 +1,2 @@
+# OrangeBox Wazuh - actualizacion automatica de listas IOC
+15 3 * * * root /var/ossec/bin/update-orangebox-ioc-lists.sh >> /var/log/orangebox-ioc-update.log 2>&1
