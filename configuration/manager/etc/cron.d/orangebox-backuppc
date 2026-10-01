@@ -1,2 +1,7 @@
 # OrangeBox Wazuh - actualizacion dinamica de whitelist BackupPC
-*/5 * * * * root /var/ossec/bin/update-orangebox-backuppc.sh >/dev/null 2>&1
+#
+# Evita la ventana 23:50-00:09 para no coincidir con la rotacion diaria
+# de logs y el posible restart de wazuh-manager cuando cambia la IP.
+*/5 1-22 * * * root /var/ossec/bin/update-orangebox-backuppc.sh >/dev/null 2>&1
+5-45/5 23 * * * root /var/ossec/bin/update-orangebox-backuppc.sh >/dev/null 2>&1
+10-55/5 0 * * * root /var/ossec/bin/update-orangebox-backuppc.sh >/dev/null 2>&1
