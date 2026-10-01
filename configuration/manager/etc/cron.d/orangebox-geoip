@@ -1,3 +1,4 @@
-# OrangeBox Wazuh - actualización de datos Geo-IP
-# Ajustar la ruta y el horario al entorno de despliegue.
-15 3 * * * root /var/ossec/etc/lists/update-orangebox-geoip.sh >/dev/null 2>&1
+# OrangeBox Wazuh - actualizacion automatica de Geo-IP
+# El script vive en /var/ossec/bin para mantener todos los scripts operacionales
+# del Manager en un unico lugar.
+15 3 * * * root /var/ossec/bin/update-orangebox-geoip.sh >> /var/log/orangebox-geoip-update.log 2>&1
