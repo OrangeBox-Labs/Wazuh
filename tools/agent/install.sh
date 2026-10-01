@@ -1541,42 +1541,92 @@ set -o pipefail
 # OrangeBox Wazuh - Active Response FIM -> YARA
 # Analiza solo el archivo indicado por FIM con el ruleset oficial Yara-Rules.
 # Esta etapa detecta; no elimina ni modifica el archivo.
+#
+# El stdin de Active Response contiene un JSON por linea. No usar cat aqui:
+# cat espera EOF y puede dejar el proceso colgado indefinidamente.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 WAZUH_HOME="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
-LOG_FILE="${WAZUH_HOME}/logs/active-responses.log"
+
+# Solo los matches YARA van a active-responses.log porque las reglas Wazuh
+# consumen ese texto para generar la alerta 10501. El resto va a un log propio
+# para evitar feedback innecesario con Logcollector.
+AR_LOG="${WAZUH_HOME}/logs/active-responses.log"
+YARA_LOG="${WAZUH_HOME}/logs/orangebox-yara.log"
+LOCK_FILE="${WAZUH_HOME}/logs/orangebox-yara.lock"
 RULES_DIR="${SCRIPT_DIR}/yara/rules/yara-rules"
 MAX_FILE_SIZE='5242880'
+YARA_TIMEOUT='15'
 
-log_info() { printf 'wazuh-yara: INFO - %s\n' "$*" >> "${LOG_FILE}"; }
-log_error() { printf 'wazuh-yara: ERROR - %s\n' "$*" >> "${LOG_FILE}"; }
+log_info() {
+    printf 'wazuh-yara: INFO - %s\n' "$*" >> "${YARA_LOG}"
+}
 
-INPUT_JSON="$(cat)"
-command -v jq >/dev/null 2>&1 || { log_error "jq no esta instalado."; exit 1; }
+log_error() {
+    printf 'wazuh-yara: ERROR - %s\n' "$*" >> "${YARA_LOG}"
+}
+
+mkdir -p "${WAZUH_HOME}/logs" 2>/dev/null || true
+
+# Evitar varias ejecuciones YARA simultaneas en ráfagas de FIM.
+if command -v flock >/dev/null 2>&1; then
+    exec 9>"${LOCK_FILE}"
+    flock -n 9 || exit 0
+fi
+
+# Active Response entrega el JSON como una linea. Leer una sola linea evita
+# bloquear el proceso esperando EOF, que nunca tiene por que llegar.
+INPUT_JSON=""
+if ! IFS= read -r INPUT_JSON; then
+    log_error "No se recibio JSON de Active Response."
+    exit 0
+fi
+
+command -v jq >/dev/null 2>&1 || {
+    log_error "jq no esta instalado."
+    exit 1
+}
 
 ACTION="$(printf '%s' "${INPUT_JSON}" | jq -r '.command // .action // empty' 2>/dev/null || true)"
 FILENAME="$(printf '%s' "${INPUT_JSON}" | jq -r '.parameters.alert.syscheck.path // empty' 2>/dev/null || true)"
 
 [[ "${ACTION}" != "add" && -n "${ACTION}" ]] && exit 0
-[[ -n "${FILENAME}" && "${FILENAME}" != "null" ]] || { log_error "No se obtuvo el path FIM."; exit 1; }
-[[ -e "${FILENAME}" ]] || { log_error "El archivo ya no existe: ${FILENAME}"; exit 0; }
-[[ ! -L "${FILENAME}" ]] || { log_info "Archivo omitido por ser symlink: ${FILENAME}"; exit 0; }
-[[ -f "${FILENAME}" ]] || { log_info "Archivo omitido por no ser regular: ${FILENAME}"; exit 0; }
+[[ -n "${FILENAME}" && "${FILENAME}" != "null" ]] || {
+    log_error "No se obtuvo el path FIM."
+    exit 1
+}
+
+# Los archivos temporales pueden desaparecer entre FIM y Active Response.
+# Es un caso esperado: no generar ERROR ni alerta falsa.
+if [[ ! -e "${FILENAME}" ]]; then
+    log_info "El archivo ya no existe al iniciar el escaneo: ${FILENAME}"
+    exit 0
+fi
+
+[[ ! -L "${FILENAME}" ]] || {
+    log_info "Archivo omitido por ser symlink: ${FILENAME}"
+    exit 0
+}
+
+[[ -f "${FILENAME}" ]] || {
+    log_info "Archivo omitido por no ser regular: ${FILENAME}"
+    exit 0
+}
+
+# Dar una pequeña ventana para que una escritura recién terminada se estabilice,
+# pero sin bloquear el Active Response durante segundos.
+sleep 0.2
+
+[[ -f "${FILENAME}" ]] || {
+    log_info "El archivo desaparecio antes del escaneo: ${FILENAME}"
+    exit 0
+}
 
 FILE_SIZE="$(stat -c '%s' -- "${FILENAME}" 2>/dev/null || echo 0)"
 if [[ "${FILE_SIZE}" =~ ^[0-9]+$ ]] && (( FILE_SIZE > MAX_FILE_SIZE )); then
     log_info "Archivo omitido por superar 5 MiB: ${FILENAME}"
     exit 0
 fi
-
-PREV_SIZE="${FILE_SIZE}"
-for _ in 1 2 3 4 5; do
-    sleep 1
-    [[ -f "${FILENAME}" ]] || exit 0
-    CURRENT_SIZE="$(stat -c '%s' -- "${FILENAME}" 2>/dev/null || echo 0)"
-    [[ "${CURRENT_SIZE}" == "${PREV_SIZE}" ]] && break
-    PREV_SIZE="${CURRENT_SIZE}"
-done
 
 YARA_BIN="${ORANGEBOX_YARA_BIN:-}"
 if [[ -z "${YARA_BIN}" ]]; then
@@ -1585,29 +1635,89 @@ if [[ -z "${YARA_BIN}" ]]; then
     done
 fi
 
-[[ -x "${YARA_BIN}" ]] || { log_error "No se encontro YARA."; exit 1; }
-[[ -d "${RULES_DIR}" ]] || { log_error "No se encontro el ruleset oficial."; exit 1; }
-
-run_scan() {
-    local category="$1" index_file="$2" yara_output line rule_name scanned_path
-    [[ -s "${index_file}" ]] || { log_error "Falta el indice YARA: ${index_file}"; return 1; }
-    yara_output="$("${YARA_BIN}" -w -r "${index_file}" "${FILENAME}" 2>>"${LOG_FILE}" || true)"
-    [[ -z "${yara_output}" ]] && return 0
-    while IFS= read -r line; do
-        [[ -z "${line}" ]] && continue
-        rule_name="${line%% *}"
-        scanned_path="${line#* }"
-        [[ -n "${rule_name}" && -n "${scanned_path}" && "${rule_name}" != "${line}" ]] || continue
-        printf 'wazuh-yara: ALERT - Match: category=%s rule=%s path=%s\n'             "${category}" "${rule_name}" "${scanned_path}" >> "${LOG_FILE}"
-    done <<< "${yara_output}"
+[[ -x "${YARA_BIN}" ]] || {
+    log_error "No se encontro YARA."
+    exit 1
 }
 
-run_scan "webshells" "${RULES_DIR}/webshells_index.yar"
-run_scan "malware" "${RULES_DIR}/malware_index.yar"
+[[ -d "${RULES_DIR}" ]] || {
+    log_error "No se encontro el ruleset oficial: ${RULES_DIR}"
+    exit 1
+}
+
+command -v timeout >/dev/null 2>&1 || {
+    log_error "timeout no esta disponible; no se ejecutara YARA."
+    exit 1
+}
+
+run_scan() {
+    local category="$1"
+    local index_file="$2"
+    local output_file
+    local yara_status
+    local line
+    local rule_name
+    local scanned_path
+
+    [[ -s "${index_file}" ]] || {
+        log_error "Falta el indice YARA: ${index_file}"
+        return 1
+    }
+
+    output_file="$(mktemp "${YARA_LOG}.XXXXXX")" || {
+        log_error "No se pudo crear temporal para salida YARA."
+        return 1
+    }
+
+    if timeout "${YARA_TIMEOUT}s" "${YARA_BIN}" -w -r "${index_file}" "${FILENAME}" >"${output_file}" 2>>"${YARA_LOG}"; then
+        yara_status=0
+    else
+        yara_status=$?
+    fi
+
+    case "${yara_status}" in
+        0)
+            ;;
+        1)
+            rm -f "${output_file}"
+            return 0
+            ;;
+        124|137)
+            log_error "YARA excedio el timeout de ${YARA_TIMEOUT}s: ${FILENAME} (categoria=${category})"
+            rm -f "${output_file}"
+            return 0
+            ;;
+        *)
+            log_error "YARA fallo con codigo ${yara_status}: ${FILENAME} (categoria=${category})"
+            rm -f "${output_file}"
+            return 1
+            ;;
+    esac
+
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] && continue
+
+        rule_name="${line%% *}"
+        scanned_path="${line#* }"
+
+        [[ -n "${rule_name}" && -n "${scanned_path}" && "${rule_name}" != "${line}" ]] || continue
+
+        # Mantener exactamente este formato: rule 10501 lo consume.
+        printf 'wazuh-yara: ALERT - Match: category=%s rule=%s path=%s\n' \
+            "${category}" "${rule_name}" "${scanned_path}" >> "${AR_LOG}"
+    done < "${output_file}"
+
+    rm -f "${output_file}"
+    return 0
+}
+
+run_scan "webshells" "${RULES_DIR}/webshells_index.yar" || exit 0
+run_scan "malware" "${RULES_DIR}/malware_index.yar" || exit 0
+
 exit 0
 
 ORANGEBOX_YARA_RUNTIME
-    local WAZUH_GROUP
+    local WAZUH_GROUP    local WAZUH_GROUP
     WAZUH_GROUP="$(stat -c '%G' "$WAZUH_HOME/active-response/bin" 2>/dev/null || echo wazuh)"
     [[ -n "$WAZUH_GROUP" && "$WAZUH_GROUP" != "UNKNOWN" ]] || WAZUH_GROUP="wazuh"
     chown root:"$WAZUH_GROUP" "$SCRIPT_SRC" || fail "No se pudo asignar propietario a $SCRIPT_SRC"
