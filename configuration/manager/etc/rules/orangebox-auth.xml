@@ -432,7 +432,7 @@
                 los necesita (challenge, package names, usernames, IDs, etc.).
         -->
         <if_sid>10005</if_sid>
-        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-agent-profiles</list>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
         <match type="pcre2">(?s)(?=.*\bwp-toolkit\s+:).*COMMAND=(?!/bin/sh\s+-c\s)(?:/bin/)?(?:readlink\s+/usr/local/cpanel/server\.type|cagefsctl\s+--cagefs-status|curl\s+--silent\s+--insecure\s+--request\s+POST\s+https://localhost:8443/check-plesk\.php\s+--data\s+challenge=[^\s']+|cat\s+/usr/local/cpanel/version|test\s+-e\s+/usr/local/cpanel|test\s+-e\s+/usr/local/psa|test\s+-e\s+/opt/psa|cat\s+/etc/cagefs/exclude/wptoolkituserlist|test\s+-e\s+/etc/cagefs/exclude/wptoolkituserlist|cat\s+/etc/cagefs/cagefs\.mp|whmapi1\s+package_manager_get_package_info\s+package-0=[^\s]+\s+--output=json|cat\s+/etc/cagefs/conf\.d/wp-toolkit\.cfg|test\s+-e\s+/etc/cagefs/conf\.d/wp-toolkit\.cfg|whmapi1\s+listaccts\s+--output=json|whmapi1\s+get_domain_info\s+--output=json|whmapi1\s+get_users_features_settings(?:\s+.*)?|test\s+-[ef]\s+/etc/logrotate\.d/wp-toolkit-action-logs(?:-wpt-tmp-[^\s']+)?\.?~?|uapi\s+--user=[^\s]+\s+DomainInfo\s+single_domain_data(?:\s+.*)?|uapi\s+--user=[^\s]+\s+Mime\s+list_redirects\s+--output=json|whmapi1\s+get_tweaksetting\s+key=server_locale\s+--output=json|whmapi1\s+get_public_ip\s+ip=[^\s]+\s+--output=json|whmapi1\s+get_shared_ip\s+--output=json)</match>
         <description>EXCEPCION: SUDO legitimo de WP Toolkit/cPanel para tareas operativas conocidas.</description>
         <group>syslog,sudo,authentication,privilege_escalation,orangebox_exception,orangebox_whitelist,wp_toolkit,cpanel,</group>
@@ -464,7 +464,7 @@
     -->
     <rule id="20035" level="0">
         <if_sid>10005</if_sid>
-        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-agent-profiles</list>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
         <match type="pcre2">(?s)^.*\bwp-toolkit\s+:\s+PWD=/usr/local/cpanel/3rdparty/wp-toolkit/(?:scripts|htdocs)(?:/[^\s;]*)?\s+;\s+USER=root\s+;\s+COMMAND=.+$</match>
         <description>EXCEPCION: WP Toolkit / cPanel - SUDO operativo en contexto autorizado.</description>
         <group>syslog,sudo,authentication,privilege_escalation,orangebox_exception,orangebox_whitelist,wp_toolkit,cpanel,</group>
