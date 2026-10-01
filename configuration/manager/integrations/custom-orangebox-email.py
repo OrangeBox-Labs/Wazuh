@@ -1772,6 +1772,12 @@ for idx, ev in enumerate(
             color: #b91c1c;
             font-family: monospace;
             white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            overflow: hidden;
             font-size: 13px;
             line-height: 1.4;
         ">{esc(ev.get('full_log', ''))}</pre>
