@@ -384,9 +384,10 @@
         estos comandos son tareas operativas legitimas ejecutadas por
         el usuario tecnico "wp-toolkit" como root en servidores cPanel.
 
-        La whitelist es GLOBAL: no depende del grupo del agente.
-        Se limita al usuario wp-toolkit y a los patrones de comando
-        observados, para no desactivar la deteccion general de SUDO.
+        La excepcion se aplica a los agentes del grupo Wazuh "cpanel".
+        La pertenencia al grupo es la fuente de verdad y el script
+        update-orangebox-cpanel-agents la sincroniza a la CDB
+        orangebox-cpanel-agents. No mantener una lista manual de agentes.
     -->
     <!--
         WP Toolkit / cPanel.
