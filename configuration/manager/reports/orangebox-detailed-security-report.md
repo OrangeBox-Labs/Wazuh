@@ -1,5 +1,9 @@
 # OrangeBox Wazuh — Informe de Seguridad Detallado
 
+El informe detallado productivo utiliza el mismo motor de cache v3 que el reporte ejecutivo. El cache es compartido y se leen únicamente los shards de los agentes seleccionados.
+
+Arquitectura, motivos del cambio, formato del cache, correcciones y benchmarks: orangebox-reportes-v3.md
+
 Reporte operativo detallado, complementario al reporte ejecutivo `orangebox-security-report.py`. El reporte presenta el detalle por agente y grupo Wazuh.
 
 ## Identidad del informe
