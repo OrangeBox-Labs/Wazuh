@@ -1,173 +1,354 @@
 # OrangeBox Wazuh — Informe de Seguridad Detallado
 
-El informe detallado productivo utiliza el mismo motor de cache v3 que el reporte ejecutivo. El cache es compartido y se leen únicamente los shards de los agentes seleccionados.
+Informe operativo que complementa el reporte ejecutivo. Muestra la actividad de seguridad por servidor y por grupo Wazuh.
 
-Arquitectura, motivos del cambio, formato del cache, correcciones y benchmarks: orangebox-reportes-v3.md
+## Qué hace
 
-Reporte operativo detallado, complementario al reporte ejecutivo `orangebox-security-report.py`. El reporte presenta el detalle por agente y grupo Wazuh.
+Presenta el detalle de cada servidor perteneciente a los grupos seleccionados, sin limitarse a un Top.
 
-## Identidad del informe
+Por cada servidor muestra:
 
-Este reporte corresponde al **Informe de Seguridad Detallado** de OrangeBox. El asunto del correo se genera dinámicamente según el período:
+- estado e IP;
+- eventos de seguridad;
+- alertas de alta severidad;
+- alertas críticas;
+- detecciones clasificadas como ataque;
+- IPs de origen observadas;
+- distribución por categoría;
+- principales detecciones;
+- IPs bloqueadas por firewall-drop con su motivo;
+- técnicas MITRE;
+- CVE críticos del inventario;
+- indicador especial para CloudLinux cuando Wazuh no entrega evaluación nativa de vulnerabilidades.
 
-```text
-[ORANGEBOX] Diario - Informe de Seguridad Detallado - <grupo>
-[ORANGEBOX] Semanal - Informe de Seguridad Detallado - <grupo>
-[ORANGEBOX] Mensual - Informe de Seguridad Detallado - <grupo>
-[ORANGEBOX] Anual - Informe de Seguridad Detallado - <grupo>
-```
+## Implementación actual
 
-El reporte ejecutivo y este informe detallado son informes complementarios: el ejecutivo resume la actividad global, mientras que el detallado desglosa la información por agente.
+El archivo productivo es:
 
-## Objetivo
+~~~~text
+/var/ossec/reports/orangebox-detailed-security-report.py
+~~~~
 
-Mostrar al cliente el detalle de seguridad de **cada agente perteneciente al grupo Wazuh**, sin limitarse a un Top 15.
+El script es autocontenido en ejecución. Lleva embebidos el motor compartido, la lógica necesaria del reporte ejecutivo y el renderer detallado. No importa los archivos Python productivos desde el sistema.
 
-Por cada agente se informa:
+Comparte el mismo cache que el informe ejecutivo:
 
-- Estado e IP del agente.
-- Cantidad total de eventos de seguridad del período.
-- Alertas de alta severidad (niveles Wazuh 12-14).
-- Alertas críticas (niveles 15-16).
-- Detecciones clasificadas como ataque.
-- IPs de origen únicas observadas.
-- Distribución de detecciones por categoría.
-- Principales detecciones por nombre/descripción, sin mostrar IDs de regla.
-- IPs bloqueadas por `firewall-drop`, con el motivo de bloqueo.
-- Técnicas MITRE observadas.
-- CVE críticos activos del inventario de vulnerabilidades.
+~~~~text
+/var/ossec/reports/cache-proto-v3/
+~~~~
 
-Wazuh clasifica las reglas entre los niveles 0 y 16; los niveles 12-14 corresponden a eventos de alta importancia y los niveles 15-16 a severidad severa/máxima. citeturn251854search0
+Ese nombre se mantiene por compatibilidad con los datos ya construidos. Es el cache productivo actual, no un prototipo.
 
-## GeoIP y Top países
+El script usa sys.dont_write_bytecode = True y no necesita que exista __pycache__.
 
-El reporte utiliza DB-IP City Lite desde la base MMDB local:
+## Flujo de ejecución
 
-```text
+El flujo actual es:
+
+~~~~text
+período
+  → grupos Wazuh
+  → actualización del cache
+  → lectura de shards de los servidores seleccionados
+  → estadísticas por servidor
+  → CVE / CloudLinux
+  → HTML detallado
+  → archivo
+  → correo
+~~~~
+
+El motor compartido normaliza, clasifica y deduplica antes de guardar los eventos en cache.
+
+## Cache compartido
+
+La estructura actual es:
+
+~~~~text
+/var/ossec/reports/cache-proto-v3/
+  YYYY-MM-DD/
+    <agent-id>.jsonl.gz
+    manifest.json
+  YYYY-MM-DD.state.json
+~~~~
+
+### Día actual
+
+alerts.json se procesa de manera incremental usando inode y offset.
+
+Si no cambió desde la ejecución anterior, no se vuelve a leer desde el principio.
+
+Si cambió el inode, se redujo de tamaño o la estructura del estado no es válida, el día se reconstruye.
+
+### Días cerrados
+
+Los históricos se convierten una vez a shards comprimidos por servidor.
+
+Cada día tiene manifest.json y estado con metadatos de la fuente, eventos, servidores y tamaño.
+
+Las reconstrucciones se hacen en un directorio temporal y luego se reemplazan de forma atómica.
+
+### Lectura selectiva
+
+El reporte resuelve primero los servidores de los grupos seleccionados y después lee únicamente sus shards.
+
+Por eso un reporte de un cliente no necesita descomprimir el histórico de todos los servidores.
+
+## Rendimiento validado
+
+En una prueba con:
+
+~~~~text
+56 servidores
+4.233.850 eventos
+9.760 alertas de alta severidad
+9 alertas críticas
+10.839 detecciones de ataque
+~~~~
+
+la ejecución con cache construido registró:
+
+~~~~text
+Cache/update:     0,004 s
+Lectura cache:    28,098 s
+Agregación/CVE:    1,790 s
+Render HTML:       0,908 s
+Archivo:           0,013 s
+Tiempo total:     40,058 s
+~~~~
+
+La primera construcción histórica tarda más porque crea el cache desde los logs originales.
+
+En la prueba, el cache pasó de aproximadamente 188 MB con el esquema anterior a 49 MB con el esquema actual.
+
+## Períodos
+
+| Opción | Período |
+|---|---|
+| --today | Hoy desde 00:00 |
+| --yesterday | Día calendario anterior completo |
+| --thisweek | Semana actual desde lunes |
+| --lastweek | Semana calendario anterior |
+| --thismonth | Mes actual desde el día 1 |
+| --lastmonth | Mes calendario anterior |
+| --thisyear | Año actual desde el 1 de enero |
+| --lastyear | Año calendario anterior |
+| --date YYYY-MM-DD | Día indicado |
+
+## Grupos
+
+El parámetro --group acepta un grupo o varios grupos separados por coma.
+
+La pertenencia de los servidores se resuelve directamente desde Wazuh mediante agent_groups.
+
+No existe una lista manual de agentes que haya que actualizar al incorporar un servidor.
+
+Con:
+
+~~~~bash
+/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group CTS,OLC --email <destinatario>
+~~~~
+
+se incluyen los servidores pertenecientes a ambos grupos.
+
+Con --group all se resuelven los grupos efectivos.
+
+En el consolidado global se excluyen actualmente los grupos técnicos:
+
+~~~~text
+default
+cpanel
+zimbra
+~~~~
+
+Estos grupos pueden solicitarse explícitamente cuando corresponda.
+
+La lista está controlada por REPORT_NON_CLIENT_GROUPS en el script. Si aparece un nuevo grupo técnico que no representa clientes, debe agregarse allí antes de usar --group all en producción.
+
+Un servidor que pertenezca a más de un grupo aparece en cada grupo correspondiente, pero se reutilizan sus estadísticas sin volver a leer los logs.
+
+## Contenido por servidor
+
+### Resumen
+
+Cada servidor informa:
+
+- nombre e ID;
+- estado;
+- IP;
+- eventos;
+- alta severidad;
+- críticas;
+- ataques;
+- cantidad de IPs de origen;
+- cantidad de IPs bloqueadas.
+
+### Principales detecciones
+
+Se muestran las detecciones principales por nombre y descripción normalizados.
+
+No se muestran los IDs de regla como elemento principal del informe.
+
+### Firewall-drop
+
+Las IPs bloqueadas se muestran por servidor y con el motivo que originó el bloqueo.
+
+La correlación conserva directamente el par:
+
+~~~~text
+(rule_id, description)
+~~~~
+
+Esto evita que un motivo de una regla termine asociado a otra regla.
+
+Los intentos detectados corresponden a alertas Wazuh relacionadas con las IPs que fueron bloqueadas. No equivalen necesariamente al número bruto de conexiones originales.
+
+### FIM
+
+Los cambios de File Integrity Monitoring se resumen por ubicación y cantidad de rutas únicas para evitar llenar el correo con cientos de archivos.
+
+### MITRE
+
+Se muestran las técnicas observadas, su descripción y la cantidad de alertas Wazuh asociadas.
+
+El contador representa alertas, no accesos exitosos ni compromisos confirmados.
+
+## GeoIP
+
+La geolocalización usa DB-IP City Lite desde:
+
+~~~~text
 /var/lib/orangebox/geoip/dbip-city-lite.mmdb
-```
+~~~~
 
-La ruta puede sobrescribirse con `ORANGEBOX_GEOIP_CITY_DB`. El reporte de producción no consulta una API externa por cada IP.
+La ruta puede cambiarse con ORANGEBOX_GEOIP_CITY_DB.
 
-La sección **Top países · eventos de seguridad** resume las IPs públicas únicas asociadas a detecciones de seguridad del período. No debe interpretarse como una lista de ataques confirmados.
+Las tablas de IP muestran país y bandera cuando existe información.
 
-La sección **Top países · IPs bloqueadas automáticamente** resume las IPs públicas que activaron una respuesta automática de `firewall-drop`.
+El detalle también incluye:
 
-En las tablas de IP individuales se muestra país y bandera cuando existe información GeoIP. En el detalle investigativo, las IPs de origen se agrupan con los tipos/reglas de detección observados durante el período.
+- Top países por IPs públicas únicas asociadas a eventos de seguridad;
+- Top países por IPs públicas bloqueadas automáticamente.
 
-Las IP privadas, reservadas o no globales se identifican como **IP local** y no se consideran en los rankings de países.
+Las IP privadas, reservadas o no globales se muestran como IP local y no se incluyen en los rankings.
 
 La geolocalización es aproximada y sirve como contexto de seguridad.
 
 Fuente: DB-IP Lite, licencia CC BY 4.0.
 
-## Datos de vulnerabilidades
+## Vulnerabilidades
 
-Los CVE se consultan directamente desde el índice de estado:
+Los CVE se consultan desde:
 
-`wazuh-states-vulnerabilities-*`
+~~~~text
+wazuh-states-vulnerabilities-*
+~~~~
 
-Wazuh documenta este índice como la fuente de datos de vulnerabilidades actuales de los endpoints y expone campos como CVE, severidad, descripción, paquete, score y estado.
+También se consulta:
+
+~~~~text
+wazuh-states-inventory-system-*
+~~~~
+
+Esto permite distinguir entre un servidor sin hallazgos y un servidor cuya evaluación de vulnerabilidades no está disponible.
 
 ### CloudLinux
 
-Para evitar presentar un resultado vacío como si fuera una evaluación completa, el reporte consulta además:
+Cuando un servidor es identificado como CloudLinux, el informe lo marca explícitamente.
 
-`wazuh-states-inventory-system-*`
+Un resultado vacío de wazuh-states-vulnerabilities-* para ese servidor no debe interpretarse como ausencia de CVE, porque Wazuh no realiza actualmente evaluación nativa de vulnerabilidades para esa distribución.
 
-Cuando el agente es identificado como **CloudLinux**, el detalle por agente indica explícitamente que Wazuh no realiza actualmente evaluación nativa de vulnerabilidades para esa distribución. Por lo tanto, un listado vacío de `wazuh-states-vulnerabilities-*` para ese agente **no debe interpretarse como ausencia de CVE**.
+Las credenciales del Indexer pueden venir de:
 
-El inventario de paquetes del agente puede seguir siendo correcto y completo aunque Vulnerability Detection no genere estados de vulnerabilidad para CloudLinux. citeturn274081search0turn469205view0
+~~~~text
+WAZUH_INDEXER_USER
+WAZUH_INDEXER_PASS
+~~~~
 
-El script requiere credenciales de lectura del Wazuh indexer. Se pueden entregar mediante:
+o de:
 
-`WAZUH_INDEXER_USER` / `WAZUH_INDEXER_PASS`
+~~~~text
+/var/ossec/etc/orangebox-indexer.conf
+~~~~
 
-o mediante:
+El archivo debe tener permisos 0600 o más restrictivos.
 
-`/var/ossec/etc/orangebox-indexer.conf`
+## Correo
 
-con permisos 0600:
+Se acepta uno o más destinatarios con --email.
 
-```ini
-WAZUH_INDEXER_USER=readall
-WAZUH_INDEXER_PASS=xxxxxxxx
-```
+La entrega usa:
 
-La instalación estándar de Wazuh guarda las credenciales del indexer del manager en su keystore; el reporte no intenta extraer secretos desde ese almacén. citeturn163425search1turn163425search2
+~~~~text
+/usr/sbin/sendmail -t -i
+~~~~
+
+El mensaje queda en la cola local de Postfix.
+
+Los asuntos actuales son:
+
+~~~~text
+[ORANGEBOX] Diario - Informe de Seguridad Detallado - <grupo>
+[ORANGEBOX] Semanal - Informe de Seguridad Detallado - <grupo>
+[ORANGEBOX] Mensual - Informe de Seguridad Detallado - <grupo>
+[ORANGEBOX] Anual - Informe de Seguridad Detallado - <grupo>
+~~~~
+
+Con más de un grupo, el asunto se adapta al consolidado.
+
+## Archivo HTML
+
+Cada ejecución se guarda en:
+
+~~~~text
+/var/ossec/reports/archive/
+~~~~
+
+La escritura usa archivo temporal y reemplazo atómico.
+
+El correo contiene HTML y una alternativa de texto plano.
 
 ## Uso
 
 Diario:
 
-```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group CLIENTE_03 --email security@example.com
-```
+~~~~bash
+/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group <grupo> --email <destinatario>
+~~~~
 
 Semanal:
 
-```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --lastweek --group CLIENTE_03 --email security@example.com
-```
+~~~~bash
+/var/ossec/reports/orangebox-detailed-security-report.py --lastweek --group <grupo> --email <destinatario>
+~~~~
 
 Mensual:
 
-```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --lastmonth --group CLIENTE_03 --email security@example.com
-```
+~~~~bash
+/var/ossec/reports/orangebox-detailed-security-report.py --lastmonth --group <grupo> --email <destinatario>
+~~~~
 
 Todos los grupos:
 
-```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group all --email soporte@example.com
-```
+~~~~bash
+/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group all --email <destinatario>
+~~~~
 
 Prueba sin enviar correo:
 
-```bash
-/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group CLIENTE_03 --email security@example.com --dry-run
-```
+~~~~bash
+/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group <grupo> --email <destinatario> --dry-run
+~~~~
 
-## Fuente de eventos
+El script permite también indicar otro directorio de cache con --cache-dir para pruebas controladas.
 
-El reporte reutiliza `orangebox-security-report.py` para:
+## Mantenimiento
 
-- selección de período;
-- pertenencia a grupos;
-- lectura de logs históricos comprimidos;
-- parseo de alertas;
-- clasificación de categorías;
-- reconstrucción de `firewall-drop` desde las alertas 10458.
+No crear listas manuales de servidores.
 
-Esto mantiene ambos reportes alineados en cuanto a qué se considera una detección.
+No modificar la estructura del cache sin definir una reconstrucción compatible.
 
-Los logs de alertas son la fuente habitual de los eventos generados por Wazuh. citeturn251854search5
+No borrar los logs JSON de Wazuh que todavía formen parte del período de retención.
 
-## Entrega de correo
+El wrapper limpia temporales conocidos de cache y HTML.
 
-El reporte usa `/usr/sbin/sendmail -t -i` para entregar el mensaje a la cola local de Postfix. Así, una detención temporal de Postfix no elimina el reporte: el mensaje queda encolado y se entrega cuando el servicio vuelve.
-
-## Archivo HTML
-
-Cada ejecución se archiva en:
-
-`/var/ossec/reports/archive/`
-
-El correo incluye una versión HTML y una alternativa de texto plano.
-
-
-## Grupos de clientes vs. grupos funcionales
-
-Los grupos Wazuh cumplen más de una función en esta instalación. Un grupo puede identificar a un cliente o describir una capacidad técnica compartida por varios endpoints.
-
-Los reportes de cliente utilizan directamente el grupo indicado con `--group`. Por lo tanto, un grupo funcional como `cpanel` o `zimbra` no se convierte automáticamente en cliente ni recibe un correo por el solo hecho de existir.
-
-Cuando se usa `--group all`, el reporte detallado excluye actualmente:
-
-- `default`
-- `cpanel`
-- `zimbra`
-
-Estos grupos siguen pudiendo consultarse explícitamente para reportes operacionales internos.
-
-Cuando se cree un nuevo grupo funcional, debe agregarse a `REPORT_NON_CLIENT_GROUPS` en `orangebox-detailed-security-report.py` antes de considerarlo parte de la operación productiva. Esto evita que un grupo técnico aparezca accidentalmente como una sección de cliente en el reporte global.
+Los prototipos usados durante la migración ya no forman parte de la operación productiva.
