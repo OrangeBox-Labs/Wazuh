@@ -1,1127 +1,457 @@
 #!/usr/bin/env python3
-"""OrangeBox Wazuh Security Activity Report.
+"""OrangeBox Wazuh - reporte ejecutivo v3 autocontenido.
 
-Genera reportes HTML portables a partir de las alertas JSON de Wazuh.
-El HTML usa tablas e estilos inline para funcionar en Thunderbird, webmail y móvil.
+El script ya es productivo y contiene todo lo necesario para ejecutarse de forma
+independiente.
+
+- El motor de cache v3 está EMBEBIDO en este archivo.
+- La lógica y el renderer del reporte ejecutivo quedan embebidos como snapshot.
+- No depende del script detallado ni de archivos Python externos.
+- Comparte el cache v3 con el reporte detallado.
+- El nombre de cache-proto-v3 se conserva por compatibilidad con los datos ya generados.
 """
+from __future__ import annotations
+
 import argparse
-import base64
-import gzip
-import html
-import ssl
-import urllib.error
-import urllib.request
-try:
-    import orjson
-except ImportError:
-    orjson = None
+import importlib.util
 import ipaddress
-import json
-import os
 import re
-import subprocess
-import shutil
+import smtplib
+import sys
+
+# El script es autocontenido y no debe dejar __pycache__ al ejecutarse.
+sys.dont_write_bytecode = True
+import time
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
-ALERTS_ROOT = "/var/ossec/logs/alerts"
-ALERTS_FILE = f"{ALERTS_ROOT}/alerts.json"
-ARCHIVE_DIR = "/var/ossec/reports/archive"
+ENGINE_SOURCE = "#!/usr/bin/env python3\n\"\"\"OrangeBox Wazuh - motor de reportes v3.\n\nObjetivo:\n- leer alerts.json/archivos diarios una sola vez;\n- normalizar eventos una sola vez;\n- guardar parciales e históricos comprimidos por servidor;\n- permitir lectura selectiva por servidor para reporte normal y detallado;\n- no importar ni depender de los reportes productivos.\n\nEl motor queda aislado de /var/ossec/reports/*.py. Las funciones de\nclasificación y parseo necesarias para reproducir el resultado actual están\ncontenidas aquí.\n\"\"\"\nfrom __future__ import annotations\n\nimport argparse\nimport gzip\nimport hashlib\nimport ipaddress\nimport json\nimport os\nimport re\nimport tempfile\nimport time\nimport shutil\ntry:\n    import orjson\nexcept ImportError:\n    orjson = None\nfrom collections import Counter, defaultdict\nfrom datetime import date, datetime, timedelta\nfrom pathlib import Path\n\nALERTS_ROOT = Path(\"/var/ossec/logs/alerts\")\nALERTS_FILE = ALERTS_ROOT / \"alerts.json\"\nDEFAULT_CACHE = Path(\"/var/ossec/reports/cache-proto-v3\")\nFIREWALL_RULE = \"10458\"\nFIREWALL_RE = re.compile(r\"active-response/bin/firewall-drop:\\s*(\\{.*\\})$\")\n\nAUTH_RULES = {\"5710\",\"5712\",\"5715\",\"5716\",\"5720\",\"5760\",\"5763\",\"10001\",\"10006\",\"10007\",\"10008\",\"10009\",\"40101\"}\nWEB_RULES = {\"31101\",\"10023\",\"10024\",\"10025\",\"10026\"}\nFIM_RULES = {\"550\",\"553\",\"554\",\"10060\",\"10062\",\"10063\",\"10410\",\"10432\"}\nMALWARE_RULES = {\"10060\",\"10062\",\"10063\",\"10410\",\"10432\"}\nPRIV_RULES = {\"10004\",\"10005\",\"5402\",\"5403\",\"10032\"}\nAUTH_GROUPS = {\"authentication\",\"authentication_success\",\"authentication_failed\"}\nWEB_GROUPS = {\"web\",\"orangebox_web\"}\nFIM_GROUPS = {\"syscheck\",\"syscheck_entry_added\",\"syscheck_entry_modified\",\"syscheck_entry_deleted\",\"orangebox_temporary_executable\"}\nMALWARE_GROUPS = {\"malware\",\"webshell\",\"orangebox_malware\",\"orangebox_webshell\"}\nATTACK_GROUPS = {\"attack\",\"brute_force\",\"reconnaissance\",\"credential_discovery\",\"sensitive_file\",\"lateral_movement\"}\nREPORT_EXCLUDED_GROUPS = {\"orangebox_exception\",\"orangebox_whitelist\"}\nREPORT_EXCLUDED_RULES = {\"5402\"}\n\nCANONICAL = {\n \"5710\":\"SSH: Intento de acceso con usuario inexistente.\", \"5712\":\"SSH: Fuerza bruta intentando acceder al sistema con usuario inexistente.\",\n \"5715\":\"SSH: Inicio de sesión exitoso.\", \"5760\":\"SSH: Autenticación fallida.\", \"5763\":\"SSH: Fuerza bruta intentando acceder al sistema con autenticación fallida.\",\n \"5758\":\"SSH: Se superó el máximo de intentos de autenticación.\", \"10001\":\"SSH: Inicio de sesión SSH exitoso.\", \"10006\":\"SSH: Fuerza bruta completada con éxito.\",\n \"10007\":\"SSH: Posible movimiento lateral desde la red interna.\", \"40101\":\"ACCESO: Sesión de usuario iniciada.\", \"5501\":\"ACCESO: Sesión PAM de usuario abierta.\",\n \"5503\":\"ACCESO: Fallo de autenticación de usuario PAM.\", \"2501\":\"ACCESO: Fallo de autenticación de usuario.\", \"2502\":\"ACCESO: Contraseña incorrecta en múltiples intentos.\",\n \"3332\":\"ACCESO: Fallo de autenticación SASL de Postfix.\", \"10004\":\"PRIVILEGIOS: Usuario cambió de sesión a ROOT mediante comando SU.\",\n \"10005\":\"PRIVILEGIOS: SUDO hacia ROOT con comando no autorizado por la whitelist OrangeBox.\", \"5402\":\"PRIVILEGIOS: SUDO hacia ROOT ejecutado.\",\n \"5403\":\"PRIVILEGIOS: Primera ejecución de SUDO por el usuario.\", \"10032\":\"PRIVILEGIOS: Configuración de SUDO modificada.\",\n \"550\":\"ARCHIVOS: Integridad de archivo modificada.\", \"553\":\"ARCHIVOS: Archivo eliminado.\", \"554\":\"ARCHIVOS: Archivo agregado al sistema.\",\n \"517\":\"ARCHIVOS: Directorio monitorizado eliminado.\", \"560\":\"ARCHIVOS: Cola de FIM en tiempo real llena.\", \"231\":\"ARCHIVOS: Límite de archivos monitorizados próximo a alcanzarse.\",\n \"10060\":\"MALWARE: Script SHELL creado en directorio temporal.\", \"10062\":\"MALWARE: Posible WebShell PHP creado.\", \"10063\":\"MALWARE: Posible WebShell PHP modificado.\",\n \"10410\":\"MALWARE: Archivo ejecutable creado en directorio temporal.\", \"10432\":\"MALWARE: Permiso de ejecución agregado a archivo en directorio temporal.\",\n \"10023\":\"WEB: Reconocimiento o acceso a recurso sensible detectado.\", \"10024\":\"WEB: HTTP 401/403 detectado contra servidor web.\", \"10025\":\"WEB: Posible fuerza bruta web.\",\n \"10026\":\"WEB: Posible reconocimiento automatizado de archivos sensibles o credenciales web.\", \"31101\":\"WEB: Código de error 400 del servidor web.\",\n \"31516\":\"WEB: Acceso a URL sospechosa.\", \"31533\":\"WEB: Alta cantidad de solicitudes POST en un período corto.\",\n \"31509\":\"WEB: Intento de acceso de login de CMS.\", \"31151\":\"WEB: Múltiples errores 400 desde la misma IP de origen.\",\n \"30306\":\"WEB: Intento de acceso a índice de directorio prohibido.\", \"30318\":\"WEB: Aviso PHP detectado en log de Apache.\",\n \"31515\":\"WEB: Escaneo de PHPMyAdmin detectado.\", \"31104\":\"WEB: Ataque web común detectado.\",\n \"30305\":\"WEB: Intento de acceso a archivo o directorio prohibido.\", \"31510\":\"WEB: Fuerza bruta contra CMS detectada.\",\n \"31106\":\"WEB: Ataque web que devolvió código HTTP 200.\",\n \"10453\":\"RED: Posible escaneo de puertos TCP desde la misma IP de origen.\", \"10454\":\"RED: Posible inundación TCP SYN desde la misma IP de origen.\",\n \"10455\":\"RED: Posible ataque de denegación de servicio distribuido.\", \"10034\":\"CONFIGURACIÓN: Unidad o configuración persistente de SYSTEMD modificada.\",\n \"10035\":\"CONFIGURACIÓN: Configuración de CRON o ANACRON modificada.\", \"10036\":\"RED: Configuración crítica de red, DNS o montaje modificada.\",\n \"10037\":\"CONFIGURACIÓN: Configuración de FIREWALL modificada.\", \"10044\":\"CONFIGURACIÓN: Unidad o configuración persistente de SYSTEMD eliminada.\",\n \"100311\":\"ENDPOINT: Nuevo puerto de red detectado en el endpoint.\", \"100313\":\"ENDPOINT: Nuevo servicio detectado en el endpoint.\",\n}\n\n\ndef parse_timestamp(value):\n    if not value:\n        return None\n    try:\n        value = re.sub(r\"([+-]\\d{2})(\\d{2})$\", r\"\\1:\\2\", str(value))\n        return datetime.fromisoformat(value)\n    except (TypeError, ValueError):\n        return None\n\n\ndef valid_ip(value):\n    try:\n        ipaddress.ip_address(value)\n        return True\n    except (ValueError, TypeError):\n        return False\n\n\ndef standardize(rule_id, description, groups=None):\n    rid = str(rule_id)\n    if rid in CANONICAL:\n        return CANONICAL[rid]\n    text = re.sub(r\"^(?:ALERTA(?:\\s+CRITICA)?|ORANGEBOX(?:\\s+TEST)?)\\s*:\\s*\", \"\", str(description or \"Sin descripción\"), flags=re.I)\n    text = re.sub(r\"\\s+\", \" \", text).strip()\n    gs = {str(v).lower() for v in (groups or [])}\n    if rid in MALWARE_RULES or gs & MALWARE_GROUPS: prefix = \"MALWARE\"\n    elif rid in PRIV_RULES or gs & {\"privilege_escalation\",\"privilege_escalation_root\",\"sudo\"}: prefix = \"PRIVILEGIOS\"\n    elif rid in WEB_RULES or gs & WEB_GROUPS: prefix = \"WEB\"\n    elif rid in FIM_RULES or gs & FIM_GROUPS: prefix = \"ARCHIVOS\"\n    elif rid in AUTH_RULES or gs & AUTH_GROUPS: prefix = \"SSH\" if \"ssh\" in gs else \"ACCESO\"\n    elif gs & ATTACK_GROUPS: prefix = \"ATAQUE\"\n    else: return text or \"Sin descripción\"\n    return text if re.match(rf\"^{re.escape(prefix)}\\s*:\", text, re.I) else f\"{prefix}: {text}\"\n\n\ndef classify(rule_id, groups, level):\n    rid = str(rule_id); gs = {str(v).lower() for v in (groups or [])}\n    if rid == FIREWALL_RULE: return \"active_response\"\n    if rid in MALWARE_RULES or gs & MALWARE_GROUPS: return \"malware\"\n    if rid in PRIV_RULES or gs & {\"privilege_escalation\",\"privilege_escalation_root\",\"sudo\"}: return \"privilege\"\n    if rid in WEB_RULES or gs & WEB_GROUPS: return \"web\"\n    if rid in FIM_RULES or gs & FIM_GROUPS: return \"fim\"\n    if rid in AUTH_RULES or gs & AUTH_GROUPS: return \"authentication\"\n    if gs & ATTACK_GROUPS or int(level or 0) >= 12: return \"attack\"\n    return \"other\"\n\n\ndef exempt(event):\n    gs = {str(v).lower() for v in (event.get(\"groups\") or [])}\n    try: level = int(event.get(\"level\",0) or 0)\n    except (TypeError, ValueError): level = 0\n    return level <= 0 or str(event.get(\"rule_id\",\"\")) in REPORT_EXCLUDED_RULES or bool(gs & REPORT_EXCLUDED_GROUPS)\n\n\ndef firewall_payload(full_log):\n    if not isinstance(full_log, str): return None\n    m = FIREWALL_RE.search(full_log.strip())\n    if not m: return None\n    try: return json.loads(m.group(1))\n    except json.JSONDecodeError: return None\n\n\ndef parse_event(outer):\n    rule = outer.get(\"rule\") or {}; rid = str(rule.get(\"id\",\"\")); ts = parse_timestamp(outer.get(\"timestamp\"))\n    if not ts: return None\n    if rid == FIREWALL_RULE:\n        data = outer.get(\"data\") or {}; params = data.get(\"parameters\") or {}; command = data.get(\"command\") or params.get(\"command\")\n        payload = firewall_payload(outer.get(\"full_log\",\"\"))\n        if isinstance(payload, dict):\n            if command not in {\"add\",\"delete\"}: command = payload.get(\"command\") or params.get(\"command\")\n            raw = payload.get(\"parameters\") or {}\n            if raw:\n                merged = dict(raw); merged.update(params); params = merged\n        if command not in {\"add\",\"delete\"}: return None\n        alert = params.get(\"alert\") or {}\n        if not alert and isinstance(payload,dict): alert=(payload.get(\"parameters\") or {}).get(\"alert\") or {}\n        arule = alert.get(\"rule\") or {}; agent = alert.get(\"agent\") or {}; adata = alert.get(\"data\") or {}\n        src = adata.get(\"srcip\") or data.get(\"srcip\") or alert.get(\"srcip\")\n        if not src and isinstance(payload,dict):\n            pa=(payload.get(\"parameters\") or {}).get(\"alert\") or {}; src=(pa.get(\"data\") or {}).get(\"srcip\")\n        mitre = arule.get(\"mitre\") or {}\n        return {\"timestamp\":parse_timestamp(alert.get(\"timestamp\")) or ts,\"outer_rule\":rid,\"rule_id\":str(arule.get(\"id\",\"unknown\")),\n                \"description\":standardize(arule.get(\"id\",\"unknown\"),arule.get(\"description\",\"Firewall Drop\"),arule.get(\"groups\") or []),\n                \"level\":int(arule.get(\"level\",0) or 0),\"groups\":arule.get(\"groups\") or [],\"agent_id\":str(agent.get(\"id\",\"000\")),\n                \"agent_name\":agent.get(\"name\",\"unknown\"),\"srcip\":str(src) if valid_ip(src) else None,\"command\":command,\n                \"alert_id\":str(alert.get(\"id\",outer.get(\"id\",\"\"))),\"mitre\":mitre.get(\"id\",[]),\"techniques\":mitre.get(\"technique\",[]),\"url\":adata.get(\"url\"),\"fim_path\":\"\"}\n    agent=outer.get(\"agent\") or {}; data=outer.get(\"data\") or {}; mitre=rule.get(\"mitre\") or {}; syscheck=outer.get(\"syscheck\") or data.get(\"syscheck\") or {}\n    return {\"timestamp\":ts,\"outer_rule\":rid,\"rule_id\":rid,\"description\":standardize(rid,rule.get(\"description\",\"Sin descripción\"),rule.get(\"groups\") or []),\n            \"level\":int(rule.get(\"level\",0) or 0),\"groups\":rule.get(\"groups\") or [],\"agent_id\":str(agent.get(\"id\",\"000\")),\n            \"agent_name\":agent.get(\"name\",\"unknown\"),\"srcip\":str(data.get(\"srcip\")) if valid_ip(data.get(\"srcip\")) else None,\"command\":None,\n            \"alert_id\":str(outer.get(\"id\",\"\")),\"mitre\":mitre.get(\"id\",[]),\"techniques\":mitre.get(\"technique\",[]),\"url\":data.get(\"url\"),\n            \"fim_path\":str(data.get(\"path\") or syscheck.get(\"path\") or \"\").strip()}\n\n\ndef json_loader(handle):\n    # orjson acelera el parseo masivo si está instalado, pero no es requisito.\n    try:\n        import orjson\n        loads = orjson.loads\n    except ImportError:\n        loads = json.loads\n    for raw in handle:\n        if not raw.strip(): continue\n        try:\n            obj=loads(raw)\n            if isinstance(obj,dict): yield obj\n        except (ValueError, TypeError, UnicodeDecodeError):\n            continue\n\n\ndef day_sources(day):\n    base=ALERTS_ROOT/f\"{day.year:04d}\"/day.strftime(\"%b\")\n    gz=base/f\"ossec-alerts-{day.day:02d}.json.gz\"\n    plain=base/f\"ossec-alerts-{day.day:02d}.json\"\n    return [path for path in (gz, plain) if path.exists()]\n\n\ndef day_source(day):\n    sources=day_sources(day)\n    return sources[0] if sources else None\n\n\ndef day_dir(cache_dir, day): return cache_dir/day.isoformat()\ndef cache_path(cache_dir, day, agent_id): return day_dir(cache_dir,day)/f\"{re.sub(r'[^A-Za-z0-9_.-]+','_',str(agent_id or '000'))}.jsonl.gz\"\ndef state_path(cache_dir, day): return cache_dir/f\"{day.isoformat()}.state.json\"\ndef manifest_path(cache_dir, day): return day_dir(cache_dir,day)/\"manifest.json\"\n\n\ndef load_state(path):\n    try: return json.loads(path.read_text(encoding=\"utf-8\")) if path.exists() else {}\n    except (OSError, ValueError): return {}\n\n\ndef load_manifest(path):\n    try: return json.loads(path.read_text(encoding=\"utf-8\")) if path.exists() else {}\n    except (OSError, ValueError): return {}\n\n\ndef atomic_json(path, obj):\n    path.parent.mkdir(parents=True, exist_ok=True)\n    fd,tmp=tempfile.mkstemp(prefix=path.name+\".\",dir=path.parent); os.close(fd)\n    try:\n        Path(tmp).write_text(json.dumps(obj,ensure_ascii=False,separators=(\",\",\":\")),encoding=\"utf-8\"); os.replace(tmp,path)\n    finally:\n        try: os.unlink(tmp)\n        except FileNotFoundError: pass\n\n\ndef normalize_stream_sharded(src, writer_for_agent, start, end, counters, seen=None, manifest_agents=None):\n    seen = seen if seen is not None else set()\n    for outer in json_loader(src):\n        event=parse_event(outer)\n        if not event: continue\n        ts=event.get(\"timestamp\")\n        if not ts or ts<start or ts>=end: continue\n        if event[\"outer_rule\"] != FIREWALL_RULE:\n            if exempt(event): continue\n            if event[\"rule_id\"]==\"40101\" and re.search(r\"pam_unix\\(systemd-user:session\\):\\s+session\\s+opened\",str(outer.get(\"full_log\",\"\")),re.I): continue\n        else:\n            if event.get(\"command\") != \"add\": continue\n        if event[\"outer_rule\"] != FIREWALL_RULE:\n            aid=event.get(\"alert_id\",\"\")\n            if aid and aid in seen: continue\n            if aid: seen.add(aid)\n        event[\"category\"]=classify(event[\"rule_id\"],event.get(\"groups\",[]),event.get(\"level\",0))\n        event[\"timestamp\"]=ts.isoformat()\n        agent_id=str(event.get(\"agent_id\",\"000\") or \"000\")\n        dst=writer_for_agent(agent_id)\n        dst.write(json.dumps(event,ensure_ascii=False,separators=(\",\",\":\"))+\"\\n\")\n        counters[\"events\"] += 1\n        if manifest_agents is not None:\n            item=manifest_agents.setdefault(agent_id,{\"events\":0,\"name\":str(event.get(\"agent_name\") or \"unknown\")})\n            item[\"events\"] += 1\n            item[\"name\"] = str(event.get(\"agent_name\") or item.get(\"name\") or \"unknown\")\n    return seen\n\n\ndef write_manifest(cache_dir, day, agents, total_events):\n    d=day_dir(cache_dir,day); d.mkdir(parents=True,exist_ok=True)\n    payload={\n        \"version\":4,\n        \"day\":day.isoformat(),\n        \"events\":int(total_events),\n        \"agents\":{\n            str(agent_id):{\n                \"name\":str(item.get(\"name\") or \"unknown\"),\n                \"events\":int(item.get(\"events\",0) or 0),\n                \"size\":int(item.get(\"size\",0) or 0),\n            }\n            for agent_id,item in agents.items()\n            if int(item.get(\"events\",0) or 0)>0 and cache_path(cache_dir,day,agent_id).exists()\n        },\n    }\n    atomic_json(manifest_path(cache_dir,day),payload)\n    return payload\n\n\ndef rebuild_day(cache_dir, day):\n    sources=day_sources(day)\n    if not sources: raise SystemExit(f\"No existe log de Wazuh para {day}\")\n    cache_dir.mkdir(parents=True,exist_ok=True)\n    final_dir=day_dir(cache_dir,day)\n    tmp_dir=Path(tempfile.mkdtemp(prefix=day.isoformat()+\".\",dir=cache_dir))\n    counters=Counter(); agents={}; writers={}; seen=set()\n    start=datetime.combine(day,datetime.min.time()).astimezone()\n    end=start+timedelta(days=1)\n\n    def writer_for_agent(agent_id):\n        aid=str(agent_id or \"000\")\n        handle=writers.get(aid)\n        if handle is None:\n            path=tmp_dir/f\"{re.sub(r'[^A-Za-z0-9_.-]+','_',aid)}.jsonl.gz\"\n            handle=gzip.open(path,\"wt\",encoding=\"utf-8\",compresslevel=6)\n            writers[aid]=handle\n        return handle\n\n    try:\n        for source in sources:\n            opener=gzip.open if source.suffix==\".gz\" else open\n            with opener(source,\"rt\",encoding=\"utf-8\",errors=\"replace\") as src:\n                seen=normalize_stream_sharded(src,writer_for_agent,start,end,counters,seen,agents)\n        for handle in writers.values():\n            handle.close()\n        writers.clear()\n    except EOFError as exc:\n        for handle in writers.values():\n            try: handle.close()\n            except OSError: pass\n        writers.clear()\n        try: shutil.rmtree(tmp_dir)\n        except OSError: pass\n        bad_source=source if \"source\" in locals() else sources[0]\n        if bad_source.suffix==\".gz\":\n            raise SystemExit(\n                f\"Log de Wazuh truncado/corrupto: {bad_source}. \"\n                f\"No se genera cache para {day} para evitar resultados incompletos. \"\n                f\"Compruebe con: gzip -t {bad_source}\"\n            ) from exc\n        raise\n    except OSError as exc:\n        for handle in writers.values():\n            try: handle.close()\n            except OSError: pass\n        writers.clear()\n        try: shutil.rmtree(tmp_dir)\n        except OSError: pass\n        raise SystemExit(f\"No se pudo leer un log de {day}: {exc}\") from exc\n    except Exception:\n        for handle in writers.values():\n            try: handle.close()\n            except OSError: pass\n        writers.clear()\n        try: shutil.rmtree(tmp_dir)\n        except OSError: pass\n        raise\n\n    for aid in list(agents):\n        p=tmp_dir/f\"{re.sub(r'[^A-Za-z0-9_.-]+','_',str(aid or '000'))}.jsonl.gz\"\n        try: agents[aid][\"size\"]=p.stat().st_size\n        except OSError: agents[aid][\"size\"]=0\n\n    try:\n        if final_dir.exists():\n            shutil.rmtree(final_dir)\n        os.replace(tmp_dir,final_dir)\n    except OSError:\n        try: shutil.rmtree(tmp_dir)\n        except OSError: pass\n        raise\n\n    manifest=write_manifest(cache_dir,day,agents,counters[\"events\"])\n    source_meta=[{\"path\":str(p),\"size\":p.stat().st_size,\"mtime_ns\":p.stat().st_mtime_ns} for p in sources]\n    atomic_json(state_path(cache_dir,day),{\n        \"version\":4,\n        \"day\":day.isoformat(),\n        \"closed\":True,\n        \"sources\":source_meta,\n        \"events\":counters[\"events\"],\n        \"cache_size\":sum(item[\"size\"] for item in manifest[\"agents\"].values()),\n        \"agents\":len(manifest[\"agents\"]),\n    })\n    return counters[\"events\"]\n\n\ndef update_today(cache_dir):\n    day=datetime.now().astimezone().date()\n    source=ALERTS_FILE\n    if not source.exists(): raise SystemExit(f\"No existe {source}\")\n    cache_dir.mkdir(parents=True,exist_ok=True)\n    outdir=day_dir(cache_dir,day)\n    stfile=state_path(cache_dir,day)\n    st=load_state(stfile)\n    stat=source.stat()\n    manifest=load_manifest(manifest_path(cache_dir,day))\n    reset=(\n        st.get(\"inode\")!=stat.st_ino\n        or int(st.get(\"offset\",0) or 0)>stat.st_size\n        or not outdir.exists()\n        or int(manifest.get(\"version\",0) or 0)!=4\n    )\n    if reset:\n        shutil.rmtree(outdir,ignore_errors=True)\n        outdir.mkdir(parents=True,exist_ok=True)\n        offset=0\n        total=0\n        agents={}\n        seen=set()\n    else:\n        offset=int(st.get(\"offset\",0) or 0)\n        total=int(st.get(\"events\",0) or 0)\n        agents=manifest.get(\"agents\") or {}\n        seen=set()\n\n    start=datetime.combine(day,datetime.min.time()).astimezone()\n    end=datetime.now().astimezone()\n    counters=Counter()\n    writers={}\n\n    def writer_for_agent(agent_id):\n        aid=str(agent_id or \"000\")\n        handle=writers.get(aid)\n        if handle is None:\n            path=cache_path(cache_dir,day,aid)\n            handle=gzip.open(path,\"at\",encoding=\"utf-8\")\n            writers[aid]=handle\n        return handle\n\n    try:\n        with open(source,\"rb\") as src:\n            src.seek(offset)\n            seen=normalize_stream_sharded((line for line in src),writer_for_agent,start,end,counters,seen,agents)\n            new_offset=src.tell()\n        for handle in writers.values():\n            handle.close()\n        writers.clear()\n    except Exception:\n        for handle in writers.values():\n            try: handle.close()\n            except OSError: pass\n        writers.clear()\n        raise\n\n    for aid in list(agents):\n        p=cache_path(cache_dir,day,aid)\n        try: agents[aid][\"size\"]=p.stat().st_size\n        except OSError: agents[aid][\"size\"]=0\n\n    total_new=total+counters[\"events\"]\n    manifest=write_manifest(cache_dir,day,agents,total_new)\n    atomic_json(state_path(cache_dir,day),{\n        \"version\":4,\n        \"day\":day.isoformat(),\n        \"closed\":False,\n        \"inode\":stat.st_ino,\n        \"offset\":new_offset,\n        \"source_size\":stat.st_size,\n        \"source_mtime_ns\":stat.st_mtime_ns,\n        \"events\":total_new,\n        \"cache_size\":sum(item[\"size\"] for item in manifest[\"agents\"].values()),\n        \"agents\":len(manifest[\"agents\"]),\n        \"updated_at\":datetime.now().astimezone().isoformat(),\n    })\n    return counters[\"events\"]\n\n\ndef ensure_cache(cache_dir,start,end):\n    day=start.date()\n    last=(end-timedelta(microseconds=1)).date()\n    today=datetime.now().astimezone().date()\n    total=0\n    while day<=last:\n        if day==today:\n            total+=update_today(cache_dir)\n        else:\n            p=manifest_path(cache_dir,day)\n            st=load_state(state_path(cache_dir,day))\n            expected=[{\"path\":str(src),\"size\":src.stat().st_size,\"mtime_ns\":src.stat().st_mtime_ns} for src in day_sources(day)]\n            cached_sources=st.get(\"sources\") or ([] if not st else ([{\"path\":st.get(\"source\"),\"size\":st.get(\"source_size\"),\"mtime_ns\":st.get(\"source_mtime_ns\")}] if st.get(\"source\") else []))\n            manifest=load_manifest(p)\n            complete=(\n                p.exists()\n                and int(manifest.get(\"version\",0) or 0)==4\n                and bool(manifest.get(\"agents\") is not None)\n                and all(cache_path(cache_dir,day,aid).exists() for aid in manifest.get(\"agents\",{}))\n            )\n            if not complete or not st.get(\"sources\") or st.get(\"version\")!=4 or cached_sources!=expected:\n                total+=rebuild_day(cache_dir,day)\n        day+=timedelta(days=1)\n    return total\n\n\ndef iter_cache(cache_dir,start_day,end_day,allowed_ids=None):\n    allowed=None if allowed_ids is None else {str(v) for v in allowed_ids}\n    day=start_day\n    loads=orjson.loads if orjson is not None else json.loads\n    while day<=end_day:\n        manifest=load_manifest(manifest_path(cache_dir,day))\n        agents=manifest.get(\"agents\") or {}\n        selected=sorted(agents) if allowed is None else sorted(allowed.intersection(agents))\n        for agent_id in selected:\n            p=cache_path(cache_dir,day,agent_id)\n            if not p.exists(): continue\n            with gzip.open(p,\"rb\") as h:\n                for line in h:\n                    try:\n                        e=loads(line)\n                        if isinstance(e,dict):\n                            yield e\n                    except (ValueError,TypeError,UnicodeDecodeError):\n                        continue\n        day+=timedelta(days=1)\ndef period(mode, now):\n    today=now.date(); tz=now.tzinfo\n    if mode==\"today\": return datetime.combine(today,datetime.min.time(),tz),now\n    if mode==\"yesterday\": return datetime.combine(today-timedelta(days=1),datetime.min.time(),tz),datetime.combine(today,datetime.min.time(),tz)\n    monday=today-timedelta(days=today.weekday())\n    if mode==\"thisweek\": return datetime.combine(monday,datetime.min.time(),tz),now\n    if mode==\"lastweek\": return datetime.combine(monday-timedelta(days=7),datetime.min.time(),tz),datetime.combine(monday,datetime.min.time(),tz)\n    first=today.replace(day=1)\n    if mode==\"thismonth\": return datetime.combine(first,datetime.min.time(),tz),now\n    if mode==\"lastmonth\":\n        prev=first-timedelta(days=1); return datetime.combine(prev.replace(day=1),datetime.min.time(),tz),datetime.combine(first,datetime.min.time(),tz)\n    year=today.replace(month=1,day=1)\n    if mode==\"thisyear\": return datetime.combine(year,datetime.min.time(),tz),now\n    if mode==\"lastyear\": return datetime.combine(year.replace(year=year.year-1),datetime.min.time(),tz),datetime.combine(year,datetime.min.time(),tz)\n    if mode.startswith(\"date:\"):\n        d=datetime.strptime(mode[5:],\"%Y-%m-%d\").date(); return datetime.combine(d,datetime.min.time(),tz),datetime.combine(d+timedelta(days=1),datetime.min.time(),tz)\n    raise SystemExit(\"Período no válido\")\n\n\ndef aggregate(events, allowed):\n    stats=defaultdict(lambda:{\"events\":0,\"high\":0,\"critical\":0,\"attacks\":0,\"ips\":set(),\"categories\":Counter(),\"rules\":Counter(),\"mitre\":Counter(),\"blocked\":Counter()})\n    for e in events:\n        if allowed is not None and e.get(\"agent_id\") not in allowed: continue\n        aid=e.get(\"agent_id\",\"000\")\n        if e.get(\"outer_rule\")==FIREWALL_RULE:\n            if e.get(\"srcip\"): stats[aid][\"blocked\"][e[\"srcip\"]]+=1\n            continue\n        s=stats[aid]; level=int(e.get(\"level\",0) or 0); cat=e.get(\"category\",classify(e.get(\"rule_id\"),e.get(\"groups\"),level))\n        s[\"events\"]+=1; s[\"high\"] += 12<=level<15; s[\"critical\"] += level>=15; s[\"attacks\"] += cat==\"attack\"; s[\"categories\"][cat]+=1\n        s[\"rules\"][e.get(\"description\",\"Detección sin descripción\")]+=1\n        if e.get(\"srcip\"): s[\"ips\"].add(e[\"srcip\"])\n        for m in (e.get(\"mitre\") or []):\n            if m: s[\"mitre\"][str(m)]+=1\n    return stats\n\n\ndef checksum_events(events):\n    h=hashlib.sha256(); count=0\n    for e in events:\n        h.update(json.dumps(e,ensure_ascii=False,sort_keys=True,separators=(\",\",\":\")).encode()); h.update(b\"\\n\"); count+=1\n    return count,h.hexdigest()\n\n\ndef main():\n    p=argparse.ArgumentParser(description=\"OrangeBox Wazuh Report Engine PROTO v2\")\n    modes=p.add_mutually_exclusive_group(required=True)\n    for n in (\"today\",\"yesterday\",\"thisweek\",\"lastweek\",\"thismonth\",\"lastmonth\",\"thisyear\",\"lastyear\"): modes.add_argument(\"--\"+n,action=\"store_true\")\n    modes.add_argument(\"--date\")\n    p.add_argument(\"--cache-dir\",type=Path,default=DEFAULT_CACHE); p.add_argument(\"--rebuild\",action=\"store_true\"); p.add_argument(\"--status\",action=\"store_true\"); p.add_argument(\"--verify\",action=\"store_true\",help=\"Releer el cache completo y calcular SHA256 (benchmark/validacion)\")\n    args=p.parse_args(); now=datetime.now().astimezone(); mode=args.date and \"date:\"+args.date or next(n for n in (\"today\",\"yesterday\",\"thisweek\",\"lastweek\",\"thismonth\",\"lastmonth\",\"thisyear\",\"lastyear\") if getattr(args,n))\n    if args.status:\n        total=0\n        for f in sorted(args.cache_dir.glob(\"*.jsonl.gz\")) if args.cache_dir.exists() else []:\n            total+=f.stat().st_size; print(f\"{f.name} {f.stat().st_size:,} B\")\n        print(f\"TOTAL {total:,} B\"); return 0\n    start,end=period(mode,now); t=time.monotonic()\n    if args.rebuild:\n        d=start.date(); last=(end-timedelta(microseconds=1)).date()\n        while d<=last:\n            if d==now.date():\n                pth=cache_path(args.cache_dir,d); st=state_path(args.cache_dir,d)\n                if pth.exists(): pth.unlink()\n                if st.exists(): st.unlink()\n                update_today(args.cache_dir)\n            else: rebuild_day(args.cache_dir,d)\n            d+=timedelta(days=1)\n    else: ensure_cache(args.cache_dir,start,end)\n    cache_elapsed=time.monotonic()-t\n    print(f\"Cache listo en {cache_elapsed:.3f}s\")\n    if not args.verify:\n        print(\"Fin del motor de cache.\")\n        return 0\n    tv=time.monotonic()\n    count,sha=checksum_events(iter_cache(args.cache_dir,start.date(),(end-timedelta(microseconds=1)).date()))\n    print(f\"Verificacion en {time.monotonic()-tv:.3f}s\")\n    print(f\"Eventos cache: {count}\"); print(f\"SHA256 eventos: {sha}\")\n    return 0\n\nif __name__==\"__main__\": raise SystemExit(main())\n"
+REPORT_SOURCE = "#!/usr/bin/env python3\n\"\"\"OrangeBox Wazuh Security Activity Report.\n\nGenera reportes HTML portables a partir de las alertas JSON de Wazuh.\nEl HTML usa tablas e estilos inline para funcionar en Thunderbird, webmail y móvil.\n\"\"\"\nimport argparse\nimport base64\nimport gzip\nimport html\nimport ssl\nimport urllib.error\nimport urllib.request\ntry:\n    import orjson\nexcept ImportError:\n    orjson = None\nimport ipaddress\nimport json\nimport os\nimport re\nimport subprocess\nimport shutil\ntry:\n    import maxminddb\nexcept ImportError:\n    maxminddb = None\nfrom collections import Counter, defaultdict\nfrom datetime import datetime, timedelta\nfrom email.mime.multipart import MIMEMultipart\nfrom email.mime.text import MIMEText\nfrom pathlib import Path\n\nALERTS_ROOT = \"/var/ossec/logs/alerts\"\nALERTS_FILE = f\"{ALERTS_ROOT}/alerts.json\"\nARCHIVE_DIR = \"/var/ossec/reports/archive\"\nDEFAULT_FROM = \"wazuh@example.com\"\nAGENT_GROUPS_BIN = \"/var/ossec/bin/agent_groups\"\nINDEXER_CONFIG = \"/var/ossec/etc/orangebox-indexer.conf\"\nFIREWALL_RULE = \"10458\"\nFIREWALL_RE = re.compile(r\"active-response/bin/firewall-drop:\\s*(\\{.*\\})$\")\nWAZUH_OSSEC_CONF = \"/var/ossec/etc/ossec.conf\"\nLOGO_URL = \"https://www.orangebox.cl/obox/img/logo-dark.png\"\n\nAUTH_RULES = {\"5710\", \"5712\", \"5715\", \"5716\", \"5720\", \"5760\", \"5763\", \"10001\", \"10006\", \"10007\", \"10008\", \"10009\", \"40101\"}\nWEB_RULES = {\"31101\", \"10023\", \"10024\", \"10025\", \"10026\"}\nFIM_RULES = {\"550\", \"553\", \"554\", \"10060\", \"10062\", \"10063\", \"10410\", \"10432\"}\nMALWARE_RULES = {\"10060\", \"10062\", \"10063\", \"10410\", \"10432\"}\nPRIV_RULES = {\"10004\", \"10005\", \"5402\", \"5403\", \"10032\"}\nAUTH_GROUPS = {\"authentication\", \"authentication_success\", \"authentication_failed\"}\nWEB_GROUPS = {\"web\", \"orangebox_web\"}\nFIM_GROUPS = {\"syscheck\", \"syscheck_entry_added\", \"syscheck_entry_modified\", \"syscheck_entry_deleted\", \"orangebox_temporary_executable\"}\nMALWARE_GROUPS = {\"malware\", \"webshell\", \"orangebox_malware\", \"orangebox_webshell\"}\nATTACK_GROUPS = {\"attack\", \"brute_force\", \"reconnaissance\", \"credential_discovery\", \"sensitive_file\", \"lateral_movement\"}\nREPORT_EXCLUDED_GROUPS = {\"orangebox_exception\", \"orangebox_whitelist\"}\n\n# Grupos funcionales/tecnicos que no representan clientes cuando se usa --group all.\nREPORT_NON_CLIENT_GROUPS = {\"default\", \"cpanel\", \"zimbra\"}\nREPORT_EXCLUDED_RULES = {\"5402\"}\n\nRULE_CANONICAL_DESCRIPTIONS = {\n    \"5710\": \"SSH: Intento de acceso con usuario inexistente.\",\n    \"5712\": \"SSH: Fuerza bruta intentando acceder al sistema con usuario inexistente.\",\n    \"5715\": \"SSH: Inicio de sesión exitoso.\",\n    \"5760\": \"SSH: Autenticación fallida.\",\n    \"5763\": \"SSH: Fuerza bruta intentando acceder al sistema con autenticación fallida.\",\n    \"5758\": \"SSH: Se superó el máximo de intentos de autenticación.\",\n    \"10001\": \"SSH: Inicio de sesión SSH exitoso.\",\n    \"10006\": \"SSH: Fuerza bruta completada con éxito.\",\n    \"10007\": \"SSH: Posible movimiento lateral desde la red interna.\",\n    \"40101\": \"ACCESO: Sesión de usuario iniciada.\",\n    \"5501\": \"ACCESO: Sesión PAM de usuario abierta.\",\n    \"5503\": \"ACCESO: Fallo de autenticación de usuario PAM.\",\n    \"2501\": \"ACCESO: Fallo de autenticación de usuario.\",\n    \"2502\": \"ACCESO: Contraseña incorrecta en múltiples intentos.\",\n    \"3332\": \"ACCESO: Fallo de autenticación SASL de Postfix.\",\n    \"10004\": \"PRIVILEGIOS: Usuario cambió de sesión a ROOT mediante comando SU.\",\n    \"10005\": \"PRIVILEGIOS: SUDO hacia ROOT con comando no autorizado por la whitelist OrangeBox.\",\n    \"5402\": \"PRIVILEGIOS: SUDO hacia ROOT ejecutado.\",\n    \"5403\": \"PRIVILEGIOS: Primera ejecución de SUDO por el usuario.\",\n    \"10032\": \"PRIVILEGIOS: Configuración de SUDO modificada.\",\n    \"550\": \"ARCHIVOS: Integridad de archivo modificada.\",\n    \"553\": \"ARCHIVOS: Archivo eliminado.\",\n    \"554\": \"ARCHIVOS: Archivo agregado al sistema.\",\n    \"517\": \"ARCHIVOS: Directorio monitorizado eliminado.\",\n    \"560\": \"ARCHIVOS: Cola de FIM en tiempo real llena.\",\n    \"231\": \"ARCHIVOS: Límite de archivos monitorizados próximo a alcanzarse.\",\n    \"10060\": \"MALWARE: Script SHELL creado en directorio temporal.\",\n    \"10062\": \"MALWARE: Posible WebShell PHP creado.\",\n    \"10063\": \"MALWARE: Posible WebShell PHP modificado.\",\n    \"10410\": \"MALWARE: Archivo ejecutable creado en directorio temporal.\",\n    \"10432\": \"MALWARE: Permiso de ejecución agregado a archivo en directorio temporal.\",\n    \"10023\": \"WEB: Reconocimiento o acceso a recurso sensible detectado.\",\n    \"10024\": \"WEB: HTTP 401/403 detectado contra servidor web.\",\n    \"10025\": \"WEB: Posible fuerza bruta web.\",\n    \"10026\": \"WEB: Posible reconocimiento automatizado de archivos sensibles o credenciales web.\",\n    \"31101\": \"WEB: Código de error 400 del servidor web.\",\n    \"31516\": \"WEB: Acceso a URL sospechosa.\",\n    \"31533\": \"WEB: Alta cantidad de solicitudes POST en un período corto.\",\n    \"31509\": \"WEB: Intento de acceso de login de CMS.\",\n    \"31151\": \"WEB: Múltiples errores 400 desde la misma IP de origen.\",\n    \"30306\": \"WEB: Intento de acceso a índice de directorio prohibido.\",\n    \"30318\": \"WEB: Aviso PHP detectado en log de Apache.\",\n    \"31515\": \"WEB: Escaneo de PHPMyAdmin detectado.\",\n    \"31104\": \"WEB: Ataque web común detectado.\",\n    \"30305\": \"WEB: Intento de acceso a archivo o directorio prohibido.\",\n    \"31510\": \"WEB: Fuerza bruta contra CMS detectada.\",\n    \"31106\": \"WEB: Ataque web que devolvió código HTTP 200.\",\n    \"10453\": \"RED: Posible escaneo de puertos TCP desde la misma IP de origen.\",\n    \"10454\": \"RED: Posible inundación TCP SYN desde la misma IP de origen.\",\n    \"10455\": \"RED: Posible ataque de denegación de servicio distribuido.\",\n    \"10034\": \"CONFIGURACIÓN: Unidad o configuración persistente de SYSTEMD modificada.\",\n    \"10035\": \"CONFIGURACIÓN: Configuración de CRON o ANACRON modificada.\",\n    \"10036\": \"RED: Configuración crítica de red, DNS o montaje modificada.\",\n    \"10037\": \"CONFIGURACIÓN: Configuración de FIREWALL modificada.\",\n    \"10044\": \"CONFIGURACIÓN: Unidad o configuración persistente de SYSTEMD eliminada.\",\n    \"100311\": \"ENDPOINT: Nuevo puerto de red detectado en el endpoint.\",\n    \"100313\": \"ENDPOINT: Nuevo servicio detectado en el endpoint.\",\n}\n\nMITRE_DESCRIPTIONS = {\n    \"T1110\": \"Fuerza bruta: intentos repetidos para obtener acceso mediante credenciales.\",\n    \"T1110.001\": \"Intentos repetidos de acceso probando contraseñas.\",\n    \"T1021\": \"Acceso remoto a otro sistema mediante un servicio de red.\",\n    \"T1021.004\": \"Acceso remoto a sistemas mediante SSH.\",\n    \"T1078\": \"Uso de una cuenta o credencial válida para intentar acceder.\",\n    \"T1565.001\": \"Modificación de información almacenada para alterar su contenido o comportamiento.\",\n    \"T1070.004\": \"Eliminación de archivos para borrar rastros de actividad.\",\n    \"T1485\": \"Destrucción de datos para provocar pérdida o interrupción de información.\",\n    \"T1548.003\": \"Uso de sudo para ejecutar acciones con privilegios elevados.\",\n    \"T1055\": \"Intento de ejecutar código dentro de otro proceso para evadir controles.\",\n    \"T1190\": \"Intento de aprovechar una aplicación o servicio expuesto a Internet.\",\n    \"T1498\": \"Intento de saturar un servicio mediante un volumen elevado de tráfico.\",\n    \"T1595.002\": \"Reconocimiento activo para identificar servicios o sistemas accesibles.\",\n    \"T1083\": \"Búsqueda de archivos y directorios para conocer qué existe en el sistema.\",\n    \"T1552\": \"Búsqueda de información sensible almacenada de forma insegura.\",\n    \"T1098\": \"Modificación de cuentas para mantener o ampliar el acceso.\",\n    \"T1059\": \"Uso de una consola o intérprete para ejecutar comandos.\",\n    \"T1059.004\": \"Ejecución de comandos mediante una consola Unix o Linux.\",\n    \"T1105\": \"Descarga o transferencia de archivos desde una ubicación remota.\",\n    \"T1505.003\": \"Intento de instalar o utilizar un componente web malicioso, como un webshell.\",\n}\n\nLABELS_ES = {\n    \"report\": \"Informe de Actividad de Seguridad\", \"subtitle\": \"Actividad de seguridad, detecciones y acciones automatizadas de Wazuh\", \"security_events\": \"Eventos de seguridad\", \"high_alerts\": \"Alertas de alta severidad\", \"source_ips\": \"IPs de origen observadas\", \"systems\": \"Servidores afectados\", \"firewall\": \"Bloqueo automático de IPs · Motivo\", \"firewall_sub\": \"Motivos que activaron el bloqueo automático y cantidad de IPs afectadas.\", \"agent\": \"Sistema\", \"reason\": \"Motivo\", \"rule\": \"Regla\", \"blocked_ips\": \"IPs bloqueadas\", \"attempts\": \"Intentos detectados\", \"access\": \"Intentos de acceso\", \"web\": \"Intentos de acceso y exploración web\", \"fim\": \"Cambios detectados en archivos\", \"malware\": \"Detecciones de malware y archivos sospechosos\", \"priv\": \"Escalamiento de privilegios\", \"attack\": \"Detecciones clasificadas como intentos de ataque\", \"mitre\": \"Técnicas MITRE observadas en las alertas\", \"technique\": \"Técnica\", \"meaning\": \"Qué significa\", \"detections\": \"Alertas asociadas\", \"agents\": \"Servidores afectados\", \"no_firewall\": \"No se registraron bloqueos automáticos con una IP de origen válida.\", \"no_activity\": \"No se registraron detecciones de esta categoría durante el período.\", \"attack_note\": \"Esta sección incluye únicamente alertas que el informe clasificó explícitamente como actividad de ataque. Que una técnica MITRE aparezca más abajo no significa por sí sola que exista un ataque confirmado.\", \"mitre_note\": \"El contador indica cuántas alertas de Wazuh fueron asociadas a cada técnica MITRE durante el período. No representa necesariamente accesos exitosos, conexiones individuales ni compromisos confirmados.\", \"firewall_note\": \"Los intentos detectados son detecciones Wazuh asociadas a las IP que fueron bloqueadas; no equivalen necesariamente a la cantidad bruta de conexiones o solicitudes originales.\", \"recidivist\": \"IPs reincidentes en bloqueos automáticos\", \"recidivist_sub\": \"IPs bloqueadas automáticamente más de una vez durante el período, con el servidor que ejecutó el bloqueo.\", \"block_count\": \"Bloqueos\", \"trigger_rules\": \"Reglas que activaron el bloqueo\", \"ban_duration\": \"Tiempo de baneo configurado\", \"servers\": \"Servidores más afectados\", \"servers_sub\": \"Resumen de actividad por servidor durante el período.\", \"events\": \"Eventos\", \"high\": \"Alta severidad\", \"source_ips_col\": \"IPs origen\", \"attack_alerts\": \"Alertas de ataque\", \"no_servers\": \"No se registraron eventos para los servidores durante el período.\", \"cve\": \"Vulnerabilidades críticas (CVE)\", \"cve_sub\": \"Resumen del inventario actual de vulnerabilidades críticas del Wazuh Indexer.\", \"cve_total\": \"Hallazgos CVE críticos\", \"cve_systems\": \"Sistemas con CVE críticos\", \"cve_agent\": \"Servidor\", \"cve_count\": \"CVE críticos\", \"cve_error\": \"No fue posible consultar el inventario de vulnerabilidades del Wazuh Indexer.\", \"cve_none\": \"No se registran CVE críticos en el inventario consultado.\", \"cve_unsupported\": \"CloudLinux detectado: Wazuh no realiza actualmente evaluación nativa de vulnerabilidades para esta distribución; no corresponde interpretar el resultado como ausencia de CVE.\", \"technical_note\": \"Los identificadores y descripciones de las reglas corresponden al motor de detección Wazuh. La detección de un intento no implica por sí sola que el sistema haya sido comprometido.\",\n}\nLABELS_EN = {\n    \"report\": \"Security Activity Report\", \"subtitle\": \"Security activity, detections and automated Wazuh responses\", \"security_events\": \"Security events\", \"high_alerts\": \"High-severity alerts\", \"source_ips\": \"Observed source IPs\", \"systems\": \"Affected servers\", \"firewall\": \"Automatic IP blocking · Reason\", \"firewall_sub\": \"Reasons that triggered automatic blocking and number of affected IPs.\", \"agent\": \"System\", \"reason\": \"Reason\", \"rule\": \"Rule\", \"blocked_ips\": \"Blocked IPs\", \"attempts\": \"Detected attempts\", \"access\": \"Access attempts\", \"web\": \"Web access and reconnaissance attempts\", \"fim\": \"Detected file changes\", \"malware\": \"Malware and suspicious file detections\", \"priv\": \"Privilege escalation\", \"attack\": \"Detections classified as attack attempts\", \"mitre\": \"MITRE techniques observed in alerts\", \"technique\": \"Technique\", \"meaning\": \"What it means\", \"detections\": \"Associated alerts\", \"agents\": \"Most affected systems\", \"no_firewall\": \"No automatic blocks with a valid source IP were recorded.\", \"no_activity\": \"No detections were recorded for this category during the period.\", \"attack_note\": \"This section includes only alerts explicitly classified by the report as attack activity. The appearance of a MITRE technique below does not by itself mean that a confirmed attack occurred.\", \"mitre_note\": \"The counter shows how many Wazuh alerts were associated with each MITRE technique during the period. It does not necessarily represent successful logins, individual connections, or confirmed compromises.\", \"firewall_note\": \"Detected attempts are Wazuh detections associated with the IPs that were blocked; they do not necessarily equal the raw number of original connections or requests.\", \"recidivist\": \"IPs with repeated automatic blocks\", \"recidivist_sub\": \"IPs automatically blocked more than once during the period, with the server that executed the block.\", \"block_count\": \"Blocks\", \"trigger_rules\": \"Rules that triggered the block\", \"ban_duration\": \"Configured ban time\", \"servers\": \"Most affected servers\", \"servers_sub\": \"Activity summary by server during the period.\", \"events\": \"Events\", \"high\": \"High severity\", \"source_ips_col\": \"Source IPs\", \"attack_alerts\": \"Attack alerts\", \"no_servers\": \"No server events were recorded during the period.\", \"cve\": \"Critical vulnerabilities (CVE)\", \"cve_sub\": \"Summary of the current critical vulnerability inventory from the Wazuh Indexer.\", \"cve_total\": \"Critical CVE findings\", \"cve_systems\": \"Systems with critical CVEs\", \"cve_agent\": \"Server\", \"cve_count\": \"Critical CVEs\", \"cve_error\": \"The Wazuh Indexer vulnerability inventory could not be queried.\", \"cve_none\": \"No critical CVEs are recorded in the queried inventory.\", \"cve_unsupported\": \"CloudLinux detected: Wazuh does not currently provide native vulnerability assessment for this distribution; the result must not be interpreted as absence of CVEs.\", \"technical_note\": \"Rule identifiers and descriptions come from the Wazuh detection engine. Detecting an attempt does not by itself mean that the system was compromised.\",\n}\n\ndef labels(lang): return LABELS_EN if lang == \"en\" else LABELS_ES\ndef esc(value): return html.escape(str(value), quote=True)\n\n\ndef display_agent_name(value):\n    \"\"\"Limpia prefijos visuales que no forman parte del nombre del agente.\"\"\"\n    return re.sub(r\"^\\s*(?:→|➜|➤|»|›|▶|►|⮕|➥)+\\s*\", \"\", str(value or \"\")).strip()\n\n\ndef standardize_rule_description(rule_id, description, groups=None):\n    \"\"\"Normaliza los nombres de reglas para el reporte sin modificar Wazuh.\"\"\"\n    rid = str(rule_id)\n    if rid in RULE_CANONICAL_DESCRIPTIONS:\n        return RULE_CANONICAL_DESCRIPTIONS[rid]\n\n    text = str(description or \"Sin descripción\").strip()\n    text = re.sub(\n        r\"^(?:ALERTA(?:\\s+CRITICA)?|ORANGEBOX(?:\\s+TEST)?)\\s*:\\s*\",\n        \"\",\n        text,\n        flags=re.IGNORECASE,\n    )\n    text = re.sub(r\"\\s+\", \" \", text).strip()\n\n    group_set = {str(value).lower() for value in (groups or [])}\n    if rid in MALWARE_RULES or group_set & MALWARE_GROUPS:\n        prefix = \"MALWARE\"\n    elif rid in PRIV_RULES or group_set & {\"privilege_escalation\", \"privilege_escalation_root\", \"sudo\"}:\n        prefix = \"PRIVILEGIOS\"\n    elif rid in WEB_RULES or group_set & WEB_GROUPS:\n        prefix = \"WEB\"\n    elif rid in FIM_RULES or group_set & FIM_GROUPS:\n        prefix = \"ARCHIVOS\"\n    elif rid in AUTH_RULES or group_set & AUTH_GROUPS:\n        prefix = \"SSH\" if \"ssh\" in group_set else \"ACCESO\"\n    elif group_set & ATTACK_GROUPS:\n        prefix = \"ATAQUE\"\n    else:\n        return text or \"Sin descripción\"\n\n    return text if re.match(rf\"^{re.escape(prefix)}\\s*:\", text, flags=re.IGNORECASE) else f\"{prefix}: {text}\"\n\n\ndef report_event_exempt(event):\n    group_set = {str(value).lower() for value in (event.get(\"groups\") or [])}\n    rule_id = str(event.get(\"rule_id\", \"\")).strip()\n    try:\n        level = int(event.get(\"level\", 0) or 0)\n    except (TypeError, ValueError):\n        level = 0\n    return (\n        level <= 0\n        or rule_id in REPORT_EXCLUDED_RULES\n        or bool(group_set & REPORT_EXCLUDED_GROUPS)\n    )\n\n\ndef read_secure_kv(path):\n    values = {}\n    path = Path(path)\n    if not path.exists():\n        return values\n    try:\n        mode = path.stat().st_mode & 0o777\n    except OSError:\n        mode = 0\n    if mode & 0o077:\n        raise RuntimeError(f\"{path} debe tener permisos 0600 o más restrictivos.\")\n    try:\n        content = path.read_text(encoding=\"utf-8\")\n    except OSError as exc:\n        raise RuntimeError(f\"No se pudo leer {path}: {exc}\") from exc\n    for line in content.splitlines():\n        line = line.strip()\n        if not line or line.startswith(\"#\") or \"=\" not in line:\n            continue\n        key, value = line.split(\"=\", 1)\n        values[key.strip()] = value.strip().strip(\"'\").strip('\"')\n    return values\n\n\ndef indexer_settings():\n    config = read_secure_kv(INDEXER_CONFIG)\n    user = os.environ.get(\"WAZUH_INDEXER_USER\") or config.get(\"WAZUH_INDEXER_USER\") or \"admin\"\n    password = os.environ.get(\"WAZUH_INDEXER_PASS\") or config.get(\"WAZUH_INDEXER_PASS\")\n    if not password:\n        raise RuntimeError(\n            f\"No existe WAZUH_INDEXER_PASS en {INDEXER_CONFIG}. \"\n            \"El password del Indexer no debe quedar dentro del repositorio.\"\n        )\n    return {\n        \"url\": (os.environ.get(\"WAZUH_INDEXER_URL\") or config.get(\"WAZUH_INDEXER_URL\") or \"https://127.0.0.1:9200\").rstrip(\"/\"),\n        \"user\": user,\n        \"password\": password,\n    }\n\n\ndef indexer_request(settings, path, payload):\n    body = json.dumps(payload).encode(\"utf-8\")\n    token = base64.b64encode(\n        f\"{settings['user']}:{settings['password']}\".encode(\"utf-8\")\n    ).decode(\"ascii\")\n    request = urllib.request.Request(\n        f\"{settings['url']}{path}\",\n        data=body,\n        method=\"POST\",\n        headers={\n            \"Content-Type\": \"application/json\",\n            \"Authorization\": f\"Basic {token}\",\n        },\n    )\n    context = ssl._create_unverified_context()\n    try:\n        with urllib.request.urlopen(request, context=context, timeout=30) as response:\n            return json.loads(response.read().decode(\"utf-8\")), None\n    except urllib.error.HTTPError as exc:\n        try:\n            detail = exc.read().decode(\"utf-8\", errors=\"replace\")\n        except OSError:\n            detail = \"\"\n        return None, f\"Indexer HTTP {exc.code}: {detail[:300]}\"\n    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:\n        return None, f\"Consulta al Indexer falló: {exc}\"\n\n\ndef fetch_critical_cves(allowed):\n    try:\n        settings = indexer_settings()\n    except RuntimeError as exc:\n        return {\"total\": 0, \"agents\": {}, \"unsupported_agents\": {}}, str(exc)\n\n    filters = [{\"term\": {\"vulnerability.severity\": \"Critical\"}}]\n    if allowed is not None:\n        if not allowed:\n            return {\"total\": 0, \"agents\": {}, \"unsupported_agents\": {}}, None\n        filters.append({\"terms\": {\"agent.id\": sorted(allowed)}})\n\n    results = {}\n    total_reported = None\n    search_after = None\n\n    while True:\n        payload = {\n            \"size\": 1000,\n            \"track_total_hits\": True,\n            \"_source\": [\n                \"agent.id\",\n                \"agent.name\",\n            ],\n            \"query\": {\n                \"bool\": {\n                    \"filter\": filters,\n                }\n            },\n            \"sort\": [\n                {\"_index\": {\"order\": \"asc\"}},\n                {\"_id\": {\"order\": \"asc\"}},\n            ],\n        }\n        if search_after is not None:\n            payload[\"search_after\"] = search_after\n\n        data, error = indexer_request(\n            settings,\n            \"/wazuh-states-vulnerabilities-*/_search\",\n            payload,\n        )\n        if error:\n            return {\"total\": 0, \"agents\": {}, \"unsupported_agents\": {}}, error\n\n        hits_root = data.get(\"hits\") or {}\n        if total_reported is None:\n            total = hits_root.get(\"total\") or 0\n            total_reported = int(total.get(\"value\", total) if isinstance(total, dict) else total)\n\n        hits = hits_root.get(\"hits\") or []\n        if not hits:\n            break\n\n        for hit in hits:\n            source = hit.get(\"_source\") or {}\n            agent = source.get(\"agent\") or {}\n            agent_id = str(agent.get(\"id\", \"\")).strip()\n            if not agent_id:\n                continue\n            agent_name = str(agent.get(\"name\") or f\"Servidor {agent_id}\")\n            record = results.setdefault(agent_id, {\"name\": agent_name, \"count\": 0})\n            record[\"count\"] += 1\n\n        next_sort = hits[-1].get(\"sort\")\n        if not next_sort:\n            break\n        if next_sort == search_after:\n            return {\"total\": 0, \"agents\": {}, \"unsupported_agents\": {}}, \"La paginación del inventario CVE quedó sin avance.\"\n        search_after = next_sort\n        if len(hits) < 1000:\n            break\n\n    unsupported_agents = {}\n    if allowed:\n        os_filters = [{\"terms\": {\"agent.id\": sorted(allowed)}}]\n        os_payload = {\n            \"size\": max(1000, len(allowed)),\n            \"track_total_hits\": False,\n            \"_source\": [\"agent.id\", \"agent.name\", \"host.os.name\", \"host.os.platform\"],\n            \"query\": {\"bool\": {\"filter\": os_filters}},\n        }\n        os_data, os_error = indexer_request(\n            settings,\n            \"/wazuh-states-inventory-system-*/_search\",\n            os_payload,\n        )\n        if not os_error:\n            for hit in (os_data.get(\"hits\") or {}).get(\"hits\", []):\n                source = hit.get(\"_source\") or {}\n                agent = source.get(\"agent\") or {}\n                agent_id = str(agent.get(\"id\", \"\")).strip()\n                host_os = source.get(\"host\") or {}\n                os_data_block = host_os.get(\"os\") or {}\n                os_name = str(os_data_block.get(\"name\") or \"\").strip()\n                os_platform = str(os_data_block.get(\"platform\") or \"\").strip()\n                os_name_l = os_name.lower()\n                os_platform_l = os_platform.lower()\n                is_almalinux = \"almalinux\" in os_name_l or \"almalinux\" in os_platform_l\n                is_cloudlinux = (\n                    os_platform_l == \"cloudlinux\"\n                    or os_name_l == \"cloudlinux\"\n                )\n                # AlmaLinux usa el ecosistema de CVE/RHEL y no debe quedar\n                # marcado como distro sin soporte aunque conserve un label\n                # de plataforma heredado.\n                if agent_id and is_cloudlinux and not is_almalinux:\n                    unsupported_agents[agent_id] = {\n                        \"name\": str(agent.get(\"name\") or f\"Servidor {agent_id}\")\n                    }\n\n    total = total_reported if total_reported is not None else sum(item[\"count\"] for item in results.values())\n    return {\"total\": total, \"agents\": results, \"unsupported_agents\": unsupported_agents}, None\n\ndef valid_ip(value):\n    try: ipaddress.ip_address(value); return True\n    except (ValueError, TypeError): return False\n\n\nGEOIP_CITY_DB = os.environ.get(\n    \"ORANGEBOX_GEOIP_CITY_DB\",\n    \"/var/lib/orangebox/geoip/dbip-city-lite.mmdb\",\n)\n\n\n# Reader MMDB reutilizable. Evita lanzar mmdblookup como subprocess por cada\n# IP/atributo. En reportes con miles de IPs esto genera miles de procesos.\n# Si maxminddb no está instalado, se conserva el fallback anterior.\n_GEOIP_READER = None\n_GEOIP_READER_ERROR = False\n\n\ndef _get_geoip_reader():\n    global _GEOIP_READER, _GEOIP_READER_ERROR\n\n    if _GEOIP_READER is not None or _GEOIP_READER_ERROR:\n        return _GEOIP_READER\n    if maxminddb is None or not Path(GEOIP_CITY_DB).is_file():\n        _GEOIP_READER_ERROR = True\n        return None\n    try:\n        _GEOIP_READER = maxminddb.open_database(GEOIP_CITY_DB)\n    except (OSError, ValueError):\n        _GEOIP_READER_ERROR = True\n        return None\n    return _GEOIP_READER\n\n\ndef _mmdb_country_data(ip):\n    reader = _get_geoip_reader()\n    if reader is None:\n        return None\n    try:\n        record = reader.get(str(ip))\n    except (OSError, ValueError):\n        return None\n    if not isinstance(record, dict):\n        return {}\n    country = record.get(\"country\") or {}\n    if not isinstance(country, dict):\n        return {}\n    names = country.get(\"names\") or {}\n    if not isinstance(names, dict):\n        names = {}\n    return {\n        \"country_code\": str(country.get(\"iso_code\") or \"\").upper(),\n        \"country\": str(names.get(\"es\") or names.get(\"en\") or \"\"),\n    }\n\n\ndef _mmdblookup_country_value(ip, *path):\n    \"\"\"Fallback de compatibilidad cuando maxminddb no está disponible.\"\"\"\n    if not Path(GEOIP_CITY_DB).is_file() or shutil.which(\"mmdblookup\") is None:\n        return \"\"\n    try:\n        result = subprocess.run(\n            [\"mmdblookup\", \"--file\", GEOIP_CITY_DB, \"--ip\", str(ip), *path],\n            capture_output=True,\n            text=True,\n            timeout=3,\n            check=False,\n        )\n    except (OSError, subprocess.SubprocessError):\n        return \"\"\n    if result.returncode != 0:\n        return \"\"\n    match = re.search(r'(?m)^\\s*\"((?:\\\\.|[^\"])*)\"\\s*<utf8_string>', result.stdout)\n    if not match:\n        return \"\"\n    try:\n        return json.loads(f'\"{match.group(1)}\"')\n    except json.JSONDecodeError:\n        return \"\"\n\n\ndef country_flag(country_code):\n    code = str(country_code or \"\").strip().upper()\n    if len(code) != 2 or not code.isalpha():\n        return \"🌐\"\n    return \"\".join(chr(127397 + ord(char)) for char in code)\n\n\ndef geoip_country(ip, cache=None):\n    cache = cache if cache is not None else {}\n    if ip in cache:\n        return cache[ip]\n    try:\n        if not ipaddress.ip_address(ip).is_global:\n            data = {\"country_code\": \"\", \"country\": \"IP local\", \"flag\": \"🌐\"}\n            cache[ip] = data\n            return data\n    except ValueError:\n        data = {\"country_code\": \"\", \"country\": \"No disponible\", \"flag\": \"🌐\"}\n        cache[ip] = data\n        return data\n\n    fast = _mmdb_country_data(ip)\n    if fast is not None:\n        code = str(fast.get(\"country_code\") or \"\").upper()\n        name = str(fast.get(\"country\") or \"\")\n    else:\n        code = _mmdblookup_country_value(ip, \"country\", \"iso_code\").upper()\n        name = (\n            _mmdblookup_country_value(ip, \"country\", \"names\", \"es\")\n            or _mmdblookup_country_value(ip, \"country\", \"names\", \"en\")\n        )\n    data = {\n        \"country_code\": code,\n        \"country\": name or \"No disponible\",\n        \"flag\": country_flag(code),\n    }\n    cache[ip] = data\n    return data\n\n\ndef geoip_country_map(ips):\n    cache = {}\n    for ip in set(ips):\n        geoip_country(ip, cache)\n    return cache\n\ndef geoip_country_ranking(ips, geo):\n    counts = Counter()\n    for ip in ips:\n        try:\n            if not ipaddress.ip_address(ip).is_global:\n                continue\n        except ValueError:\n            continue\n        item = geo.get(ip) or {}\n        code = str(item.get(\"country_code\") or \"\").upper()\n        name = str(item.get(\"country\") or \"No disponible\")\n        counts[(code, name)] += 1\n    return counts.most_common(10)\n\n\ndef render_country_ranking_rows(ranking):\n    rows = []\n    for position, ((code, name), count) in enumerate(ranking, start=1):\n        rows.append(\n            f\"<tr><td style='border-top:1px solid #e3e9ec;padding:7px;text-align:center;color:#78909c;font-size:11px;'>{position}</td>\"\n            f\"<td style='border-top:1px solid #e3e9ec;padding:6px;text-align:center;font-size:20px;'>{esc(country_flag(code))}</td>\"\n            f\"<td style='border-top:1px solid #e3e9ec;padding:7px;font-size:11px;font-weight:bold;'>{esc(name)}</td>\"\n            f\"<td style='border-top:1px solid #e3e9ec;padding:7px;text-align:right;font-size:12px;font-weight:bold;'>{count:,}</td></tr>\"\n        )\n    return \"\".join(rows)\n\n\ndef parse_timestamp(value):\n    if not value: return None\n    try:\n        value = re.sub(r\"([+-]\\d{2})(\\d{2})$\", r\"\\1:\\2\", str(value)); return datetime.fromisoformat(value)\n    except (TypeError, ValueError): return None\n\ndef extract_firewall_payload(full_log):\n    if not isinstance(full_log, str): return None\n    match = FIREWALL_RE.search(full_log.strip())\n    if not match: return None\n    try: return json.loads(match.group(1))\n    except json.JSONDecodeError: return None\n\ndef load_firewall_timeouts():\n    \"\"\"Lee desde ossec.conf los timeout de cada active-response firewall-drop.\n    Se procesa por bloques de texto porque ossec.conf puede contener varios\n    bloques <ossec_config>, que no forman un XML único estándar.\n    \"\"\"\n    timeouts = {}\n    try:\n        with open(WAZUH_OSSEC_CONF, \"r\", encoding=\"utf-8\", errors=\"ignore\") as handle:\n            config = handle.read()\n    except OSError:\n        return timeouts\n\n    for block in re.findall(r\"<active-response>\\s*(.*?)\\s*</active-response>\", config, flags=re.DOTALL):\n        command = re.search(r\"<command>\\s*([^<]+?)\\s*</command>\", block)\n        rules_id = re.search(r\"<rules_id>\\s*([^<]+?)\\s*</rules_id>\", block)\n        timeout = re.search(r\"<timeout>\\s*(\\d+)\\s*</timeout>\", block)\n        if not command or not rules_id or not timeout:\n            continue\n        if command.group(1).strip() != \"firewall-drop\":\n            continue\n        seconds = int(timeout.group(1))\n        for rule_id in re.split(r\"\\s*,\\s*\", rules_id.group(1).strip()):\n            if rule_id:\n                timeouts[rule_id] = seconds\n    return timeouts\n\ndef format_duration(seconds):\n    if seconds is None:\n        return \"No disponible\"\n    if seconds < 60:\n        return f\"{seconds}s\"\n    if seconds % 3600 == 0:\n        return f\"{seconds // 3600} h\"\n    if seconds % 60 == 0:\n        return f\"{seconds // 60} min\"\n    return f\"{seconds}s\"\n\ndef period_bounds(mode, now):\n    today = now.date()\n    if mode == \"today\": return datetime.combine(today, datetime.min.time(), now.tzinfo), now, \"Hoy\"\n    if mode == \"yesterday\":\n        day = today - timedelta(days=1); return datetime.combine(day, datetime.min.time(), now.tzinfo), datetime.combine(today, datetime.min.time(), now.tzinfo), \"Ayer\"\n    monday = today - timedelta(days=today.weekday())\n    if mode == \"thisweek\": return datetime.combine(monday, datetime.min.time(), now.tzinfo), now, \"Semana actual\"\n    if mode == \"lastweek\":\n        start = monday - timedelta(days=7); return datetime.combine(start, datetime.min.time(), now.tzinfo), datetime.combine(monday, datetime.min.time(), now.tzinfo), \"Semana anterior\"\n    first = today.replace(day=1)\n    if mode == \"thismonth\": return datetime.combine(first, datetime.min.time(), now.tzinfo), now, \"Mes actual\"\n    if mode == \"lastmonth\":\n        previous = first - timedelta(days=1); start = previous.replace(day=1); return datetime.combine(start, datetime.min.time(), now.tzinfo), datetime.combine(first, datetime.min.time(), now.tzinfo), \"Mes anterior\"\n    year = today.replace(month=1, day=1)\n    if mode == \"thisyear\": return datetime.combine(year, datetime.min.time(), now.tzinfo), now, \"Año actual\"\n    if mode == \"lastyear\":\n        start = year.replace(year=year.year - 1); return datetime.combine(start, datetime.min.time(), now.tzinfo), datetime.combine(year, datetime.min.time(), now.tzinfo), \"Año anterior\"\n    if mode.startswith(\"date:\"):\n        day = datetime.strptime(mode[5:], \"%Y-%m-%d\").date(); return datetime.combine(day, datetime.min.time(), now.tzinfo), datetime.combine(day + timedelta(days=1), datetime.min.time(), now.tzinfo), day.strftime(\"%Y-%m-%d\")\n    raise SystemExit(\"Período no válido\")\n\ndef iter_log_files(start, end):\n    paths=[]; day=start.date(); last=(end-timedelta(microseconds=1)).date()\n    while day <= last:\n        base=Path(ALERTS_ROOT)/f\"{day.year:04d}\"/day.strftime(\"%b\"); paths += [base/f\"ossec-alerts-{day.day:02d}.json.gz\", base/f\"ossec-alerts-{day.day:02d}.json\"]; day += timedelta(days=1)\n    if start.date() <= datetime.now().date() <= last: paths.append(Path(ALERTS_FILE))\n    seen=set()\n    for path in paths:\n        if path.exists() and str(path) not in seen: seen.add(str(path)); yield path\n\ndef iter_json(path):\n    opener=gzip.open if str(path).endswith(\".gz\") else open\n    with opener(path,\"rb\") as handle:\n        for line in handle:\n            try:\n                obj=orjson.loads(line) if orjson is not None else json.loads(line)\n                if isinstance(obj,dict): yield obj\n            except (json.JSONDecodeError, UnicodeDecodeError, ValueError): continue\n\ndef all_groups():\n    \"\"\"Obtiene grupos con agentes, excluyendo grupos tecnicos al usar --group all.\"\"\"\n    try:\n        process=subprocess.run([AGENT_GROUPS_BIN, \"-l\"], capture_output=True, text=True, timeout=15)\n    except (OSError,subprocess.SubprocessError) as exc:\n        raise SystemExit(f\"No se pudieron obtener los grupos Wazuh: {exc}\") from exc\n    output=process.stdout+\"\\n\"+process.stderr\n    if process.returncode != 0:\n        raise SystemExit(f\"agent_groups -l fallo: {output.strip()}\")\n    groups=[]\n    for line in output.splitlines():\n        match=re.match(r\"^\\s{2}(.+?)\\s+\\((\\d+)\\)\\s*$\", line)\n        if not match:\n            continue\n        group_name=match.group(1).strip()\n        count=int(match.group(2))\n        if count <= 0 or group_name.lower() in REPORT_NON_CLIENT_GROUPS:\n            continue\n        groups.append(group_name)\n    return groups\n\ndef group_members(group):\n    groups = [value.strip() for value in str(group).split(\",\") if value.strip()]\n    if not groups:\n        raise SystemExit(\"Debe especificar al menos un grupo Wazuh\")\n    if not os.path.exists(AGENT_GROUPS_BIN): raise SystemExit(f\"No existe {AGENT_GROUPS_BIN}\")\n\n    all_ids = set()\n    for group_name in groups:\n        try: process=subprocess.run([AGENT_GROUPS_BIN,\"-l\",\"-g\",group_name],capture_output=True,text=True,timeout=15)\n        except (OSError,subprocess.SubprocessError) as exc: raise SystemExit(f\"No se pudo consultar el grupo {group_name}: {exc}\") from exc\n        output=process.stdout+\"\\n\"+process.stderr\n        if process.returncode!=0: raise SystemExit(f\"Grupo Wazuh inválido o no disponible: {group_name}\\n{output.strip()}\")\n        ids=set(re.findall(r\"\\bID:\\s*([0-9]+)\\b\",output))\n        if ids:\n            all_ids.update(ids)\n        elif not re.search(r\"0\\s+agent\\(s\\)\",output,re.I):\n            raise SystemExit(f\"No se pudieron obtener servidores del grupo {group_name}\")\n    return all_ids\n\ndef classify(rule_id, groups, level):\n    rid=str(rule_id); group_set={str(value).lower() for value in (groups or [])}\n    if rid==FIREWALL_RULE: return \"active_response\"\n    if rid in MALWARE_RULES or group_set & MALWARE_GROUPS: return \"malware\"\n    if rid in PRIV_RULES or group_set & {\"privilege_escalation\",\"privilege_escalation_root\",\"sudo\"}: return \"privilege\"\n    if rid in WEB_RULES or group_set & WEB_GROUPS: return \"web\"\n    if rid in FIM_RULES or group_set & FIM_GROUPS: return \"fim\"\n    if rid in AUTH_RULES or group_set & AUTH_GROUPS: return \"authentication\"\n    if group_set & ATTACK_GROUPS or int(level or 0)>=12: return \"attack\"\n    return \"other\"\n\ndef parse_event(outer):\n    rule=outer.get(\"rule\") or {}; rule_id=str(rule.get(\"id\",\"\")); timestamp=parse_timestamp(outer.get(\"timestamp\"))\n    if not timestamp: return None\n    if rule_id==FIREWALL_RULE:\n        # Wazuh 4.x decodes active-responses.log into data.command +\n        # data.parameters. The previous parser expected the raw JSON payload\n        # in full_log, which made valid firewall-drop executions invisible.\n        data=outer.get(\"data\") or {}\n        command=data.get(\"command\")\n        params=data.get(\"parameters\") or {}\n\n        # En Wazuh 4.x, el evento 651 mezcla dos representaciones:\n        # command/parameters vienen estructurados en data, mientras que\n        # \"program\" y el payload completo de firewall-drop pueden permanecer\n        # únicamente dentro de full_log. Por eso no debemos exigir program\n        # dentro de data.parameters.\n        payload=extract_firewall_payload(outer.get(\"full_log\",\"\"))\n        if isinstance(payload,dict):\n            if command not in {\"add\",\"delete\"}:\n                command=payload.get(\"command\")\n            raw_params=payload.get(\"parameters\") or {}\n            if raw_params:\n                merged_params=dict(raw_params)\n                merged_params.update(params)\n                params=merged_params\n            elif payload.get(\"program\") and \"program\" not in params:\n                params=dict(params)\n                params[\"program\"]=payload.get(\"program\")\n\n        if command not in {\"add\",\"delete\"}:\n            return None\n\n        # La propia regla 651 identifica la ejecución de firewall-drop.\n        # En Wazuh 4.x \"program\" puede venir en full_log o en data.parameters;\n        # no lo usamos como condición de descarte porque la estructura puede\n        # variar entre versiones/decoders.\n        program=params.get(\"program\")\n        if not program and isinstance(payload,dict):\n            program=payload.get(\"program\")\n\n        alert=params.get(\"alert\") or {}\n        if not alert and isinstance(payload,dict):\n            alert=(payload.get(\"parameters\") or {}).get(\"alert\") or {}\n        alert_rule=alert.get(\"rule\") or {}\n        agent=alert.get(\"agent\") or {}\n        alert_data=alert.get(\"data\") or {}\n        # En los eventos 651 de Wazuh 4.x, la IP bloqueada está\n        # normalmente en data.parameters.alert.data.srcip.\n        src=alert_data.get(\"srcip\") or data.get(\"srcip\") or alert.get(\"srcip\")\n        if not src and isinstance(payload,dict):\n            payload_params=payload.get(\"parameters\") or {}\n            payload_alert=payload_params.get(\"alert\") or {}\n            payload_alert_data=payload_alert.get(\"data\") or {}\n            src=payload_alert_data.get(\"srcip\") or src\n        mitre=alert_rule.get(\"mitre\") or {}\n        return {\n            \"timestamp\":parse_timestamp(alert.get(\"timestamp\")) or timestamp,\n            \"outer_rule\":rule_id,\n            \"rule_id\":str(alert_rule.get(\"id\",\"unknown\")),\n            \"description\":standardize_rule_description(str(alert_rule.get(\"id\",\"unknown\")),alert_rule.get(\"description\",\"Firewall Drop\"),alert_rule.get(\"groups\") or []),\n            \"level\":int(alert_rule.get(\"level\",0) or 0),\n            \"groups\":alert_rule.get(\"groups\") or [],\n            \"agent_id\":str(agent.get(\"id\",\"000\")),\n            \"agent_name\":agent.get(\"name\",\"unknown\"),\n            \"srcip\":str(src) if valid_ip(src) else None,\n            \"command\":command,\n            \"alert_id\":str(alert.get(\"id\",outer.get(\"id\",\"\"))),\n            \"mitre\":mitre.get(\"id\",[]),\n            \"techniques\":mitre.get(\"technique\",[]),\n            \"url\":alert_data.get(\"url\"),\n        }\n    agent=outer.get(\"agent\") or {}; data=outer.get(\"data\") or {}; mitre=rule.get(\"mitre\") or {}\n    return {\n        \"timestamp\":timestamp,\n        \"outer_rule\":rule_id,\n        \"rule_id\":rule_id,\n        \"description\":standardize_rule_description(rule_id,rule.get(\"description\",\"Sin descripción\"),rule.get(\"groups\") or []),\n        \"level\":int(rule.get(\"level\",0) or 0),\n        \"groups\":rule.get(\"groups\") or [],\n        \"agent_id\":str(agent.get(\"id\",\"000\")),\n        \"agent_name\":agent.get(\"name\",\"unknown\"),\n        \"srcip\":str(data.get(\"srcip\")) if valid_ip(data.get(\"srcip\")) else None,\n        \"command\":None,\n        \"alert_id\":str(outer.get(\"id\",\"\")),\n        \"mitre\":mitre.get(\"id\",[]),\n        \"techniques\":mitre.get(\"technique\",[]),\n        \"url\":data.get(\"url\"),\n        \"fim_path\": str(data.get(\"path\") or ((data.get(\"syscheck\") or {}).get(\"path\")) or \"\").strip(),\n    }\n\ndef load_events(start,end,allowed):\n    files=list(iter_log_files(start,end))\n    if not files: raise SystemExit(\"No se encontraron logs JSON para el período solicitado\")\n    security_count=0; critical_count=0; source_ips=set(); agents=Counter()\n    agent_stats=defaultdict(lambda: {\"events\":0, \"high\":0, \"ips\":set(), \"attacks\":0})\n    categories={name:{\"count\":0,\"ips\":set(),\"agents\":set(),\"rules\":Counter(),\"rule_agents\":defaultdict(set)} for name in (\"authentication\",\"web\",\"fim\",\"malware\",\"privilege\",\"attack\")}\n    mitre_counts=Counter(); mitre_names={}; firewall_ips=set(); firewall_rows=defaultdict(set); firewall_attempts=Counter(); firewall_recurrence=Counter(); firewall_rules_by_ip=defaultdict(set); firewall_timeouts=load_firewall_timeouts(); timeline=Counter()\n    seen_day=None; seen=set(); today=datetime.now().date()\n    for path in files:\n        if path == Path(ALERTS_FILE): file_day=today\n        else:\n            try: file_day=datetime.strptime(f\"{path.name[13:15]} {path.parent.name} {path.parent.parent.name}\",\"%d %b %Y\").date()\n            except (ValueError, IndexError): file_day=None\n        if file_day != seen_day: seen_day=file_day; seen=set()\n        for outer in iter_json(path):\n            rule=outer.get(\"rule\") or {}; outer_rule=str(rule.get(\"id\",\"\"))\n            if outer_rule == FIREWALL_RULE:\n                # Los eventos 651 son el registro de la ejecución real de\n                # firewall-drop. Se procesan de forma independiente para no\n                # depender del decoder ni del deduplicado de alertas normales.\n                outer_ts=parse_timestamp(outer.get(\"timestamp\"))\n                data=outer.get(\"data\") or {}\n                params=data.get(\"parameters\") or {}\n                alert=params.get(\"alert\") or {}\n                command=data.get(\"command\") or params.get(\"command\")\n                payload=extract_firewall_payload(outer.get(\"full_log\",\"\"))\n                if isinstance(payload,dict):\n                    if command not in {\"add\",\"delete\"}:\n                        command=payload.get(\"command\")\n                    payload_params=payload.get(\"parameters\") or {}\n                    if not alert and isinstance(payload_params,dict):\n                        alert=payload_params.get(\"alert\") or {}\n                alert_rule=alert.get(\"rule\") or {}\n                alert_agent=alert.get(\"agent\") or {}\n                alert_data=alert.get(\"data\") or {}\n                src=alert_data.get(\"srcip\")\n                if not src and isinstance(payload,dict):\n                    payload_alert=payload.get(\"parameters\",{}).get(\"alert\") or {}\n                    src=(payload_alert.get(\"data\") or {}).get(\"srcip\")\n                    if not alert_rule: alert_rule=payload_alert.get(\"rule\") or {}\n                    if not alert_agent: alert_agent=payload_alert.get(\"agent\") or {}\n                event_ts=parse_timestamp(alert.get(\"timestamp\")) or outer_ts\n                agent_id=str(alert_agent.get(\"id\",\"000\"))\n                agent_name=alert_agent.get(\"name\",\"unknown\")\n                if (command==\"add\" and valid_ip(src) and event_ts and start<=event_ts<end\n                        and (allowed is None or agent_id in allowed)):\n                    rule_id=str(alert_rule.get(\"id\",\"unknown\"))\n                    alert_groups=alert_rule.get(\"groups\") or []\n                    alert_level=int(alert_rule.get(\"level\",0) or 0)\n                    if alert_level <= 0 or ({str(value).lower() for value in alert_groups} & REPORT_EXCLUDED_GROUPS):\n                        continue\n                    description=standardize_rule_description(rule_id,alert_rule.get(\"description\",\"Firewall Drop\"),alert_groups)\n                    row_key=(agent_id,agent_name,rule_id,description)\n                    src_str=str(src)\n                    firewall_rows[row_key].add(src_str)\n                    firewall_ips.add(src_str)\n                    firewall_recurrence[src_str] += 1\n                    firewall_rules_by_ip[src_str].add((rule_id,description))\n                continue\n            outer_ts=parse_timestamp(outer.get(\"timestamp\"))\n            if not outer_ts or outer_ts<start or outer_ts>=end: continue\n            event=parse_event(outer)\n            if not event or event[\"timestamp\"]<start or event[\"timestamp\"]>=end: continue\n            if allowed is not None and event[\"agent_id\"] not in allowed: continue\n            if report_event_exempt(event): continue\n            # Replica en el reporte de la excepción 20007: las sesiones\n            # systemd-user de usuarios como apache no son accesos interactivos.\n            if (\n                event[\"rule_id\"] == \"40101\"\n                and re.search(\n                    r\"pam_unix\\(systemd-user:session\\):\\s+session\\s+opened\",\n                    str(outer.get(\"full_log\", \"\")),\n                    flags=re.IGNORECASE,\n                )\n            ):\n                continue\n            key=event[\"alert_id\"]\n            if key:\n                if key in seen: continue\n                seen.add(key)\n            category=classify(event[\"rule_id\"],event[\"groups\"],event[\"level\"]); event_agent=(event[\"agent_id\"],event[\"agent_name\"])\n            if event[\"srcip\"]: firewall_attempts[(event[\"agent_id\"],event[\"rule_id\"],event[\"srcip\"])] += 1\n            if category==\"other\": continue\n            security_count += 1\n            timeline[event[\"timestamp\"].date()] += 1\n            if event[\"level\"]>=13: critical_count += 1\n            if event[\"srcip\"]: source_ips.add(event[\"srcip\"])\n            agents[event_agent] += 1\n            agent_info=agent_stats[event_agent]\n            agent_info[\"events\"] += 1\n            if event[\"level\"] >= 13: agent_info[\"high\"] += 1\n            if event[\"srcip\"]: agent_info[\"ips\"].add(event[\"srcip\"])\n            if category == \"attack\": agent_info[\"attacks\"] += 1\n            info=categories[category]; info[\"count\"] += 1\n            if event[\"srcip\"]: info[\"ips\"].add(event[\"srcip\"])\n            info[\"agents\"].add(event[\"agent_id\"])\n            rule_key=(event[\"rule_id\"],event[\"description\"]); info[\"rules\"][rule_key] += 1; info[\"rule_agents\"][rule_key].add(event[\"agent_name\"])\n            techniques=event.get(\"techniques\") or []\n            for index,mitre_id in enumerate(event.get(\"mitre\") or []):\n                mitre_counts[mitre_id] += 1\n                if index<len(techniques) and techniques[index]: mitre_names[mitre_id]=techniques[index]\n    firewall_result=[]\n    for key,ips in firewall_rows.items():\n        agent_id,agent_name,rule_id,description=key; attempts=sum(firewall_attempts[(agent_id,rule_id,ip)] for ip in ips)\n        if attempts==0: attempts=len(ips)\n        firewall_result.append({\"agent_id\":agent_id,\"agent_name\":agent_name,\"rule_id\":rule_id,\"description\":description,\"ips\":sorted(ips,key=lambda v:(ipaddress.ip_address(v).version,ipaddress.ip_address(v))),\"attempts\":attempts})\n    return {\"security_count\":security_count,\"critical_count\":critical_count,\"source_ips\":source_ips,\"agents\":agents,\"agent_stats\":agent_stats,\"categories\":categories,\"mitre_counts\":mitre_counts,\"mitre_names\":mitre_names,\"firewall_ips\":firewall_ips,\"firewall_rows\":sorted(firewall_result,key=lambda r:r[\"agent_name\"].lower()),\"firewall_recurrence\":firewall_recurrence,\"firewall_rules_by_ip\":firewall_rules_by_ip,\"firewall_timeouts\":firewall_timeouts,\"timeline\":timeline}\n\ndef section_rows(info):\n    merged = {}\n    for (rule_id, description), count in info[\"rules\"].most_common():\n        entry = merged.setdefault(\n            rule_id,\n            {\"description\": description, \"count\": 0, \"agents\": set()},\n        )\n        entry[\"count\"] += count\n        entry[\"agents\"].update(info[\"rule_agents\"][(rule_id, description)])\n    rows = [\n        (rule_id, entry[\"description\"], entry[\"count\"], sorted(entry[\"agents\"]))\n        for rule_id, entry in merged.items()\n    ]\n    rows.sort(key=lambda row: (-row[2], row[0]))\n    return rows[:12]\n\ndef mitre_rows(summary):\n    counts=summary[\"mitre_counts\"]; names=summary[\"mitre_names\"]\n    return [(mid,names.get(mid,\"Técnica MITRE ATT&CK\"),MITRE_DESCRIPTIONS.get(mid,\"Comportamiento asociado a una técnica de ataque o intrusión; Wazuh la vinculó con esta detección.\"),count) for mid,count in counts.most_common()]\n\ndef generate_html(summary,title,subtitle,period,group,lang=\"es\"):\n    L=labels(lang); security_count=summary[\"security_count\"]; critical_count=summary[\"critical_count\"]; all_ips=summary[\"source_ips\"]; agents=summary[\"agents\"]; agent_stats=summary[\"agent_stats\"]; categories=summary[\"categories\"]; firewall_rows=summary[\"firewall_rows\"]; firewall_ips=summary[\"firewall_ips\"]; cve_summary=summary.get(\"cve_summary\") or {}\n    bg=\"#f4f5f3\"; dark=\"#102d38\"; orange=\"#ff5a2f\"; coral=\"#ff6b4a\"; text=\"#19333e\"; muted=\"#667b84\"; border=\"#e1e5e4\"; page=[f\"<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'></head><body style='margin:0;padding:0;background:{bg};font-family:Arial,Helvetica,sans-serif;color:{text};'>\"]\n    page.append(\"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;background:#f4f5f3;'>\")\n    page.append(f\"<tr><td style='height:6px;background:{orange};font-size:0;line-height:0;'>&nbsp;</td></tr>\")\n    page.append(\"<tr><td align='center' style='padding:18px 10px 34px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;max-width:1120px;background:#ffffff;border:1px solid #e1e5e4;'>\")\n    page.append(\"<tr><td style='padding:0;background:#06141d;'>\"\n                 \"<img src='https://www.orangebox.cl/obox/img/banner-reporte-wazuh.png' alt='OrangeBox - Reporte de Seguridad Wazuh' width='1120' style='display:block;width:100%;max-width:1120px;height:auto;border:0;'>\"\n                 \"</td></tr>\")\n    page.append(f\"<tr><td style='padding:26px 26px 16px;'><div style='color:{orange};font-size:10px;font-weight:800;letter-spacing:1.8px;'>ORANGEBOX SECURITY · WAZUH</div><div style='font-size:30px;line-height:1.12;font-weight:800;margin-top:6px;color:{text};'>{esc(title)}</div><div style='font-size:14px;line-height:1.5;color:{muted};padding-top:7px;'>{esc(subtitle)}</div><table role='presentation' cellpadding='0' cellspacing='0' border='0' style='margin-top:16px;'><tr><td style='background:#f3f5f4;border:0;border-radius:20px;padding:9px 14px;font-size:11px;color:#526873;'><b>CLIENTE</b>&nbsp; {esc(group)}</td><td width='8'></td><td style='background:{orange};border-radius:20px;padding:9px 14px;font-size:11px;color:#ffffff;'><b>PERÍODO</b>&nbsp; {esc(period)}</td></tr></table></td></tr>\")\n    page.append(\"<tr><td style='padding:0 22px 24px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='8' border='0'><tr>\")\n    metrics=[(security_count,L[\"security_events\"],\"#eef4f6\"),(critical_count,L[\"high_alerts\"],\"#fff0eb\"),(len(all_ips),L[\"source_ips\"],\"#eef6f5\"),(len(agents),L[\"systems\"],\"#f2f5f4\"),(len(firewall_ips),L[\"blocked_ips\"],\"#fff1ec\")]\n    card_width=f\"{100/len(metrics):.2f}%\";\n    for value,label,tint in metrics:\n        page.append(\n            f\"<td width='{card_width}' valign='top' style='padding:0;'>\"\n            f\"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='background:{tint};border:1px solid #e0e6e4;border-radius:12px;'>\"\n            f\"<tr><td style='padding:18px 12px 17px;'>\"\n            f\"<div style='font-size:30px;line-height:1;font-weight:800;color:{dark};'>{value:,}</div>\"\n            f\"<div style='font-size:9px;line-height:1.35;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:{muted};margin-top:9px;'>{esc(label)}</div>\"\n            f\"<div style='width:34px;height:4px;background:{orange};margin-top:13px;font-size:1px;line-height:4px;'>&nbsp;</div>\"\n            f\"</td></tr>\"\n            f\"</table></td>\"\n        )\n    page.append(\"</tr></table></td></tr>\")\n    def section_open(icon,heading,sub=None):\n        section=f\"<tr><td style='padding:0 22px 20px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='border:1px solid {border};border-radius:12px;background:#ffffff;'><tr><td style='background:#ffffff;border-bottom:1px solid {border};padding:15px 16px;font-size:17px;font-weight:800;color:{text};'><span style='color:{orange};font-size:13px;'>{icon}</span>&nbsp; {esc(heading)}</td></tr>\"\n        if sub: section+=f\"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:12px;'>{esc(sub)}</td></tr>\"\n        return section\n    def section_close(): return \"</table></td></tr>\"\n    geo_ips = set(all_ips) | set(firewall_ips)\n    geo = geoip_country_map(geo_ips)\n    source_country_rank = geoip_country_ranking(all_ips, geo)\n    blocked_country_rank = geoip_country_ranking(firewall_ips, geo)\n\n    source_rows = render_country_ranking_rows(source_country_rank)\n    if not source_rows:\n        source_rows = \"<tr><td colspan='4' style='padding:8px;color:#78909c;font-size:10px;'>Sin IPs públicas.</td></tr>\"\n    blocked_rows = render_country_ranking_rows(blocked_country_rank)\n    if not blocked_rows:\n        blocked_rows = \"<tr><td colspan='4' style='padding:8px;color:#78909c;font-size:10px;'>Sin IPs bloqueadas.</td></tr>\"\n\n    page.append(section_open(\n        \"🌍\",\n        \"Top países · eventos de seguridad\",\n        \"IPs públicas únicas asociadas a detecciones de seguridad del período; no implica por sí solo un ataque confirmado.\",\n    ))\n    page.append(\n        \"<tr><td style='padding:0 8px 8px;'>\"\n        \"<table role='presentation' width='100%' cellpadding='0' cellspacing='8' border='0'><tr>\"\n        \"<td width='50%' valign='top' style='padding:0 4px 0 0;'>\"\n        \"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>\"\n        \"<tr><td colspan='4' style='background:#102d38;color:#fff;padding:9px;font-size:11px;font-weight:800;'>Top países · eventos de seguridad</td></tr>\"\n        \"<tr><td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:28px;'>#</td>\"\n        \"<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:34px;text-align:center;'>FLAG</td>\"\n        \"<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;'>PAÍS</td>\"\n        \"<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;text-align:right;'>IPS</td></tr>\"\n        + source_rows +\n        \"</table></td>\"\n        \"<td width='50%' valign='top' style='padding:0 0 0 4px;'>\"\n        \"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>\"\n        \"<tr><td colspan='4' style='background:#102d38;color:#fff;padding:9px;font-size:11px;font-weight:800;'>Top países · IPs bloqueadas</td></tr>\"\n        \"<tr><td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:28px;'>#</td>\"\n        \"<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:34px;text-align:center;'>FLAG</td>\"\n        \"<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;'>PAÍS</td>\"\n        \"<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;text-align:right;'>IPS</td></tr>\"\n        + blocked_rows +\n        \"</table></td>\"\n        \"</tr></table></td></tr>\"\n    )\n    page.append(\n        \"<tr><td style='padding:0 14px 10px;color:#78909c;font-size:10px;'>\"\n        \"Las IPs de origen representan direcciones públicas asociadas a detecciones de seguridad; \"\n        \"no implican por sí solas un ataque confirmado. El segundo ranking muestra las IPs públicas \"\n        \"que activaron una respuesta automática de firewall-drop, limitado al top 10.\"\n        \"</td></tr>\"\n    )\n    page.append(section_close())\n\n    page.append(section_open(\"🛡\",L[\"firewall\"],L[\"firewall_sub\"]))\n    if firewall_rows:\n        # Agrupa las ejecuciones reales de firewall-drop por motivo de bloqueo.\n        # Una IP cuenta una sola vez dentro de cada motivo, aunque haya más de\n        # una ejecución/alerta asociada al mismo bloqueo.\n        firewall_by_reason=defaultdict(lambda: {\"ips\":set(), \"attempts\":0, \"rules\":set()})\n        for row in firewall_rows:\n            # El motivo se agrupa sin la IP dinámica incluida en la descripción.\n            # Así 400 SYN FLOOD de IPs distintas aparecen como una sola fila,\n            # conservando el total de IPs bloqueadas y de intentos detectados.\n            reason= re.sub(\n                r\"\\s+DESDE IP (?:PUBLICA|MALICIOSA CONOCIDA)\\s+\\S+\\.?$\",\n                \"\",\n                str(row[\"description\"] or \"\").strip(),\n                flags=re.IGNORECASE,\n            ).strip()\n            reason_key=(row[\"rule_id\"],reason)\n            firewall_by_reason[reason_key][\"ips\"].update(row[\"ips\"])\n            firewall_by_reason[reason_key][\"attempts\"] += row[\"attempts\"]\n            firewall_by_reason[reason_key][\"rules\"].add(row[\"rule_id\"])\n        firewall_reasons=sorted(firewall_by_reason.items(), key=lambda item:(-len(item[1][\"ips\"]), -item[1][\"attempts\"], item[0][0]))\n\n        page.append(\"<tr><td style='padding:0 8px 8px;overflow-wrap:anywhere;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>\")\n        page.append(f\"<tr><td style='background:#102d38;color:#fff;padding:10px;font-size:10px;font-weight:800;letter-spacing:.35px;'>{esc(L['reason'])}</td><td style='background:#102d38;color:#fff;padding:10px;font-size:10px;font-weight:800;letter-spacing:.35px;'>{esc(L['rule'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['blocked_ips'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['attempts'])}</td></tr>\")\n        for (rule_id,description),data in firewall_reasons:\n            page.append(f\"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:12px;overflow-wrap:anywhere;'>{esc(description)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-weight:bold;color:#d65d00;font-size:12px;'>{esc(rule_id)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{len(data['ips']):,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{data['attempts']:,}</td></tr>\")\n        page.append(\"</table></td></tr>\")\n    else: page.append(f\"<tr><td style='padding:10px 14px;color:#147a4a;font-size:12px;'>{esc(L['no_firewall'])}</td></tr>\")\n    page.append(f\"<tr><td style='background:#f7f9f8;border:0;border-left:4px solid {orange};border-radius:0 8px 8px 0;padding:11px 14px;color:#49616b;font-size:12px;'><b>{len(firewall_ips):,}</b> {esc(L['blocked_ips'].lower())} automáticamente · <b>{sum(row['attempts'] for row in firewall_rows):,}</b> {esc(L['attempts'].lower())} asociados a estos bloqueos.</td></tr><tr><td style='padding:0 14px 12px;color:#78909c;font-size:11px;'>{esc(L['firewall_note'])}</td></tr>\")\n    page.append(section_close())\n\n    # IPs con más de una ejecución real de firewall-drop durante el período.\n    firewall_recurrence=summary[\"firewall_recurrence\"]\n    firewall_rules_by_ip=summary[\"firewall_rules_by_ip\"]\n    firewall_timeouts=summary[\"firewall_timeouts\"]\n    firewall_agents_by_ip=defaultdict(set)\n    for row in firewall_rows:\n        for src in row[\"ips\"]:\n            firewall_agents_by_ip[src].add(row[\"agent_name\"] or \"Servidor desconocido\")\n    recidivists=[ip for ip,count in firewall_recurrence.items() if count > 1]\n    page.append(section_open(\"🔁\",L[\"recidivist\"],L[\"recidivist_sub\"]))\n    if recidivists:\n        recidivists.sort(key=lambda ip:(-firewall_recurrence[ip], ipaddress.ip_address(ip).version, int(ipaddress.ip_address(ip))))\n        page.append(\"<tr><td style='padding:0 8px 8px;overflow-wrap:anywhere;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>\")\n        page.append(f\"<tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>IP</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Servidor que ejecutó el bloqueo</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['block_count'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['trigger_rules'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['ban_duration'])}</td></tr>\")\n        for src in recidivists:\n            geo_item=geo.get(src) or {}\n            ip_country=(f\"{geo_item.get('flag','🌐')} {geo_item.get('country')}\" if geo_item.get('country') and geo_item.get('country') != 'No disponible' else '🌐 No disponible')\n            rules=sorted(firewall_rules_by_ip[src], key=lambda item:item[0])\n            rule_text=\"<br>\".join(f\"<span style='font-family:monospace;color:#d65d00;font-weight:bold;'>{esc(rule_id)}</span> — {esc(description)}\" for rule_id,description in rules)\n            durations=sorted({format_duration(firewall_timeouts.get(rule_id)) for rule_id,_ in rules})\n            duration_text=\", \".join(durations)\n            agents_text=\"<br>\".join(esc(display_agent_name(name)) for name in sorted(firewall_agents_by_ip[src], key=str.lower))\n            page.append(f\"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-size:12px;font-weight:bold;'>{esc(src)}<br><span style='font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:normal;color:#667b84;'>{esc(ip_country)}</span></td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;line-height:1.4;overflow-wrap:anywhere;'>{agents_text}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{firewall_recurrence[src]:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;line-height:1.4;overflow-wrap:anywhere;'>{rule_text}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;white-space:nowrap;'>{esc(duration_text)}</td></tr>\")\n        page.append(\"</table></td></tr>\")\n        page.append(f\"<tr><td style='padding:0 14px 12px;color:#78909c;font-size:11px;'>El tiempo mostrado corresponde al <b>tiempo de bloqueo configurado en Wazuh</b> para cada regla de respuesta automática; no representa necesariamente el tiempo restante de un bloqueo histórico.</td></tr>\")\n    else:\n        page.append(\"<tr><td style='padding:10px 14px;color:#78909c;font-size:12px;'>No hubo IPs con más de una ejecución de firewall-drop durante el período.</td></tr>\")\n    page.append(section_close())\n\n    # Resumen de vulnerabilidades críticas actuales del Wazuh Indexer.\n    page.append(section_open(\"🛡\",L[\"cve\"],L[\"cve_sub\"]))\n    if cve_summary.get(\"error\"):\n        page.append(\n            f\"<tr><td style='padding:10px 14px;color:#8a3d2d;font-size:12px;'>{esc(L['cve_error'])} {esc(cve_summary['error'])}</td></tr>\"\n        )\n    else:\n        cve_total=int(cve_summary.get(\"total\",0) or 0)\n        cve_agents=cve_summary.get(\"agents\") or {}\n        page.append(\n            f\"<tr><td style='padding:0 8px 8px;color:#78909c;font-size:11px;'>\"\n            f\"<b>{cve_total:,}</b> {esc(L['cve_total'].lower())} · \"\n            f\"<b>{len(cve_agents):,}</b> {esc(L['cve_systems'].lower())}</td></tr>\"\n        )\n        unsupported_agents=cve_summary.get(\"unsupported_agents\") or {}\n        if cve_agents:\n            page.append(\"<tr><td style='padding:0 8px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>\")\n            page.append(\n                f\"<tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['cve_agent'])}</td>\"\n                f\"<td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;text-align:center;'>{esc(L['cve_count'])}</td></tr>\"\n            )\n            cve_rows=sorted(\n                cve_agents.values(),\n                key=lambda item:(-int(item.get(\"count\",0)), str(item.get(\"name\",\"\")).lower()),\n            )\n            for item in cve_rows:\n                page.append(\n                    f\"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;overflow-wrap:anywhere;'>{esc(display_agent_name(item.get('name') or 'Servidor desconocido'))}</td>\"\n                    f\"<td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{int(item.get('count',0)):,}</td></tr>\"\n                )\n            page.append(\"</table></td></tr>\")\n        elif not unsupported_agents:\n            page.append(f\"<tr><td style='padding:10px 14px;color:#147a4a;font-size:12px;'>{esc(L['cve_none'])}</td></tr>\")\n\n        if unsupported_agents:\n            names=\", \".join(\n                display_agent_name(item.get(\"name\") or f\"Servidor {agent_id}\")\n                for agent_id,item in sorted(\n                    unsupported_agents.items(),\n                    key=lambda item:str(item[1].get(\"name\",\"\")).lower(),\n                )\n            )\n            page.append(\n                f\"<tr><td style='padding:10px 14px;color:#8a5a20;font-size:12px;'>{esc(L['cve_unsupported'])}<br><b>Servidores:</b> {esc(names)}</td></tr>\"\n            )\n    page.append(section_close())\n\n    # Resumen de servidores: métricas derivadas de las alertas procesadas.\n    page.append(section_open(\"🖥\",L[\"servers\"],L[\"servers_sub\"]))\n    server_rows=sorted(agent_stats.items(), key=lambda item:(-item[1][\"events\"], item[0][1].lower()))\n    if server_rows:\n        page.append(\"<tr><td style='padding:0 8px 8px;overflow-wrap:anywhere;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>\")\n        page.append(f\"<tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Servidor</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['events'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['high'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['source_ips_col'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['attack_alerts'])}</td></tr>\")\n        for (agent_id,agent_name),data in server_rows[:15]:\n            page.append(f\"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:12px;font-weight:bold;overflow-wrap:anywhere;'>{esc(display_agent_name(agent_name))}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{data['events']:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{data['high']:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{len(data['ips']):,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{data['attacks']:,}</td></tr>\")\n        page.append(\"</table></td></tr>\")\n        if len(server_rows)>15:\n            page.append(f\"<tr><td style='padding:0 14px 12px;color:#78909c;font-size:11px;'>Mostrando los 15 servidores con más eventos de un total de {len(server_rows):,}.</td></tr>\")\n    else:\n        page.append(f\"<tr><td style='padding:10px 14px;color:#147a4a;font-size:12px;'>{esc(L['no_servers'])}</td></tr>\")\n    page.append(section_close())\n    section_labels=[(\"🔐\",L[\"access\"],\"authentication\"),(\"🌐\",L[\"web\"],\"web\"),(\"📁\",L[\"fim\"],\"fim\"),(\"🦠\",L[\"malware\"],\"malware\"),(\"🔑\",L[\"priv\"],\"privilege\"),(\"🎯\",L[\"attack\"],\"attack\")]\n    for icon,label,category in section_labels:\n        info=categories[category]; page.append(section_open(icon,label))\n        if not info[\"count\"]: page.append(f\"<tr><td style='padding:10px 14px;color:#147a4a;font-size:12px;'>{esc(L['attack_note'] if category=='attack' else L['no_activity'])}</td></tr>\")\n        else:\n            page.append(f\"<tr><td style='padding:0 8px 8px;color:#78909c;font-size:11px;'><b>{info['count']:,}</b> detecciones · <b>{len(info['ips']):,}</b> IPs · <b>{len(info['agents']):,}</b> sistemas</td></tr><tr><td style='padding:0 8px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Regla</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Descripción</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Detecciones</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Sistemas</td></tr>\")\n            for rule_id,description,count,names in section_rows(info):\n                shown=\", \".join(names[:5])+(\" …\" if len(names)>5 else \"\"); page.append(f\"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-weight:bold;color:#d65d00;font-size:11px;'>{esc(rule_id)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;overflow-wrap:anywhere;'>{esc(description)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:11px;'>{count:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;overflow-wrap:anywhere;'>{esc(shown)}</td></tr>\")\n            page.append(\"</table></td></tr>\")\n        if category==\"attack\": page.append(f\"<tr><td style='padding:0 14px 10px;color:#78909c;font-size:11px;'>{esc(L['attack_note'])}</td></tr>\")\n        page.append(section_close())\n    page.append(section_open(\"🧭\",L[\"mitre\"],\"MITRE ATT&CK\")); page.append(f\"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:11px;'>{esc(L['mitre_note'])}</td></tr>\"); mitre=mitre_rows(summary)\n    if mitre:\n        page.append(\"<tr><td style='padding:0 8px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>\"); page.append(f\"<tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['technique'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Nombre</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['meaning'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['detections'])}</td></tr>\")\n        for mitre_id,name,meaning,count in mitre: page.append(f\"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-weight:bold;color:#d65d00;font-size:11px;'>{esc(mitre_id)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;'>{esc(name)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;line-height:1.35;'>{esc(meaning)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:11px;'>{count:,}</td></tr>\")\n        page.append(\"</table></td></tr>\")\n    else: page.append(\"<tr><td style='padding:10px 14px;color:#78909c;font-size:12px;'>No se encontraron técnicas MITRE ATT&CK en las alertas del período.</td></tr>\")\n    page.append(f\"<tr><td style='padding:10px 14px 18px;'><div style='background:#f7f9fa;border:1px solid #dce5e9;border-left:4px solid {orange};padding:10px 12px;font-size:11px;line-height:1.5;color:#526873;'>{esc(L['technical_note'])}</div></td></tr><tr><td style='background:{dark};border-top:4px solid {orange};padding:14px 20px;color:#c7d2d7;font-size:10px;'><b style='color:#fff;'>ORANGEBOX IT SERVICES</b><br>Monitoreo y seguridad de infraestructura</td></tr></table></td></tr></table></body></html>\")\n    return \"\".join(page)\n\ndef send_email(subject,body,recipient):\n    msg=MIMEMultipart(\"alternative\"); msg[\"Subject\"]=subject; msg[\"From\"]=f\"Wazuh SOC <{DEFAULT_FROM}>\"; msg[\"To\"]=recipient; msg.attach(MIMEText(\"OrangeBox Wazuh Security Activity Report.\",\"plain\",\"utf-8\")); msg.attach(MIMEText(body,\"html\",\"utf-8\"))\n    result = subprocess.run([\"/usr/sbin/sendmail\",\"-t\",\"-i\"], input=msg.as_string(), text=True, capture_output=True, timeout=10, check=False)\n    if result.returncode != 0:\n        detail = (result.stderr or result.stdout or f\"sendmail exit={result.returncode}\").strip()\n        raise RuntimeError(f\"Postfix maildrop: {detail}\")\n\ndef archive_html(body,label):\n    os.makedirs(ARCHIVE_DIR,mode=0o750,exist_ok=True); safe=re.sub(r\"[^A-Za-z0-9_.-]+\",\"_\",label); path=f\"{ARCHIVE_DIR}/security-report-{safe}.html\"\n    with open(path,\"w\",encoding=\"utf-8\") as handle: handle.write(body)\n    return path\n\ndef main():\n    parser=argparse.ArgumentParser(description=\"OrangeBox Wazuh Security Activity Report\"); modes=parser.add_mutually_exclusive_group(required=True)\n    for name in (\"today\",\"yesterday\",\"thisweek\",\"lastweek\",\"thismonth\",\"lastmonth\",\"thisyear\",\"lastyear\"): modes.add_argument(\"--\"+name,action=\"store_true\")\n    modes.add_argument(\"--date\",help=\"Día específico YYYY-MM-DD\"); parser.add_argument(\"--group\",required=True,help=\"Grupos Wazuh separados por comas\")\n    parser.add_argument(\"--email\",action=\"append\",required=True,help=\"Destinatario. Puede repetirse o contener varias direcciones separadas por comas.\"); parser.add_argument(\"--lang\",choices=(\"es\",\"en\"),default=\"es\",help=\"Idioma del informe: es o en\"); args=parser.parse_args()\n    recipients=[]\n    for value in args.email: recipients.extend(r.strip() for r in value.split(\",\") if r.strip())\n    if not recipients: raise SystemExit(\"Debe especificar al menos un destinatario\")\n    for recipient in recipients:\n        if not re.fullmatch(r\"[^\\s@]+@[^\\s@]+\",recipient): raise SystemExit(f\"Dirección de correo inválida: {recipient}\")\n    mode=args.date and f\"date:{args.date}\" or next(name for name in (\"today\",\"yesterday\",\"thisweek\",\"lastweek\",\"thismonth\",\"lastmonth\",\"thisyear\",\"lastyear\") if getattr(args,name))\n    now=datetime.now().astimezone(); start,end,label=period_bounds(mode,now)\n    groups = all_groups() if args.group.lower() == \"all\" else [value.strip() for value in args.group.split(\",\") if value.strip()]\n    if not groups:\n        raise SystemExit(\"No hay grupos Wazuh con servidores asignados para generar el reporte.\")\n    allowed=set()\n    for group in groups:\n        allowed.update(group_members(group))\n    if not allowed:\n        raise SystemExit(\"No se pudieron obtener servidores de los grupos seleccionados.\")\n    # Etiqueta visible del encabezado: usar los grupos efectivos,\n    # especialmente cuando --group all resuelve múltiples grupos.\n    group_label = \", \".join(groups)\n    summary=load_events(start,end,allowed)\n    cve_summary, cve_error = fetch_critical_cves(allowed)\n    summary[\"cve_summary\"] = cve_summary\n    if cve_error:\n        summary[\"cve_summary\"][\"error\"] = cve_error\n    period=f\"{start.strftime('%d/%m/%Y %H:%M')} — {end.strftime('%d/%m/%Y %H:%M') if end < now else 'ahora'}\"; L=labels(args.lang); body=generate_html(summary,L[\"report\"],L[\"subtitle\"],period,group_label,args.lang); archive=archive_html(body,f\"{args.group}-{mode.replace(':','-')}-{start:%Y%m%d}-{end:%Y%m%d}\")\n    subject_prefix={\n        \"today\": \"Reporte Diario de Seguridad\",\n        \"yesterday\": \"Reporte Diario de Seguridad\",\n        \"thisweek\": \"Reporte Semanal de Seguridad\",\n        \"lastweek\": \"Reporte Semanal de Seguridad\",\n        \"thismonth\": \"Reporte Mensual de Seguridad\",\n        \"lastmonth\": \"Reporte Mensual de Seguridad\",\n        \"thisyear\": \"Reporte Anual de Seguridad\",\n        \"lastyear\": \"Reporte Anual de Seguridad\",\n    }\n    subject=f\"📊 [ORANGEBOX] {subject_prefix.get(mode, 'Reporte de Seguridad')} — {args.group}\"; sent=[]; failed=[]\n    for recipient in recipients:\n        try: send_email(subject,body,recipient); sent.append(recipient)\n        except Exception as exc: failed.append((recipient,exc))\n    security=summary[\"security_count\"]; print(f\"Destinatarios enviados: {', '.join(sent) if sent else 'ninguno'}\")\n    if cve_error:\n        print(f\"CVE críticos: NO CONSULTADO — {cve_error}\")\n    else:\n        print(f\"CVE críticos: {summary['cve_summary']['total']:,} en {len(summary['cve_summary']['agents']):,} sistemas\")\n    for recipient,exc in failed: print(f\"ERROR enviando a {recipient}: {exc}\")\n    print(f\"Grupo: {args.group}\"); print(f\"Periodo: {period}\"); print(f\"Eventos de seguridad: {security}\"); print(f\"Archivo: {archive}\")\n    if failed: raise SystemExit(1)\n\nif __name__==\"__main__\": main()\n"
+ENGINE_FILENAME = "orangebox-report-engine-v3.py"
+REPORT_FILENAME = "orangebox-security-report.py"
+EMBEDDED_ENGINE_BLOB = "330bc0af97a907983d213ee1bcba6ba972343714"
+EMBEDDED_REPORT_BLOB = "e219e70f2befa36c5a1ca8f364b8aab7c9ff836f"
+
+BASE_DIR = Path(__file__).resolve().parent
+CACHE_DIR = Path("/var/ossec/reports/cache-proto-v3")
+ARCHIVE_DIR = Path("/var/ossec/reports/archive")
 DEFAULT_FROM = "wazuh@example.com"
-AGENT_GROUPS_BIN = "/var/ossec/bin/agent_groups"
-INDEXER_CONFIG = "/var/ossec/etc/orangebox-indexer.conf"
+SMTP_HOST = "localhost"
+SMTP_PORT = 25
 FIREWALL_RULE = "10458"
-FIREWALL_RE = re.compile(r"active-response/bin/firewall-drop:\s*(\{.*\})$")
-WAZUH_OSSEC_CONF = "/var/ossec/etc/ossec.conf"
-LOGO_URL = "https://www.orangebox.cl/obox/img/logo-dark.png"
-
-AUTH_RULES = {"5710", "5712", "5715", "5716", "5720", "5760", "5763", "10001", "10006", "10007", "10008", "10009", "40101"}
-WEB_RULES = {"31101", "10023", "10024", "10025", "10026"}
-FIM_RULES = {"550", "553", "554", "10060", "10062", "10063", "10410", "10432"}
-MALWARE_RULES = {"10060", "10062", "10063", "10410", "10432"}
-PRIV_RULES = {"10004", "10005", "5402", "5403", "10032"}
-AUTH_GROUPS = {"authentication", "authentication_success", "authentication_failed"}
-WEB_GROUPS = {"web", "orangebox_web"}
-FIM_GROUPS = {"syscheck", "syscheck_entry_added", "syscheck_entry_modified", "syscheck_entry_deleted", "orangebox_temporary_executable"}
-MALWARE_GROUPS = {"malware", "webshell", "orangebox_malware", "orangebox_webshell"}
-ATTACK_GROUPS = {"attack", "brute_force", "reconnaissance", "credential_discovery", "sensitive_file", "lateral_movement"}
-REPORT_EXCLUDED_GROUPS = {"orangebox_exception", "orangebox_whitelist"}
-
-# Grupos funcionales/tecnicos que no representan clientes cuando se usa --group all.
-REPORT_NON_CLIENT_GROUPS = {"default", "cpanel", "zimbra"}
-REPORT_EXCLUDED_RULES = {"5402"}
-
-RULE_CANONICAL_DESCRIPTIONS = {
-    "5710": "SSH: Intento de acceso con usuario inexistente.",
-    "5712": "SSH: Fuerza bruta intentando acceder al sistema con usuario inexistente.",
-    "5715": "SSH: Inicio de sesión exitoso.",
-    "5760": "SSH: Autenticación fallida.",
-    "5763": "SSH: Fuerza bruta intentando acceder al sistema con autenticación fallida.",
-    "5758": "SSH: Se superó el máximo de intentos de autenticación.",
-    "10001": "SSH: Inicio de sesión SSH exitoso.",
-    "10006": "SSH: Fuerza bruta completada con éxito.",
-    "10007": "SSH: Posible movimiento lateral desde la red interna.",
-    "40101": "ACCESO: Sesión de usuario iniciada.",
-    "5501": "ACCESO: Sesión PAM de usuario abierta.",
-    "5503": "ACCESO: Fallo de autenticación de usuario PAM.",
-    "2501": "ACCESO: Fallo de autenticación de usuario.",
-    "2502": "ACCESO: Contraseña incorrecta en múltiples intentos.",
-    "3332": "ACCESO: Fallo de autenticación SASL de Postfix.",
-    "10004": "PRIVILEGIOS: Usuario cambió de sesión a ROOT mediante comando SU.",
-    "10005": "PRIVILEGIOS: SUDO hacia ROOT con comando no autorizado por la whitelist OrangeBox.",
-    "5402": "PRIVILEGIOS: SUDO hacia ROOT ejecutado.",
-    "5403": "PRIVILEGIOS: Primera ejecución de SUDO por el usuario.",
-    "10032": "PRIVILEGIOS: Configuración de SUDO modificada.",
-    "550": "ARCHIVOS: Integridad de archivo modificada.",
-    "553": "ARCHIVOS: Archivo eliminado.",
-    "554": "ARCHIVOS: Archivo agregado al sistema.",
-    "517": "ARCHIVOS: Directorio monitorizado eliminado.",
-    "560": "ARCHIVOS: Cola de FIM en tiempo real llena.",
-    "231": "ARCHIVOS: Límite de archivos monitorizados próximo a alcanzarse.",
-    "10060": "MALWARE: Script SHELL creado en directorio temporal.",
-    "10062": "MALWARE: Posible WebShell PHP creado.",
-    "10063": "MALWARE: Posible WebShell PHP modificado.",
-    "10410": "MALWARE: Archivo ejecutable creado en directorio temporal.",
-    "10432": "MALWARE: Permiso de ejecución agregado a archivo en directorio temporal.",
-    "10023": "WEB: Reconocimiento o acceso a recurso sensible detectado.",
-    "10024": "WEB: HTTP 401/403 detectado contra servidor web.",
-    "10025": "WEB: Posible fuerza bruta web.",
-    "10026": "WEB: Posible reconocimiento automatizado de archivos sensibles o credenciales web.",
-    "31101": "WEB: Código de error 400 del servidor web.",
-    "31516": "WEB: Acceso a URL sospechosa.",
-    "31533": "WEB: Alta cantidad de solicitudes POST en un período corto.",
-    "31509": "WEB: Intento de acceso de login de CMS.",
-    "31151": "WEB: Múltiples errores 400 desde la misma IP de origen.",
-    "30306": "WEB: Intento de acceso a índice de directorio prohibido.",
-    "30318": "WEB: Aviso PHP detectado en log de Apache.",
-    "31515": "WEB: Escaneo de PHPMyAdmin detectado.",
-    "31104": "WEB: Ataque web común detectado.",
-    "30305": "WEB: Intento de acceso a archivo o directorio prohibido.",
-    "31510": "WEB: Fuerza bruta contra CMS detectada.",
-    "31106": "WEB: Ataque web que devolvió código HTTP 200.",
-    "10453": "RED: Posible escaneo de puertos TCP desde la misma IP de origen.",
-    "10454": "RED: Posible inundación TCP SYN desde la misma IP de origen.",
-    "10455": "RED: Posible ataque de denegación de servicio distribuido.",
-    "10034": "CONFIGURACIÓN: Unidad o configuración persistente de SYSTEMD modificada.",
-    "10035": "CONFIGURACIÓN: Configuración de CRON o ANACRON modificada.",
-    "10036": "RED: Configuración crítica de red, DNS o montaje modificada.",
-    "10037": "CONFIGURACIÓN: Configuración de FIREWALL modificada.",
-    "10044": "CONFIGURACIÓN: Unidad o configuración persistente de SYSTEMD eliminada.",
-    "100311": "ENDPOINT: Nuevo puerto de red detectado en el endpoint.",
-    "100313": "ENDPOINT: Nuevo servicio detectado en el endpoint.",
-}
-
-MITRE_DESCRIPTIONS = {
-    "T1110": "Fuerza bruta: intentos repetidos para obtener acceso mediante credenciales.",
-    "T1110.001": "Intentos repetidos de acceso probando contraseñas.",
-    "T1021": "Acceso remoto a otro sistema mediante un servicio de red.",
-    "T1021.004": "Acceso remoto a sistemas mediante SSH.",
-    "T1078": "Uso de una cuenta o credencial válida para intentar acceder.",
-    "T1565.001": "Modificación de información almacenada para alterar su contenido o comportamiento.",
-    "T1070.004": "Eliminación de archivos para borrar rastros de actividad.",
-    "T1485": "Destrucción de datos para provocar pérdida o interrupción de información.",
-    "T1548.003": "Uso de sudo para ejecutar acciones con privilegios elevados.",
-    "T1055": "Intento de ejecutar código dentro de otro proceso para evadir controles.",
-    "T1190": "Intento de aprovechar una aplicación o servicio expuesto a Internet.",
-    "T1498": "Intento de saturar un servicio mediante un volumen elevado de tráfico.",
-    "T1595.002": "Reconocimiento activo para identificar servicios o sistemas accesibles.",
-    "T1083": "Búsqueda de archivos y directorios para conocer qué existe en el sistema.",
-    "T1552": "Búsqueda de información sensible almacenada de forma insegura.",
-    "T1098": "Modificación de cuentas para mantener o ampliar el acceso.",
-    "T1059": "Uso de una consola o intérprete para ejecutar comandos.",
-    "T1059.004": "Ejecución de comandos mediante una consola Unix o Linux.",
-    "T1105": "Descarga o transferencia de archivos desde una ubicación remota.",
-    "T1505.003": "Intento de instalar o utilizar un componente web malicioso, como un webshell.",
-}
-
-LABELS_ES = {
-    "report": "Informe de Actividad de Seguridad", "subtitle": "Actividad de seguridad, detecciones y acciones automatizadas de Wazuh", "security_events": "Eventos de seguridad", "high_alerts": "Alertas de alta severidad", "source_ips": "IPs de origen observadas", "systems": "Servidores afectados", "firewall": "Bloqueo automático de IPs · Motivo", "firewall_sub": "Motivos que activaron el bloqueo automático y cantidad de IPs afectadas.", "agent": "Sistema", "reason": "Motivo", "rule": "Regla", "blocked_ips": "IPs bloqueadas", "attempts": "Intentos detectados", "access": "Intentos de acceso", "web": "Intentos de acceso y exploración web", "fim": "Cambios detectados en archivos", "malware": "Detecciones de malware y archivos sospechosos", "priv": "Escalamiento de privilegios", "attack": "Detecciones clasificadas como intentos de ataque", "mitre": "Técnicas MITRE observadas en las alertas", "technique": "Técnica", "meaning": "Qué significa", "detections": "Alertas asociadas", "agents": "Servidores afectados", "no_firewall": "No se registraron bloqueos automáticos con una IP de origen válida.", "no_activity": "No se registraron detecciones de esta categoría durante el período.", "attack_note": "Esta sección incluye únicamente alertas que el informe clasificó explícitamente como actividad de ataque. Que una técnica MITRE aparezca más abajo no significa por sí sola que exista un ataque confirmado.", "mitre_note": "El contador indica cuántas alertas de Wazuh fueron asociadas a cada técnica MITRE durante el período. No representa necesariamente accesos exitosos, conexiones individuales ni compromisos confirmados.", "firewall_note": "Los intentos detectados son detecciones Wazuh asociadas a las IP que fueron bloqueadas; no equivalen necesariamente a la cantidad bruta de conexiones o solicitudes originales.", "recidivist": "IPs reincidentes en bloqueos automáticos", "recidivist_sub": "IPs bloqueadas automáticamente más de una vez durante el período, con el servidor que ejecutó el bloqueo.", "block_count": "Bloqueos", "trigger_rules": "Reglas que activaron el bloqueo", "ban_duration": "Tiempo de baneo configurado", "servers": "Servidores más afectados", "servers_sub": "Resumen de actividad por servidor durante el período.", "events": "Eventos", "high": "Alta severidad", "source_ips_col": "IPs origen", "attack_alerts": "Alertas de ataque", "no_servers": "No se registraron eventos para los servidores durante el período.", "cve": "Vulnerabilidades críticas (CVE)", "cve_sub": "Resumen del inventario actual de vulnerabilidades críticas del Wazuh Indexer.", "cve_total": "Hallazgos CVE críticos", "cve_systems": "Sistemas con CVE críticos", "cve_agent": "Servidor", "cve_count": "CVE críticos", "cve_error": "No fue posible consultar el inventario de vulnerabilidades del Wazuh Indexer.", "cve_none": "No se registran CVE críticos en el inventario consultado.", "cve_unsupported": "CloudLinux detectado: Wazuh no realiza actualmente evaluación nativa de vulnerabilidades para esta distribución; no corresponde interpretar el resultado como ausencia de CVE.", "technical_note": "Los identificadores y descripciones de las reglas corresponden al motor de detección Wazuh. La detección de un intento no implica por sí sola que el sistema haya sido comprometido.",
-}
-LABELS_EN = {
-    "report": "Security Activity Report", "subtitle": "Security activity, detections and automated Wazuh responses", "security_events": "Security events", "high_alerts": "High-severity alerts", "source_ips": "Observed source IPs", "systems": "Affected servers", "firewall": "Automatic IP blocking · Reason", "firewall_sub": "Reasons that triggered automatic blocking and number of affected IPs.", "agent": "System", "reason": "Reason", "rule": "Rule", "blocked_ips": "Blocked IPs", "attempts": "Detected attempts", "access": "Access attempts", "web": "Web access and reconnaissance attempts", "fim": "Detected file changes", "malware": "Malware and suspicious file detections", "priv": "Privilege escalation", "attack": "Detections classified as attack attempts", "mitre": "MITRE techniques observed in alerts", "technique": "Technique", "meaning": "What it means", "detections": "Associated alerts", "agents": "Most affected systems", "no_firewall": "No automatic blocks with a valid source IP were recorded.", "no_activity": "No detections were recorded for this category during the period.", "attack_note": "This section includes only alerts explicitly classified by the report as attack activity. The appearance of a MITRE technique below does not by itself mean that a confirmed attack occurred.", "mitre_note": "The counter shows how many Wazuh alerts were associated with each MITRE technique during the period. It does not necessarily represent successful logins, individual connections, or confirmed compromises.", "firewall_note": "Detected attempts are Wazuh detections associated with the IPs that were blocked; they do not necessarily equal the raw number of original connections or requests.", "recidivist": "IPs with repeated automatic blocks", "recidivist_sub": "IPs automatically blocked more than once during the period, with the server that executed the block.", "block_count": "Blocks", "trigger_rules": "Rules that triggered the block", "ban_duration": "Configured ban time", "servers": "Most affected servers", "servers_sub": "Activity summary by server during the period.", "events": "Events", "high": "High severity", "source_ips_col": "Source IPs", "attack_alerts": "Attack alerts", "no_servers": "No server events were recorded during the period.", "cve": "Critical vulnerabilities (CVE)", "cve_sub": "Summary of the current critical vulnerability inventory from the Wazuh Indexer.", "cve_total": "Critical CVE findings", "cve_systems": "Systems with critical CVEs", "cve_agent": "Server", "cve_count": "Critical CVEs", "cve_error": "The Wazuh Indexer vulnerability inventory could not be queried.", "cve_none": "No critical CVEs are recorded in the queried inventory.", "cve_unsupported": "CloudLinux detected: Wazuh does not currently provide native vulnerability assessment for this distribution; the result must not be interpreted as absence of CVEs.", "technical_note": "Rule identifiers and descriptions come from the Wazuh detection engine. Detecting an attempt does not by itself mean that the system was compromised.",
-}
-
-def labels(lang): return LABELS_EN if lang == "en" else LABELS_ES
-def esc(value): return html.escape(str(value), quote=True)
 
 
-def standardize_rule_description(rule_id, description, groups=None):
-    """Normaliza los nombres de reglas para el reporte sin modificar Wazuh."""
-    rid = str(rule_id)
-    if rid in RULE_CANONICAL_DESCRIPTIONS:
-        return RULE_CANONICAL_DESCRIPTIONS[rid]
-
-    text = str(description or "Sin descripción").strip()
-    text = re.sub(
-        r"^(?:ALERTA(?:\s+CRITICA)?|ORANGEBOX(?:\s+TEST)?)\s*:\s*",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    )
-    text = re.sub(r"\s+", " ", text).strip()
-
-    group_set = {str(value).lower() for value in (groups or [])}
-    if rid in MALWARE_RULES or group_set & MALWARE_GROUPS:
-        prefix = "MALWARE"
-    elif rid in PRIV_RULES or group_set & {"privilege_escalation", "privilege_escalation_root", "sudo"}:
-        prefix = "PRIVILEGIOS"
-    elif rid in WEB_RULES or group_set & WEB_GROUPS:
-        prefix = "WEB"
-    elif rid in FIM_RULES or group_set & FIM_GROUPS:
-        prefix = "ARCHIVOS"
-    elif rid in AUTH_RULES or group_set & AUTH_GROUPS:
-        prefix = "SSH" if "ssh" in group_set else "ACCESO"
-    elif group_set & ATTACK_GROUPS:
-        prefix = "ATAQUE"
-    else:
-        return text or "Sin descripción"
-
-    return text if re.match(rf"^{re.escape(prefix)}\s*:", text, flags=re.IGNORECASE) else f"{prefix}: {text}"
-
-
-def report_event_exempt(event):
-    group_set = {str(value).lower() for value in (event.get("groups") or [])}
-    rule_id = str(event.get("rule_id", "")).strip()
-    try:
-        level = int(event.get("level", 0) or 0)
-    except (TypeError, ValueError):
-        level = 0
-    return (
-        level <= 0
-        or rule_id in REPORT_EXCLUDED_RULES
-        or bool(group_set & REPORT_EXCLUDED_GROUPS)
-    )
-
-
-def read_secure_kv(path):
-    values = {}
-    path = Path(path)
-    if not path.exists():
-        return values
-    try:
-        mode = path.stat().st_mode & 0o777
-    except OSError:
-        mode = 0
-    if mode & 0o077:
-        raise RuntimeError(f"{path} debe tener permisos 0600 o más restrictivos.")
-    try:
-        content = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise RuntimeError(f"No se pudo leer {path}: {exc}") from exc
-    for line in content.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip().strip("'").strip('"')
-    return values
-
-
-def indexer_settings():
-    config = read_secure_kv(INDEXER_CONFIG)
-    user = os.environ.get("WAZUH_INDEXER_USER") or config.get("WAZUH_INDEXER_USER") or "admin"
-    password = os.environ.get("WAZUH_INDEXER_PASS") or config.get("WAZUH_INDEXER_PASS")
-    if not password:
-        raise RuntimeError(
-            f"No existe WAZUH_INDEXER_PASS en {INDEXER_CONFIG}. "
-            "El password del Indexer no debe quedar dentro del repositorio."
-        )
-    return {
-        "url": (os.environ.get("WAZUH_INDEXER_URL") or config.get("WAZUH_INDEXER_URL") or "https://127.0.0.1:9200").rstrip("/"),
-        "user": user,
-        "password": password,
-    }
-
-
-def indexer_request(settings, path, payload):
-    body = json.dumps(payload).encode("utf-8")
-    token = base64.b64encode(
-        f"{settings['user']}:{settings['password']}".encode("utf-8")
-    ).decode("ascii")
-    request = urllib.request.Request(
-        f"{settings['url']}{path}",
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Basic {token}",
-        },
-    )
-    context = ssl._create_unverified_context()
-    try:
-        with urllib.request.urlopen(request, context=context, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8")), None
-    except urllib.error.HTTPError as exc:
+def cleanup_cache_artifacts():
+    """Limpia residuos de ejecuciones interrumpidas sin tocar datos válidos."""
+    if not CACHE_DIR.exists():
+        return
+    temp_dir_re = re.compile(r"^\d{4}-\d{2}-\d{2}\.[A-Za-z0-9_-]+$")
+    for path in sorted(CACHE_DIR.rglob("*"), key=lambda p: len(p.parts), reverse=True):
         try:
-            detail = exc.read().decode("utf-8", errors="replace")
-        except OSError:
-            detail = ""
-        return None, f"Indexer HTTP {exc.code}: {detail[:300]}"
-    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
-        return None, f"Consulta al Indexer falló: {exc}"
-
-
-def fetch_critical_cves(allowed):
-    try:
-        settings = indexer_settings()
-    except RuntimeError as exc:
-        return {"total": 0, "agents": {}, "unsupported_agents": {}}, str(exc)
-
-    filters = [{"term": {"vulnerability.severity": "Critical"}}]
-    if allowed is not None:
-        if not allowed:
-            return {"total": 0, "agents": {}, "unsupported_agents": {}}, None
-        filters.append({"terms": {"agent.id": sorted(allowed)}})
-
-    results = {}
-    total_reported = None
-    search_after = None
-
-    while True:
-        payload = {
-            "size": 1000,
-            "track_total_hits": True,
-            "_source": [
-                "agent.id",
-                "agent.name",
-            ],
-            "query": {
-                "bool": {
-                    "filter": filters,
-                }
-            },
-            "sort": [
-                {"_index": {"order": "asc"}},
-                {"_id": {"order": "asc"}},
-            ],
-        }
-        if search_after is not None:
-            payload["search_after"] = search_after
-
-        data, error = indexer_request(
-            settings,
-            "/wazuh-states-vulnerabilities-*/_search",
-            payload,
-        )
-        if error:
-            return {"total": 0, "agents": {}, "unsupported_agents": {}}, error
-
-        hits_root = data.get("hits") or {}
-        if total_reported is None:
-            total = hits_root.get("total") or 0
-            total_reported = int(total.get("value", total) if isinstance(total, dict) else total)
-
-        hits = hits_root.get("hits") or []
-        if not hits:
-            break
-
-        for hit in hits:
-            source = hit.get("_source") or {}
-            agent = source.get("agent") or {}
-            agent_id = str(agent.get("id", "")).strip()
-            if not agent_id:
+            if path.is_dir() and temp_dir_re.fullmatch(path.name):
+                shutil.rmtree(path, ignore_errors=True)
                 continue
-            agent_name = str(agent.get("name") or f"Servidor {agent_id}")
-            record = results.setdefault(agent_id, {"name": agent_name, "count": 0})
-            record["count"] += 1
-
-        next_sort = hits[-1].get("sort")
-        if not next_sort:
-            break
-        if next_sort == search_after:
-            return {"total": 0, "agents": {}, "unsupported_agents": {}}, "La paginación del inventario CVE quedó sin avance."
-        search_after = next_sort
-        if len(hits) < 1000:
-            break
-
-    unsupported_agents = {}
-    if allowed:
-        os_filters = [{"terms": {"agent.id": sorted(allowed)}}]
-        os_payload = {
-            "size": max(1000, len(allowed)),
-            "track_total_hits": False,
-            "_source": ["agent.id", "agent.name", "host.os.name", "host.os.platform"],
-            "query": {"bool": {"filter": os_filters}},
-        }
-        os_data, os_error = indexer_request(
-            settings,
-            "/wazuh-states-inventory-system-*/_search",
-            os_payload,
-        )
-        if not os_error:
-            for hit in (os_data.get("hits") or {}).get("hits", []):
-                source = hit.get("_source") or {}
-                agent = source.get("agent") or {}
-                agent_id = str(agent.get("id", "")).strip()
-                host_os = source.get("host") or {}
-                os_data_block = host_os.get("os") or {}
-                os_name = str(os_data_block.get("name") or "").strip()
-                os_platform = str(os_data_block.get("platform") or "").strip()
-                os_name_l = os_name.lower()
-                os_platform_l = os_platform.lower()
-                is_almalinux = "almalinux" in os_name_l or "almalinux" in os_platform_l
-                is_cloudlinux = (
-                    os_platform_l == "cloudlinux"
-                    or os_name_l == "cloudlinux"
-                )
-                # AlmaLinux usa el ecosistema de CVE/RHEL y no debe quedar
-                # marcado como distro sin soporte aunque conserve un label
-                # de plataforma heredado.
-                if agent_id and is_cloudlinux and not is_almalinux:
-                    unsupported_agents[agent_id] = {
-                        "name": str(agent.get("name") or f"Servidor {agent_id}")
-                    }
-
-    total = total_reported if total_reported is not None else sum(item["count"] for item in results.values())
-    return {"total": total, "agents": results, "unsupported_agents": unsupported_agents}, None
-
-def valid_ip(value):
-    try: ipaddress.ip_address(value); return True
-    except (ValueError, TypeError): return False
+            if not path.is_file():
+                continue
+            name = path.name
+            if (
+                name.endswith((".tmp", ".partial", ".part", ".swp"))
+                or name.startswith(("manifest.json.",))
+                or re.search(r"\.jsonl\.gz\.[A-Za-z0-9._-]+\.gz$", name)
+            ):
+                path.unlink()
+        except OSError:
+            pass
 
 
-GEOIP_CITY_DB = os.environ.get(
-    "ORANGEBOX_GEOIP_CITY_DB",
-    "/var/lib/orangebox/geoip/dbip-city-lite.mmdb",
+def cleanup_archive_artifacts():
+    """Limpia temporales de HTML dejados por una ejecución interrumpida."""
+    if not ARCHIVE_DIR.exists():
+        return
+    for path in ARCHIVE_DIR.glob("*.html.tmp"):
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def load_embedded(source, name, filename):
+    namespace = {
+        "__name__": name,
+        "__file__": filename,
+        "__package__": None,
+    }
+    exec(compile(source, filename, "exec"), namespace, namespace)
+    return namespace
+
+
+# Limpiar residuos antes de cargar el motor evita que una ejecución abortada
+# contamine la siguiente.
+cleanup_cache_artifacts()
+cleanup_archive_artifacts()
+
+# Cargar el motor v3 y el renderer ejecutivo desde sus snapshots embebidos.
+ENGINE = load_embedded(ENGINE_SOURCE, "orangebox_embedded_engine", ENGINE_FILENAME)
+REPORT = load_embedded(
+    REPORT_SOURCE,
+    "orangebox_embedded_security_report",
+    "/var/ossec/reports/orangebox-security-report.py",
 )
 
 
-def _mmdblookup_country_value(ip, *path):
-    if not Path(GEOIP_CITY_DB).is_file() or shutil.which("mmdblookup") is None:
-        return ""
-    try:
-        result = subprocess.run(
-            ["mmdblookup", "--file", GEOIP_CITY_DB, "--ip", str(ip), *path],
-            capture_output=True,
-            text=True,
-            timeout=3,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    if result.returncode != 0:
-        return ""
-    match = re.search(r'(?m)^\s*"((?:\\.|[^"])*)"\s*<utf8_string>', result.stdout)
-    if not match:
-        return ""
-    try:
-        return json.loads(f'"{match.group(1)}"')
-    except json.JSONDecodeError:
-        return match.group(1)
+# Correlaciona eventos 10458 con la alerta original que provocó el bloqueo.
+def firewall_summary(events):
+    firewall_ips = set()
+    firewall_rows = defaultdict(set)
+    firewall_attempts = Counter()
+    firewall_recurrence = Counter()
+    firewall_rules_by_ip = defaultdict(set)
 
-
-def country_flag(country_code):
-    code = str(country_code or "").strip().upper()
-    if len(code) != 2 or not code.isalpha():
-        return "🌐"
-    return "".join(chr(127397 + ord(char)) for char in code)
-
-
-def geoip_country(ip, cache=None):
-    cache = cache if cache is not None else {}
-    if ip in cache:
-        return cache[ip]
-    try:
-        if not ipaddress.ip_address(ip).is_global:
-            data = {"country_code": "", "country": "IP local", "flag": "🌐"}
-            cache[ip] = data
-            return data
-    except ValueError:
-        data = {"country_code": "", "country": "No disponible", "flag": "🌐"}
-        cache[ip] = data
-        return data
-
-    code = _mmdblookup_country_value(ip, "country", "iso_code").upper()
-    name = (
-        _mmdblookup_country_value(ip, "country", "names", "es")
-        or _mmdblookup_country_value(ip, "country", "names", "en")
-    )
-    data = {
-        "country_code": code,
-        "country": name or "No disponible",
-        "flag": country_flag(code),
-    }
-    cache[ip] = data
-    return data
-
-
-def geoip_country_map(ips):
-    cache = {}
-    for ip in sorted(set(ips), key=lambda value: (ipaddress.ip_address(value).version, int(ipaddress.ip_address(value)))):
-        geoip_country(ip, cache)
-    return cache
-
-
-def geoip_country_ranking(ips, geo):
-    counts = Counter()
-    for ip in ips:
-        try:
-            if not ipaddress.ip_address(ip).is_global:
-                continue
-        except ValueError:
+    for event in events:
+        if event.get("outer_rule") != FIREWALL_RULE:
+            srcip = event.get("srcip")
+            if srcip:
+                firewall_attempts[
+                    (event.get("agent_id"), event.get("rule_id"), srcip)
+                ] += 1
             continue
-        item = geo.get(ip) or {}
-        code = str(item.get("country_code") or "").upper()
-        name = str(item.get("country") or "No disponible")
-        counts[(code, name)] += 1
-    return counts.most_common(10)
 
+        if event.get("command") != "add" or not event.get("srcip"):
+            continue
+        agent_id = str(event.get("agent_id", "000"))
+        agent_name = event.get("agent_name", "unknown")
+        rule_id = str(event.get("rule_id", "unknown"))
+        description = event.get("description", "Firewall Drop")
+        src = str(event["srcip"])
+        firewall_rows[(agent_id, agent_name, rule_id, description)].add(src)
+        firewall_ips.add(src)
+        firewall_recurrence[src] += 1
+        firewall_rules_by_ip[src].add((rule_id, description))
 
-def render_country_ranking_rows(ranking):
     rows = []
-    for position, ((code, name), count) in enumerate(ranking, start=1):
-        rows.append(
-            f"<tr><td style='border-top:1px solid #e3e9ec;padding:7px;text-align:center;color:#78909c;font-size:11px;'>{position}</td>"
-            f"<td style='border-top:1px solid #e3e9ec;padding:6px;text-align:center;font-size:20px;'>{esc(country_flag(code))}</td>"
-            f"<td style='border-top:1px solid #e3e9ec;padding:7px;font-size:11px;font-weight:bold;'>{esc(name)}</td>"
-            f"<td style='border-top:1px solid #e3e9ec;padding:7px;text-align:right;font-size:12px;font-weight:bold;'>{count:,}</td></tr>"
+    for (agent_id, agent_name, rule_id, description), ips in firewall_rows.items():
+        attempts = sum(
+            firewall_attempts[(agent_id, rule_id, src)]
+            for src in ips
         )
-    return "".join(rows)
+        if attempts == 0:
+            attempts = len(ips)
+        rows.append(
+            {
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "rule_id": rule_id,
+                "description": description,
+                "ips": sorted(
+                    ips,
+                    key=lambda value: (
+                        ipaddress.ip_address(value).version,
+                        int(ipaddress.ip_address(value)),
+                    ),
+                ),
+                "attempts": attempts,
+            }
+        )
+    rows.sort(key=lambda row: row["agent_name"].lower())
+    return firewall_ips, rows, firewall_recurrence, firewall_rules_by_ip
 
 
-def parse_timestamp(value):
-    if not value: return None
-    try:
-        value = re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", str(value)); return datetime.fromisoformat(value)
-    except (TypeError, ValueError): return None
-
-def extract_firewall_payload(full_log):
-    if not isinstance(full_log, str): return None
-    match = FIREWALL_RE.search(full_log.strip())
-    if not match: return None
-    try: return json.loads(match.group(1))
-    except json.JSONDecodeError: return None
-
-def load_firewall_timeouts():
-    """Lee desde ossec.conf los timeout de cada active-response firewall-drop.
-    Se procesa por bloques de texto porque ossec.conf puede contener varios
-    bloques <ossec_config>, que no forman un XML único estándar.
-    """
-    timeouts = {}
-    try:
-        with open(WAZUH_OSSEC_CONF, "r", encoding="utf-8", errors="ignore") as handle:
-            config = handle.read()
-    except OSError:
-        return timeouts
-
-    for block in re.findall(r"<active-response>\s*(.*?)\s*</active-response>", config, flags=re.DOTALL):
-        command = re.search(r"<command>\s*([^<]+?)\s*</command>", block)
-        rules_id = re.search(r"<rules_id>\s*([^<]+?)\s*</rules_id>", block)
-        timeout = re.search(r"<timeout>\s*(\d+)\s*</timeout>", block)
-        if not command or not rules_id or not timeout:
-            continue
-        if command.group(1).strip() != "firewall-drop":
-            continue
-        seconds = int(timeout.group(1))
-        for rule_id in re.split(r"\s*,\s*", rules_id.group(1).strip()):
-            if rule_id:
-                timeouts[rule_id] = seconds
-    return timeouts
-
-def format_duration(seconds):
-    if seconds is None:
-        return "No disponible"
-    if seconds < 60:
-        return f"{seconds}s"
-    if seconds % 3600 == 0:
-        return f"{seconds // 3600} h"
-    if seconds % 60 == 0:
-        return f"{seconds // 60} min"
-    return f"{seconds}s"
-
-def period_bounds(mode, now):
-    today = now.date()
-    if mode == "today": return datetime.combine(today, datetime.min.time(), now.tzinfo), now, "Hoy"
-    if mode == "yesterday":
-        day = today - timedelta(days=1); return datetime.combine(day, datetime.min.time(), now.tzinfo), datetime.combine(today, datetime.min.time(), now.tzinfo), "Ayer"
-    monday = today - timedelta(days=today.weekday())
-    if mode == "thisweek": return datetime.combine(monday, datetime.min.time(), now.tzinfo), now, "Semana actual"
-    if mode == "lastweek":
-        start = monday - timedelta(days=7); return datetime.combine(start, datetime.min.time(), now.tzinfo), datetime.combine(monday, datetime.min.time(), now.tzinfo), "Semana anterior"
-    first = today.replace(day=1)
-    if mode == "thismonth": return datetime.combine(first, datetime.min.time(), now.tzinfo), now, "Mes actual"
-    if mode == "lastmonth":
-        previous = first - timedelta(days=1); start = previous.replace(day=1); return datetime.combine(start, datetime.min.time(), now.tzinfo), datetime.combine(first, datetime.min.time(), now.tzinfo), "Mes anterior"
-    year = today.replace(month=1, day=1)
-    if mode == "thisyear": return datetime.combine(year, datetime.min.time(), now.tzinfo), now, "Año actual"
-    if mode == "lastyear":
-        start = year.replace(year=year.year - 1); return datetime.combine(start, datetime.min.time(), now.tzinfo), datetime.combine(year, datetime.min.time(), now.tzinfo), "Año anterior"
-    if mode.startswith("date:"):
-        day = datetime.strptime(mode[5:], "%Y-%m-%d").date(); return datetime.combine(day, datetime.min.time(), now.tzinfo), datetime.combine(day + timedelta(days=1), datetime.min.time(), now.tzinfo), day.strftime("%Y-%m-%d")
-    raise SystemExit("Período no válido")
-
-def iter_log_files(start, end):
-    paths=[]; day=start.date(); last=(end-timedelta(microseconds=1)).date()
-    while day <= last:
-        base=Path(ALERTS_ROOT)/f"{day.year:04d}"/day.strftime("%b"); paths += [base/f"ossec-alerts-{day.day:02d}.json.gz", base/f"ossec-alerts-{day.day:02d}.json"]; day += timedelta(days=1)
-    if start.date() <= datetime.now().date() <= last: paths.append(Path(ALERTS_FILE))
-    seen=set()
-    for path in paths:
-        if path.exists() and str(path) not in seen: seen.add(str(path)); yield path
-
-def iter_json(path):
-    opener=gzip.open if str(path).endswith(".gz") else open
-    with opener(path,"rb") as handle:
-        for line in handle:
-            try:
-                obj=orjson.loads(line) if orjson is not None else json.loads(line)
-                if isinstance(obj,dict): yield obj
-            except (json.JSONDecodeError, UnicodeDecodeError, ValueError): continue
-
-def all_groups():
-    """Obtiene grupos con agentes, excluyendo grupos tecnicos al usar --group all."""
-    try:
-        process=subprocess.run([AGENT_GROUPS_BIN, "-l"], capture_output=True, text=True, timeout=15)
-    except (OSError,subprocess.SubprocessError) as exc:
-        raise SystemExit(f"No se pudieron obtener los grupos Wazuh: {exc}") from exc
-    output=process.stdout+"\n"+process.stderr
-    if process.returncode != 0:
-        raise SystemExit(f"agent_groups -l fallo: {output.strip()}")
-    groups=[]
-    for line in output.splitlines():
-        match=re.match(r"^\s{2}(.+?)\s+\((\d+)\)\s*$", line)
-        if not match:
-            continue
-        group_name=match.group(1).strip()
-        count=int(match.group(2))
-        if count <= 0 or group_name.lower() in REPORT_NON_CLIENT_GROUPS:
-            continue
-        groups.append(group_name)
-    return groups
-
-def group_members(group):
-    groups = [value.strip() for value in str(group).split(",") if value.strip()]
-    if not groups:
-        raise SystemExit("Debe especificar al menos un grupo Wazuh")
-    if not os.path.exists(AGENT_GROUPS_BIN): raise SystemExit(f"No existe {AGENT_GROUPS_BIN}")
-
-    all_ids = set()
-    for group_name in groups:
-        try: process=subprocess.run([AGENT_GROUPS_BIN,"-l","-g",group_name],capture_output=True,text=True,timeout=15)
-        except (OSError,subprocess.SubprocessError) as exc: raise SystemExit(f"No se pudo consultar el grupo {group_name}: {exc}") from exc
-        output=process.stdout+"\n"+process.stderr
-        if process.returncode!=0: raise SystemExit(f"Grupo Wazuh inválido o no disponible: {group_name}\n{output.strip()}")
-        ids=set(re.findall(r"\bID:\s*([0-9]+)\b",output))
-        if ids:
-            all_ids.update(ids)
-        elif not re.search(r"0\s+agent\(s\)",output,re.I):
-            raise SystemExit(f"No se pudieron obtener servidores del grupo {group_name}")
-    return all_ids
-
-def classify(rule_id, groups, level):
-    rid=str(rule_id); group_set={str(value).lower() for value in (groups or [])}
-    if rid==FIREWALL_RULE: return "active_response"
-    if rid in MALWARE_RULES or group_set & MALWARE_GROUPS: return "malware"
-    if rid in PRIV_RULES or group_set & {"privilege_escalation","privilege_escalation_root","sudo"}: return "privilege"
-    if rid in WEB_RULES or group_set & WEB_GROUPS: return "web"
-    if rid in FIM_RULES or group_set & FIM_GROUPS: return "fim"
-    if rid in AUTH_RULES or group_set & AUTH_GROUPS: return "authentication"
-    if group_set & ATTACK_GROUPS or int(level or 0)>=12: return "attack"
-    return "other"
-
-def parse_event(outer):
-    rule=outer.get("rule") or {}; rule_id=str(rule.get("id","")); timestamp=parse_timestamp(outer.get("timestamp"))
-    if not timestamp: return None
-    if rule_id==FIREWALL_RULE:
-        # Wazuh 4.x decodes active-responses.log into data.command +
-        # data.parameters. The previous parser expected the raw JSON payload
-        # in full_log, which made valid firewall-drop executions invisible.
-        data=outer.get("data") or {}
-        command=data.get("command")
-        params=data.get("parameters") or {}
-
-        # En Wazuh 4.x, el evento 651 mezcla dos representaciones:
-        # command/parameters vienen estructurados en data, mientras que
-        # "program" y el payload completo de firewall-drop pueden permanecer
-        # únicamente dentro de full_log. Por eso no debemos exigir program
-        # dentro de data.parameters.
-        payload=extract_firewall_payload(outer.get("full_log",""))
-        if isinstance(payload,dict):
-            if command not in {"add","delete"}:
-                command=payload.get("command")
-            raw_params=payload.get("parameters") or {}
-            if raw_params:
-                merged_params=dict(raw_params)
-                merged_params.update(params)
-                params=merged_params
-            elif payload.get("program") and "program" not in params:
-                params=dict(params)
-                params["program"]=payload.get("program")
-
-        if command not in {"add","delete"}:
-            return None
-
-        # La propia regla 651 identifica la ejecución de firewall-drop.
-        # En Wazuh 4.x "program" puede venir en full_log o en data.parameters;
-        # no lo usamos como condición de descarte porque la estructura puede
-        # variar entre versiones/decoders.
-        program=params.get("program")
-        if not program and isinstance(payload,dict):
-            program=payload.get("program")
-
-        alert=params.get("alert") or {}
-        if not alert and isinstance(payload,dict):
-            alert=(payload.get("parameters") or {}).get("alert") or {}
-        alert_rule=alert.get("rule") or {}
-        agent=alert.get("agent") or {}
-        alert_data=alert.get("data") or {}
-        # En los eventos 651 de Wazuh 4.x, la IP bloqueada está
-        # normalmente en data.parameters.alert.data.srcip.
-        src=alert_data.get("srcip") or data.get("srcip") or alert.get("srcip")
-        if not src and isinstance(payload,dict):
-            payload_params=payload.get("parameters") or {}
-            payload_alert=payload_params.get("alert") or {}
-            payload_alert_data=payload_alert.get("data") or {}
-            src=payload_alert_data.get("srcip") or src
-        mitre=alert_rule.get("mitre") or {}
-        return {
-            "timestamp":parse_timestamp(alert.get("timestamp")) or timestamp,
-            "outer_rule":rule_id,
-            "rule_id":str(alert_rule.get("id","unknown")),
-            "description":standardize_rule_description(str(alert_rule.get("id","unknown")),alert_rule.get("description","Firewall Drop"),alert_rule.get("groups") or []),
-            "level":int(alert_rule.get("level",0) or 0),
-            "groups":alert_rule.get("groups") or [],
-            "agent_id":str(agent.get("id","000")),
-            "agent_name":agent.get("name","unknown"),
-            "srcip":str(src) if valid_ip(src) else None,
-            "command":command,
-            "alert_id":str(alert.get("id",outer.get("id",""))),
-            "mitre":mitre.get("id",[]),
-            "techniques":mitre.get("technique",[]),
-            "url":alert_data.get("url"),
+# Resume los eventos ya normalizados. Aquí no se vuelve a parsear Wazuh.
+# Convierte los eventos ya normalizados en las métricas del informe ejecutivo.
+def build_summary(events, allowed):
+    security_count = 0
+    critical_count = 0
+    source_ips = set()
+    agents = Counter()
+    agent_stats = defaultdict(
+        lambda: {"events": 0, "high": 0, "ips": set(), "attacks": 0}
+    )
+    categories = {
+        name: {
+            "count": 0,
+            "ips": set(),
+            "agents": set(),
+            "rules": Counter(),
+            "rule_agents": defaultdict(set),
         }
-    agent=outer.get("agent") or {}; data=outer.get("data") or {}; mitre=rule.get("mitre") or {}
+        for name in ("authentication", "web", "fim", "malware", "privilege", "attack")
+    }
+    mitre_counts = Counter()
+    mitre_names = {}
+    firewall_timeouts = REPORT["load_firewall_timeouts"]()
+
+    for event in events:
+        aid = str(event.get("agent_id", "000"))
+        if aid not in allowed:
+            continue
+
+        if event.get("outer_rule") == FIREWALL_RULE:
+            continue
+
+        category = event.get("category") or REPORT["classify"](
+            event.get("rule_id", ""),
+            event.get("groups", []),
+            event.get("level", 0),
+        )
+
+        if category == "other":
+            continue
+
+        security_count += 1
+        level = int(event.get("level", 0) or 0)
+        if level >= 13:
+            critical_count += 1
+
+        srcip = event.get("srcip")
+        agent_name = event.get("agent_name", "unknown")
+        event_agent = (aid, agent_name)
+        agents[event_agent] += 1
+
+        info = agent_stats[event_agent]
+        info["events"] += 1
+        if level >= 13:
+            info["high"] += 1
+        if srcip:
+            source_ips.add(srcip)
+            info["ips"].add(srcip)
+        if category == "attack":
+            info["attacks"] += 1
+
+        cat = categories[category]
+        cat["count"] += 1
+        if srcip:
+            cat["ips"].add(srcip)
+        cat["agents"].add(aid)
+        rule_key = (
+            str(event.get("rule_id", "")),
+            event.get("description", "Sin descripción"),
+        )
+        cat["rules"][rule_key] += 1
+        cat["rule_agents"][rule_key].add(agent_name)
+
+        techniques = event.get("techniques") or []
+        mitre = event.get("mitre") or []
+        if isinstance(mitre, str):
+            mitre = [mitre]
+        if isinstance(techniques, str):
+            techniques = [techniques]
+        for index, mitre_id in enumerate(mitre):
+            if mitre_id:
+                mitre_counts[str(mitre_id)] += 1
+                if index < len(techniques) and techniques[index]:
+                    mitre_names[str(mitre_id)] = techniques[index]
+
+    firewall_ips, firewall_rows, firewall_recurrence, firewall_rules_by_ip = firewall_summary(
+        events
+    )
+
     return {
-        "timestamp":timestamp,
-        "outer_rule":rule_id,
-        "rule_id":rule_id,
-        "description":standardize_rule_description(rule_id,rule.get("description","Sin descripción"),rule.get("groups") or []),
-        "level":int(rule.get("level",0) or 0),
-        "groups":rule.get("groups") or [],
-        "agent_id":str(agent.get("id","000")),
-        "agent_name":agent.get("name","unknown"),
-        "srcip":str(data.get("srcip")) if valid_ip(data.get("srcip")) else None,
-        "command":None,
-        "alert_id":str(outer.get("id","")),
-        "mitre":mitre.get("id",[]),
-        "techniques":mitre.get("technique",[]),
-        "url":data.get("url"),
-        "fim_path": str(data.get("path") or ((data.get("syscheck") or {}).get("path")) or "").strip(),
+        "security_count": security_count,
+        "critical_count": critical_count,
+        "source_ips": source_ips,
+        "agents": agents,
+        "agent_stats": agent_stats,
+        "categories": categories,
+        "mitre_counts": mitre_counts,
+        "mitre_names": mitre_names,
+        "firewall_ips": firewall_ips,
+        "firewall_rows": firewall_rows,
+        "firewall_recurrence": firewall_recurrence,
+        "firewall_rules_by_ip": firewall_rules_by_ip,
+        "firewall_timeouts": firewall_timeouts,
+        "timeline": Counter(),
     }
 
-def load_events(start,end,allowed):
-    files=list(iter_log_files(start,end))
-    if not files: raise SystemExit("No se encontraron logs JSON para el período solicitado")
-    security_count=0; critical_count=0; source_ips=set(); agents=Counter()
-    agent_stats=defaultdict(lambda: {"events":0, "high":0, "ips":set(), "attacks":0})
-    categories={name:{"count":0,"ips":set(),"agents":set(),"rules":Counter(),"rule_agents":defaultdict(set)} for name in ("authentication","web","fim","malware","privilege","attack")}
-    mitre_counts=Counter(); mitre_names={}; firewall_ips=set(); firewall_rows=defaultdict(set); firewall_attempts=Counter(); firewall_recurrence=Counter(); firewall_rules_by_ip=defaultdict(set); firewall_timeouts=load_firewall_timeouts(); timeline=Counter()
-    seen_day=None; seen=set(); today=datetime.now().date()
-    for path in files:
-        if path == Path(ALERTS_FILE): file_day=today
-        else:
-            try: file_day=datetime.strptime(f"{path.name[13:15]} {path.parent.name} {path.parent.parent.name}","%d %b %Y").date()
-            except (ValueError, IndexError): file_day=None
-        if file_day != seen_day: seen_day=file_day; seen=set()
-        for outer in iter_json(path):
-            rule=outer.get("rule") or {}; outer_rule=str(rule.get("id",""))
-            if outer_rule == FIREWALL_RULE:
-                # Los eventos 651 son el registro de la ejecución real de
-                # firewall-drop. Se procesan de forma independiente para no
-                # depender del decoder ni del deduplicado de alertas normales.
-                outer_ts=parse_timestamp(outer.get("timestamp"))
-                data=outer.get("data") or {}
-                params=data.get("parameters") or {}
-                alert=params.get("alert") or {}
-                command=data.get("command") or params.get("command")
-                payload=extract_firewall_payload(outer.get("full_log",""))
-                if isinstance(payload,dict):
-                    if command not in {"add","delete"}:
-                        command=payload.get("command")
-                    payload_params=payload.get("parameters") or {}
-                    if not alert and isinstance(payload_params,dict):
-                        alert=payload_params.get("alert") or {}
-                alert_rule=alert.get("rule") or {}
-                alert_agent=alert.get("agent") or {}
-                alert_data=alert.get("data") or {}
-                src=alert_data.get("srcip")
-                if not src and isinstance(payload,dict):
-                    payload_alert=payload.get("parameters",{}).get("alert") or {}
-                    src=(payload_alert.get("data") or {}).get("srcip")
-                    if not alert_rule: alert_rule=payload_alert.get("rule") or {}
-                    if not alert_agent: alert_agent=payload_alert.get("agent") or {}
-                event_ts=parse_timestamp(alert.get("timestamp")) or outer_ts
-                agent_id=str(alert_agent.get("id","000"))
-                agent_name=alert_agent.get("name","unknown")
-                if (command=="add" and valid_ip(src) and event_ts and start<=event_ts<end
-                        and (allowed is None or agent_id in allowed)):
-                    rule_id=str(alert_rule.get("id","unknown"))
-                    alert_groups=alert_rule.get("groups") or []
-                    alert_level=int(alert_rule.get("level",0) or 0)
-                    if alert_level <= 0 or ({str(value).lower() for value in alert_groups} & REPORT_EXCLUDED_GROUPS):
-                        continue
-                    description=standardize_rule_description(rule_id,alert_rule.get("description","Firewall Drop"),alert_groups)
-                    row_key=(agent_id,agent_name,rule_id,description)
-                    src_str=str(src)
-                    firewall_rows[row_key].add(src_str)
-                    firewall_ips.add(src_str)
-                    firewall_recurrence[src_str] += 1
-                    firewall_rules_by_ip[src_str].add((rule_id,description))
-                continue
-            outer_ts=parse_timestamp(outer.get("timestamp"))
-            if not outer_ts or outer_ts<start or outer_ts>=end: continue
-            event=parse_event(outer)
-            if not event or event["timestamp"]<start or event["timestamp"]>=end: continue
-            if allowed is not None and event["agent_id"] not in allowed: continue
-            if report_event_exempt(event): continue
-            # Replica en el reporte de la excepción 20007: las sesiones
-            # systemd-user de usuarios como apache no son accesos interactivos.
-            if (
-                event["rule_id"] == "40101"
-                and re.search(
-                    r"pam_unix\(systemd-user:session\):\s+session\s+opened",
-                    str(outer.get("full_log", "")),
-                    flags=re.IGNORECASE,
-                )
-            ):
-                continue
-            key=event["alert_id"]
-            if key:
-                if key in seen: continue
-                seen.add(key)
-            category=classify(event["rule_id"],event["groups"],event["level"]); event_agent=(event["agent_id"],event["agent_name"])
-            if event["srcip"]: firewall_attempts[(event["agent_id"],event["rule_id"],event["srcip"])] += 1
-            if category=="other": continue
-            security_count += 1
-            timeline[event["timestamp"].date()] += 1
-            if event["level"]>=13: critical_count += 1
-            if event["srcip"]: source_ips.add(event["srcip"])
-            agents[event_agent] += 1
-            agent_info=agent_stats[event_agent]
-            agent_info["events"] += 1
-            if event["level"] >= 13: agent_info["high"] += 1
-            if event["srcip"]: agent_info["ips"].add(event["srcip"])
-            if category == "attack": agent_info["attacks"] += 1
-            info=categories[category]; info["count"] += 1
-            if event["srcip"]: info["ips"].add(event["srcip"])
-            info["agents"].add(event["agent_id"])
-            rule_key=(event["rule_id"],event["description"]); info["rules"][rule_key] += 1; info["rule_agents"][rule_key].add(event["agent_name"])
-            techniques=event.get("techniques") or []
-            for index,mitre_id in enumerate(event.get("mitre") or []):
-                mitre_counts[mitre_id] += 1
-                if index<len(techniques) and techniques[index]: mitre_names[mitre_id]=techniques[index]
-    firewall_result=[]
-    for key,ips in firewall_rows.items():
-        agent_id,agent_name,rule_id,description=key; attempts=sum(firewall_attempts[(agent_id,rule_id,ip)] for ip in ips)
-        if attempts==0: attempts=len(ips)
-        firewall_result.append({"agent_id":agent_id,"agent_name":agent_name,"rule_id":rule_id,"description":description,"ips":sorted(ips,key=lambda v:(ipaddress.ip_address(v).version,ipaddress.ip_address(v))),"attempts":attempts})
-    return {"security_count":security_count,"critical_count":critical_count,"source_ips":source_ips,"agents":agents,"agent_stats":agent_stats,"categories":categories,"mitre_counts":mitre_counts,"mitre_names":mitre_names,"firewall_ips":firewall_ips,"firewall_rows":sorted(firewall_result,key=lambda r:r["agent_name"].lower()),"firewall_recurrence":firewall_recurrence,"firewall_rules_by_ip":firewall_rules_by_ip,"firewall_timeouts":firewall_timeouts,"timeline":timeline}
-
-def section_rows(info):
-    merged = {}
-    for (rule_id, description), count in info["rules"].most_common():
-        entry = merged.setdefault(
-            rule_id,
-            {"description": description, "count": 0, "agents": set()},
-        )
-        entry["count"] += count
-        entry["agents"].update(info["rule_agents"][(rule_id, description)])
-    rows = [
-        (rule_id, entry["description"], entry["count"], sorted(entry["agents"]))
-        for rule_id, entry in merged.items()
-    ]
-    rows.sort(key=lambda row: (-row[2], row[0]))
-    return rows[:12]
-
-def mitre_rows(summary):
-    counts=summary["mitre_counts"]; names=summary["mitre_names"]
-    return [(mid,names.get(mid,"Técnica MITRE ATT&CK"),MITRE_DESCRIPTIONS.get(mid,"Comportamiento asociado a una técnica de ataque o intrusión; Wazuh la vinculó con esta detección."),count) for mid,count in counts.most_common()]
-
-def generate_html(summary,title,subtitle,period,group,lang="es"):
-    L=labels(lang); security_count=summary["security_count"]; critical_count=summary["critical_count"]; all_ips=summary["source_ips"]; agents=summary["agents"]; agent_stats=summary["agent_stats"]; categories=summary["categories"]; firewall_rows=summary["firewall_rows"]; firewall_ips=summary["firewall_ips"]; cve_summary=summary.get("cve_summary") or {}
-    bg="#f4f5f3"; dark="#102d38"; orange="#ff5a2f"; coral="#ff6b4a"; text="#19333e"; muted="#667b84"; border="#e1e5e4"; page=[f"<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'></head><body style='margin:0;padding:0;background:{bg};font-family:Arial,Helvetica,sans-serif;color:{text};'>"]
-    page.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;background:#f4f5f3;'>")
-    page.append(f"<tr><td style='height:6px;background:{orange};font-size:0;line-height:0;'>&nbsp;</td></tr>")
-    page.append("<tr><td align='center' style='padding:18px 10px 34px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;max-width:1120px;background:#ffffff;border:1px solid #e1e5e4;'>")
-    page.append("<tr><td style='padding:0;background:#06141d;'>"
-                 "<img src='https://www.orangebox.cl/obox/img/banner-reporte-wazuh.png' alt='OrangeBox - Reporte de Seguridad Wazuh' width='1120' style='display:block;width:100%;max-width:1120px;height:auto;border:0;'>"
-                 "</td></tr>")
-    page.append(f"<tr><td style='padding:26px 26px 16px;'><div style='color:{orange};font-size:10px;font-weight:800;letter-spacing:1.8px;'>ORANGEBOX SECURITY · WAZUH</div><div style='font-size:30px;line-height:1.12;font-weight:800;margin-top:6px;color:{text};'>{esc(title)}</div><div style='font-size:14px;line-height:1.5;color:{muted};padding-top:7px;'>{esc(subtitle)}</div><table role='presentation' cellpadding='0' cellspacing='0' border='0' style='margin-top:16px;'><tr><td style='background:#f3f5f4;border:0;border-radius:20px;padding:9px 14px;font-size:11px;color:#526873;'><b>CLIENTE</b>&nbsp; {esc(group)}</td><td width='8'></td><td style='background:{orange};border-radius:20px;padding:9px 14px;font-size:11px;color:#ffffff;'><b>PERÍODO</b>&nbsp; {esc(period)}</td></tr></table></td></tr>")
-    page.append("<tr><td style='padding:0 22px 24px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='8' border='0'><tr>")
-    metrics=[(security_count,L["security_events"],"#eef4f6"),(critical_count,L["high_alerts"],"#fff0eb"),(len(all_ips),L["source_ips"],"#eef6f5"),(len(agents),L["systems"],"#f2f5f4"),(len(firewall_ips),L["blocked_ips"],"#fff1ec")]
-    card_width=f"{100/len(metrics):.2f}%";
-    for value,label,tint in metrics:
-        page.append(
-            f"<td width='{card_width}' valign='top' style='padding:0;'>"
-            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='background:{tint};border:1px solid #e0e6e4;border-radius:12px;'>"
-            f"<tr><td style='padding:18px 12px 17px;'>"
-            f"<div style='font-size:30px;line-height:1;font-weight:800;color:{dark};'>{value:,}</div>"
-            f"<div style='font-size:9px;line-height:1.35;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:{muted};margin-top:9px;'>{esc(label)}</div>"
-            f"<div style='width:34px;height:4px;background:{orange};margin-top:13px;font-size:1px;line-height:4px;'>&nbsp;</div>"
-            f"</td></tr>"
-            f"</table></td>"
-        )
-    page.append("</tr></table></td></tr>")
-    def section_open(icon,heading,sub=None):
-        section=f"<tr><td style='padding:0 22px 20px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='border:1px solid {border};border-radius:12px;background:#ffffff;'><tr><td style='background:#ffffff;border-bottom:1px solid {border};padding:15px 16px;font-size:17px;font-weight:800;color:{text};'><span style='color:{orange};font-size:13px;'>{icon}</span>&nbsp; {esc(heading)}</td></tr>"
-        if sub: section+=f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:12px;'>{esc(sub)}</td></tr>"
-        return section
-    def section_close(): return "</table></td></tr>"
-    geo_ips = set(all_ips) | set(firewall_ips)
-    geo = geoip_country_map(geo_ips)
-    source_country_rank = geoip_country_ranking(all_ips, geo)
-    blocked_country_rank = geoip_country_ranking(firewall_ips, geo)
-
-    source_rows = render_country_ranking_rows(source_country_rank)
-    if not source_rows:
-        source_rows = "<tr><td colspan='4' style='padding:8px;color:#78909c;font-size:10px;'>Sin IPs públicas.</td></tr>"
-    blocked_rows = render_country_ranking_rows(blocked_country_rank)
-    if not blocked_rows:
-        blocked_rows = "<tr><td colspan='4' style='padding:8px;color:#78909c;font-size:10px;'>Sin IPs bloqueadas.</td></tr>"
-
-    page.append(section_open(
-        "🌍",
-        "Top países · eventos de seguridad",
-        "IPs públicas únicas asociadas a detecciones de seguridad del período; no implica por sí solo un ataque confirmado.",
-    ))
-    page.append(
-        "<tr><td style='padding:0 8px 8px;'>"
-        "<table role='presentation' width='100%' cellpadding='0' cellspacing='8' border='0'><tr>"
-        "<td width='50%' valign='top' style='padding:0 4px 0 0;'>"
-        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
-        "<tr><td colspan='4' style='background:#102d38;color:#fff;padding:9px;font-size:11px;font-weight:800;'>Top países · eventos de seguridad</td></tr>"
-        "<tr><td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:28px;'>#</td>"
-        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:34px;text-align:center;'>FLAG</td>"
-        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;'>PAÍS</td>"
-        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;text-align:right;'>IPS</td></tr>"
-        + source_rows +
-        "</table></td>"
-        "<td width='50%' valign='top' style='padding:0 0 0 4px;'>"
-        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
-        "<tr><td colspan='4' style='background:#102d38;color:#fff;padding:9px;font-size:11px;font-weight:800;'>Top países · IPs bloqueadas</td></tr>"
-        "<tr><td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:28px;'>#</td>"
-        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;width:34px;text-align:center;'>FLAG</td>"
-        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;'>PAÍS</td>"
-        "<td style='background:#29414c;color:#fff;padding:6px;font-size:10px;font-weight:bold;text-align:right;'>IPS</td></tr>"
-        + blocked_rows +
-        "</table></td>"
-        "</tr></table></td></tr>"
-    )
-    page.append(
-        "<tr><td style='padding:0 14px 10px;color:#78909c;font-size:10px;'>"
-        "Las IPs de origen representan direcciones públicas asociadas a detecciones de seguridad; "
-        "no implican por sí solas un ataque confirmado. El segundo ranking muestra las IPs públicas "
-        "que activaron una respuesta automática de firewall-drop, limitado al top 10."
-        "</td></tr>"
-    )
-    page.append(section_close())
-
-    page.append(section_open("🛡",L["firewall"],L["firewall_sub"]))
-    if firewall_rows:
-        # Agrupa las ejecuciones reales de firewall-drop por motivo de bloqueo.
-        # Una IP cuenta una sola vez dentro de cada motivo, aunque haya más de
-        # una ejecución/alerta asociada al mismo bloqueo.
-        firewall_by_reason=defaultdict(lambda: {"ips":set(), "attempts":0, "rules":set()})
-        for row in firewall_rows:
-            # El motivo se agrupa sin la IP dinámica incluida en la descripción.
-            # Así 400 SYN FLOOD de IPs distintas aparecen como una sola fila,
-            # conservando el total de IPs bloqueadas y de intentos detectados.
-            reason= re.sub(
-                r"\s+DESDE IP (?:PUBLICA|MALICIOSA CONOCIDA)\s+\S+\.?$",
-                "",
-                str(row["description"] or "").strip(),
-                flags=re.IGNORECASE,
-            ).strip()
-            reason_key=(row["rule_id"],reason)
-            firewall_by_reason[reason_key]["ips"].update(row["ips"])
-            firewall_by_reason[reason_key]["attempts"] += row["attempts"]
-            firewall_by_reason[reason_key]["rules"].add(row["rule_id"])
-        firewall_reasons=sorted(firewall_by_reason.items(), key=lambda item:(-len(item[1]["ips"]), -item[1]["attempts"], item[0][0]))
-
-        page.append("<tr><td style='padding:0 8px 8px;overflow-wrap:anywhere;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>")
-        page.append(f"<tr><td style='background:#102d38;color:#fff;padding:10px;font-size:10px;font-weight:800;letter-spacing:.35px;'>{esc(L['reason'])}</td><td style='background:#102d38;color:#fff;padding:10px;font-size:10px;font-weight:800;letter-spacing:.35px;'>{esc(L['rule'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['blocked_ips'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['attempts'])}</td></tr>")
-        for (rule_id,description),data in firewall_reasons:
-            page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:12px;overflow-wrap:anywhere;'>{esc(description)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-weight:bold;color:#d65d00;font-size:12px;'>{esc(rule_id)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{len(data['ips']):,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{data['attempts']:,}</td></tr>")
-        page.append("</table></td></tr>")
-    else: page.append(f"<tr><td style='padding:10px 14px;color:#147a4a;font-size:12px;'>{esc(L['no_firewall'])}</td></tr>")
-    page.append(f"<tr><td style='background:#f7f9f8;border:0;border-left:4px solid {orange};border-radius:0 8px 8px 0;padding:11px 14px;color:#49616b;font-size:12px;'><b>{len(firewall_ips):,}</b> {esc(L['blocked_ips'].lower())} automáticamente · <b>{sum(row['attempts'] for row in firewall_rows):,}</b> {esc(L['attempts'].lower())} asociados a estos bloqueos.</td></tr><tr><td style='padding:0 14px 12px;color:#78909c;font-size:11px;'>{esc(L['firewall_note'])}</td></tr>")
-    page.append(section_close())
-
-    # IPs con más de una ejecución real de firewall-drop durante el período.
-    firewall_recurrence=summary["firewall_recurrence"]
-    firewall_rules_by_ip=summary["firewall_rules_by_ip"]
-    firewall_timeouts=summary["firewall_timeouts"]
-    firewall_agents_by_ip=defaultdict(set)
-    for row in firewall_rows:
-        for src in row["ips"]:
-            firewall_agents_by_ip[src].add(row["agent_name"] or "Servidor desconocido")
-    recidivists=[ip for ip,count in firewall_recurrence.items() if count > 1]
-    page.append(section_open("🔁",L["recidivist"],L["recidivist_sub"]))
-    if recidivists:
-        recidivists.sort(key=lambda ip:(-firewall_recurrence[ip], ipaddress.ip_address(ip).version, int(ipaddress.ip_address(ip))))
-        page.append("<tr><td style='padding:0 8px 8px;overflow-wrap:anywhere;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>")
-        page.append(f"<tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>IP</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Servidor que ejecutó el bloqueo</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['block_count'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['trigger_rules'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['ban_duration'])}</td></tr>")
-        for src in recidivists:
-            geo_item=geo.get(src) or {}
-            ip_country=(f"{geo_item.get('flag','🌐')} {geo_item.get('country')}" if geo_item.get('country') and geo_item.get('country') != 'No disponible' else '🌐 No disponible')
-            rules=sorted(firewall_rules_by_ip[src], key=lambda item:item[0])
-            rule_text="<br>".join(f"<span style='font-family:monospace;color:#d65d00;font-weight:bold;'>{esc(rule_id)}</span> — {esc(description)}" for rule_id,description in rules)
-            durations=sorted({format_duration(firewall_timeouts.get(rule_id)) for rule_id,_ in rules})
-            duration_text=", ".join(durations)
-            agents_text="<br>".join(f"→ {esc(name)}" for name in sorted(firewall_agents_by_ip[src], key=str.lower))
-            page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-size:12px;font-weight:bold;'>{esc(src)}<br><span style='font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:normal;color:#667b84;'>{esc(ip_country)}</span></td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;line-height:1.4;overflow-wrap:anywhere;'>{agents_text}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{firewall_recurrence[src]:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;line-height:1.4;overflow-wrap:anywhere;'>{rule_text}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;white-space:nowrap;'>{esc(duration_text)}</td></tr>")
-        page.append("</table></td></tr>")
-        page.append(f"<tr><td style='padding:0 14px 12px;color:#78909c;font-size:11px;'>El tiempo mostrado corresponde al <b>tiempo de bloqueo configurado en Wazuh</b> para cada regla de respuesta automática; no representa necesariamente el tiempo restante de un bloqueo histórico.</td></tr>")
-    else:
-        page.append("<tr><td style='padding:10px 14px;color:#78909c;font-size:12px;'>No hubo IPs con más de una ejecución de firewall-drop durante el período.</td></tr>")
-    page.append(section_close())
-
-    # Resumen de vulnerabilidades críticas actuales del Wazuh Indexer.
-    page.append(section_open("🛡",L["cve"],L["cve_sub"]))
-    if cve_summary.get("error"):
-        page.append(
-            f"<tr><td style='padding:10px 14px;color:#8a3d2d;font-size:12px;'>{esc(L['cve_error'])} {esc(cve_summary['error'])}</td></tr>"
-        )
-    else:
-        cve_total=int(cve_summary.get("total",0) or 0)
-        cve_agents=cve_summary.get("agents") or {}
-        page.append(
-            f"<tr><td style='padding:0 8px 8px;color:#78909c;font-size:11px;'>"
-            f"<b>{cve_total:,}</b> {esc(L['cve_total'].lower())} · "
-            f"<b>{len(cve_agents):,}</b> {esc(L['cve_systems'].lower())}</td></tr>"
-        )
-        unsupported_agents=cve_summary.get("unsupported_agents") or {}
-        if cve_agents:
-            page.append("<tr><td style='padding:0 8px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>")
-            page.append(
-                f"<tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['cve_agent'])}</td>"
-                f"<td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;text-align:center;'>{esc(L['cve_count'])}</td></tr>"
-            )
-            cve_rows=sorted(
-                cve_agents.values(),
-                key=lambda item:(-int(item.get("count",0)), str(item.get("name","")).lower()),
-            )
-            for item in cve_rows:
-                page.append(
-                    f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;overflow-wrap:anywhere;'>{esc(item.get('name') or 'Servidor desconocido')}</td>"
-                    f"<td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{int(item.get('count',0)):,}</td></tr>"
-                )
-            page.append("</table></td></tr>")
-        elif not unsupported_agents:
-            page.append(f"<tr><td style='padding:10px 14px;color:#147a4a;font-size:12px;'>{esc(L['cve_none'])}</td></tr>")
-
-        if unsupported_agents:
-            names=", ".join(
-                str(item.get("name") or f"Servidor {agent_id}")
-                for agent_id,item in sorted(
-                    unsupported_agents.items(),
-                    key=lambda item:str(item[1].get("name","")).lower(),
-                )
-            )
-            page.append(
-                f"<tr><td style='padding:10px 14px;color:#8a5a20;font-size:12px;'>{esc(L['cve_unsupported'])}<br><b>Servidores:</b> {esc(names)}</td></tr>"
-            )
-    page.append(section_close())
-
-    # Resumen de servidores: métricas derivadas de las alertas procesadas.
-    page.append(section_open("🖥",L["servers"],L["servers_sub"]))
-    server_rows=sorted(agent_stats.items(), key=lambda item:(-item[1]["events"], item[0][1].lower()))
-    if server_rows:
-        page.append("<tr><td style='padding:0 8px 8px;overflow-wrap:anywhere;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>")
-        page.append(f"<tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Servidor</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['events'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['high'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['source_ips_col'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['attack_alerts'])}</td></tr>")
-        for (agent_id,agent_name),data in server_rows[:15]:
-            page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:12px;font-weight:bold;overflow-wrap:anywhere;'>{esc(agent_name)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{data['events']:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{data['high']:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{len(data['ips']):,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{data['attacks']:,}</td></tr>")
-        page.append("</table></td></tr>")
-        if len(server_rows)>15:
-            page.append(f"<tr><td style='padding:0 14px 12px;color:#78909c;font-size:11px;'>Mostrando los 15 servidores con más eventos de un total de {len(server_rows):,}.</td></tr>")
-    else:
-        page.append(f"<tr><td style='padding:10px 14px;color:#147a4a;font-size:12px;'>{esc(L['no_servers'])}</td></tr>")
-    page.append(section_close())
-    section_labels=[("🔐",L["access"],"authentication"),("🌐",L["web"],"web"),("📁",L["fim"],"fim"),("🦠",L["malware"],"malware"),("🔑",L["priv"],"privilege"),("🎯",L["attack"],"attack")]
-    for icon,label,category in section_labels:
-        info=categories[category]; page.append(section_open(icon,label))
-        if not info["count"]: page.append(f"<tr><td style='padding:10px 14px;color:#147a4a;font-size:12px;'>{esc(L['attack_note'] if category=='attack' else L['no_activity'])}</td></tr>")
-        else:
-            page.append(f"<tr><td style='padding:0 8px 8px;color:#78909c;font-size:11px;'><b>{info['count']:,}</b> detecciones · <b>{len(info['ips']):,}</b> IPs · <b>{len(info['agents']):,}</b> sistemas</td></tr><tr><td style='padding:0 8px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Regla</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Descripción</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Detecciones</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Sistemas</td></tr>")
-            for rule_id,description,count,names in section_rows(info):
-                shown=", ".join(names[:5])+(" …" if len(names)>5 else ""); page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-weight:bold;color:#d65d00;font-size:11px;'>{esc(rule_id)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;overflow-wrap:anywhere;'>{esc(description)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:11px;'>{count:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;overflow-wrap:anywhere;'>{esc(shown)}</td></tr>")
-            page.append("</table></td></tr>")
-        if category=="attack": page.append(f"<tr><td style='padding:0 14px 10px;color:#78909c;font-size:11px;'>{esc(L['attack_note'])}</td></tr>")
-        page.append(section_close())
-    page.append(section_open("🧭",L["mitre"],"MITRE ATT&CK")); page.append(f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:11px;'>{esc(L['mitre_note'])}</td></tr>"); mitre=mitre_rows(summary)
-    if mitre:
-        page.append("<tr><td style='padding:0 8px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"); page.append(f"<tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['technique'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Nombre</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['meaning'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['detections'])}</td></tr>")
-        for mitre_id,name,meaning,count in mitre: page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-weight:bold;color:#d65d00;font-size:11px;'>{esc(mitre_id)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;'>{esc(name)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;line-height:1.35;'>{esc(meaning)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:11px;'>{count:,}</td></tr>")
-        page.append("</table></td></tr>")
-    else: page.append("<tr><td style='padding:10px 14px;color:#78909c;font-size:12px;'>No se encontraron técnicas MITRE ATT&CK en las alertas del período.</td></tr>")
-    page.append(f"<tr><td style='padding:10px 14px 18px;'><div style='background:#f7f9fa;border:1px solid #dce5e9;border-left:4px solid {orange};padding:10px 12px;font-size:11px;line-height:1.5;color:#526873;'>{esc(L['technical_note'])}</div></td></tr><tr><td style='background:{dark};border-top:4px solid {orange};padding:14px 20px;color:#c7d2d7;font-size:10px;'><b style='color:#fff;'>ORANGEBOX IT SERVICES</b><br>Monitoreo y seguridad de infraestructura</td></tr></table></td></tr></table></body></html>")
-    return "".join(page)
-
-def send_email(subject,body,recipient):
-    msg=MIMEMultipart("alternative"); msg["Subject"]=subject; msg["From"]=f"Wazuh SOC <{DEFAULT_FROM}>"; msg["To"]=recipient; msg.attach(MIMEText("OrangeBox Wazuh Security Activity Report.","plain","utf-8")); msg.attach(MIMEText(body,"html","utf-8"))
-    result = subprocess.run(["/usr/sbin/sendmail","-t","-i"], input=msg.as_string(), text=True, capture_output=True, timeout=10, check=False)
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or f"sendmail exit={result.returncode}").strip()
-        raise RuntimeError(f"Postfix maildrop: {detail}")
-
-def archive_html(body,label):
-    os.makedirs(ARCHIVE_DIR,mode=0o750,exist_ok=True); safe=re.sub(r"[^A-Za-z0-9_.-]+","_",label); path=f"{ARCHIVE_DIR}/security-report-{safe}.html"
-    with open(path,"w",encoding="utf-8") as handle: handle.write(body)
-    return path
 
 def main():
-    parser=argparse.ArgumentParser(description="OrangeBox Wazuh Security Activity Report"); modes=parser.add_mutually_exclusive_group(required=True)
-    for name in ("today","yesterday","thisweek","lastweek","thismonth","lastmonth","thisyear","lastyear"): modes.add_argument("--"+name,action="store_true")
-    modes.add_argument("--date",help="Día específico YYYY-MM-DD"); parser.add_argument("--group",required=True,help="Grupos Wazuh separados por comas")
-    parser.add_argument("--email",action="append",required=True,help="Destinatario. Puede repetirse o contener varias direcciones separadas por comas."); parser.add_argument("--lang",choices=("es","en"),default="es",help="Idioma del informe: es o en"); args=parser.parse_args()
-    recipients=[]
-    for value in args.email: recipients.extend(r.strip() for r in value.split(",") if r.strip())
-    if not recipients: raise SystemExit("Debe especificar al menos un destinatario")
-    for recipient in recipients:
-        if not re.fullmatch(r"[^\s@]+@[^\s@]+",recipient): raise SystemExit(f"Dirección de correo inválida: {recipient}")
-    mode=args.date and f"date:{args.date}" or next(name for name in ("today","yesterday","thisweek","lastweek","thismonth","lastmonth","thisyear","lastyear") if getattr(args,name))
-    now=datetime.now().astimezone(); start,end,label=period_bounds(mode,now)
-    groups = all_groups() if args.group.lower() == "all" else [value.strip() for value in args.group.split(",") if value.strip()]
+    parser = argparse.ArgumentParser(description="OrangeBox Security Report v3")
+    modes = parser.add_mutually_exclusive_group(required=True)
+    for name in (
+        "today",
+        "yesterday",
+        "thisweek",
+        "lastweek",
+        "thismonth",
+        "lastmonth",
+        "thisyear",
+        "lastyear",
+    ):
+        modes.add_argument("--" + name, action="store_true")
+    modes.add_argument("--date")
+    parser.add_argument("--group", required=True)
+    parser.add_argument("--email", action="append")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--cache-dir", type=Path, default=CACHE_DIR)
+    args = parser.parse_args()
+
+    # 1) Medir todo el proceso para poder detectar regresiones de rendimiento.
+    t0 = time.monotonic()
+    now = datetime.now().astimezone()
+    # 2) Determinar el período solicitado: día, semana, mes, año o fecha.
+    mode = (
+        args.date
+        and f"date:{args.date}"
+        or next(
+            name
+            for name in (
+                "today",
+                "yesterday",
+                "thisweek",
+                "lastweek",
+                "thismonth",
+                "lastmonth",
+                "thisyear",
+                "lastyear",
+            )
+            if getattr(args, name)
+        )
+    )
+    # 3) Resolver los grupos Wazuh. --group all se expande a los grupos efectivos.
+    start, end, label = REPORT["period_bounds"](mode, now)
+
+    groups = (
+        REPORT["all_groups"]()
+        if args.group.lower() == "all"
+        else [value.strip() for value in args.group.split(",") if value.strip()]
+    )
     if not groups:
-        raise SystemExit("No hay grupos Wazuh con servidores asignados para generar el reporte.")
-    allowed=set()
-    for group in groups:
-        allowed.update(group_members(group))
-    if not allowed:
-        raise SystemExit("No se pudieron obtener servidores de los grupos seleccionados.")
-    # Etiqueta visible del encabezado: usar los grupos efectivos,
-    # especialmente cuando --group all resuelve múltiples grupos.
-    group_label = ", ".join(groups)
-    summary=load_events(start,end,allowed)
-    cve_summary, cve_error = fetch_critical_cves(allowed)
+        raise SystemExit("No hay grupos Wazuh seleccionados.")
+
+    memberships = {}
+    allowed = set()
+    for group_name in groups:
+        ids = REPORT["group_members"](group_name)
+        if ids:
+            memberships[group_name] = ids
+            allowed.update(ids)
+        else:
+            print(f"Grupo omitido: {group_name} no tiene servidores asignados.")
+    if not memberships:
+        raise SystemExit("No hay grupos con servidores asignados para generar el reporte.")
+
+    # 4) Actualizar el cache incremental v3. Los días cerrados se reutilizan;
+    #    el día actual se actualiza desde el offset/inode de alerts.json.
+    # Nombre visible: nunca mostrar el alias interno "all".
+    report_groups = ", ".join(memberships.keys())
+
+    t_cache = time.monotonic()
+    ENGINE["ensure_cache"](args.cache_dir, start, end)
+    cache_ready = time.monotonic() - t_cache
+
+    # 5) Leer únicamente los shards de los agentes seleccionados.
+    #    Aquí está la principal diferencia frente al parser histórico.
+    t_read = time.monotonic()
+    events = []
+    full_closed_day = (
+        start.time() == datetime.min.time()
+        and end == start + timedelta(days=1)
+        and end <= now
+    )
+    for event in ENGINE["iter_cache"](
+        args.cache_dir,
+        start.date(),
+        (end - timedelta(microseconds=1)).date(),
+        allowed,
+    ):
+        if not full_closed_day:
+            timestamp = REPORT["parse_timestamp"](event.get("timestamp"))
+            if not timestamp or timestamp < start or timestamp >= end:
+                continue
+        if event.get("agent_id") in allowed:
+            events.append(event)
+    read_time = time.monotonic() - t_read
+
+    # 6) Agregar métricas y consultar el inventario CVE en el Indexer.
+    t_agg = time.monotonic()
+    summary = build_summary(events, allowed)
+    cve_summary, cve_error = REPORT["fetch_critical_cves"](allowed)
     summary["cve_summary"] = cve_summary
     if cve_error:
         summary["cve_summary"]["error"] = cve_error
-    period=f"{start.strftime('%d/%m/%Y %H:%M')} — {end.strftime('%d/%m/%Y %H:%M') if end < now else 'ahora'}"; L=labels(args.lang); body=generate_html(summary,L["report"],L["subtitle"],period,group_label,args.lang); archive=archive_html(body,f"{args.group}-{mode.replace(':','-')}-{start:%Y%m%d}-{end:%Y%m%d}")
-    subject_prefix={
-        "today": "Reporte Diario de Seguridad",
-        "yesterday": "Reporte Diario de Seguridad",
-        "thisweek": "Reporte Semanal de Seguridad",
-        "lastweek": "Reporte Semanal de Seguridad",
-        "thismonth": "Reporte Mensual de Seguridad",
-        "lastmonth": "Reporte Mensual de Seguridad",
-        "thisyear": "Reporte Anual de Seguridad",
-        "lastyear": "Reporte Anual de Seguridad",
-    }
-    subject=f"📊 [ORANGEBOX] {subject_prefix.get(mode, 'Reporte de Seguridad')} — {args.group}"; sent=[]; failed=[]
-    for recipient in recipients:
-        try: send_email(subject,body,recipient); sent.append(recipient)
-        except Exception as exc: failed.append((recipient,exc))
-    security=summary["security_count"]; print(f"Destinatarios enviados: {', '.join(sent) if sent else 'ninguno'}")
-    if cve_error:
-        print(f"CVE críticos: NO CONSULTADO — {cve_error}")
-    else:
-        print(f"CVE críticos: {summary['cve_summary']['total']:,} en {len(summary['cve_summary']['agents']):,} sistemas")
-    for recipient,exc in failed: print(f"ERROR enviando a {recipient}: {exc}")
-    print(f"Grupo: {args.group}"); print(f"Periodo: {period}"); print(f"Eventos de seguridad: {security}"); print(f"Archivo: {archive}")
-    if failed: raise SystemExit(1)
+    agg_time = time.monotonic() - t_agg
 
-if __name__=="__main__": main()
+    period = (
+        f"{start.strftime('%d/%m/%Y %H:%M')} — "
+        f"{end.strftime('%d/%m/%Y %H:%M') if end < now else 'ahora'}"
+    )
+
+    # 7) Generar el HTML usando solamente los datos agregados.
+    t_render = time.monotonic()
+    body = REPORT["generate_html"](
+        summary,
+        REPORT["labels"]("es")["report"],
+        REPORT["labels"]("es")["subtitle"],
+        period,
+        report_groups,
+        "es",
+    )
+    render_time = time.monotonic() - t_render
+
+    # 8) Archivar el HTML de forma atómica para no dejar archivos parciales.
+    t_archive = time.monotonic()
+    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    archive = ARCHIVE_DIR / (
+        f"security-report-{re.sub(r'[^A-Za-z0-9_.-]+', '_', report_groups)}-{mode.replace(':','-')}-"
+        f"{start:%Y%m%d}-{end:%Y%m%d}.html"
+    )
+    tmp = archive.with_suffix(".html.tmp")
+    tmp.write_text(body, encoding="utf-8")
+    tmp.replace(archive)
+    archive_time = time.monotonic() - t_archive
+
+    print(f"Grupo: {report_groups}")
+    print(f"Período: {period}")
+    print(f"Eventos: {summary['security_count']:,}".replace(",", "."))
+    print(f"Eventos cargados desde cache: {len(events):,}".replace(",", "."))
+    print(f"Cache/update: {cache_ready:.3f}s")
+    print(f"Lectura cache: {read_time:.3f}s")
+    print(f"Agregación/CVE: {agg_time:.3f}s")
+    print(f"Render HTML: {render_time:.3f}s")
+    print(f"Archivo: {archive_time:.3f}s")
+    print(f"Tiempo total: {time.monotonic() - t0:.3f}s")
+    print(f"Archivo: {archive}")
+
+    # 9) Entregar el correo a través del SMTP local.
+    recipients = []
+    for value in args.email or []:
+        recipients.extend(v.strip() for v in value.split(",") if v.strip())
+
+    t_email = time.monotonic()
+    if recipients and not args.dry_run:
+        subject_period = {
+            "today": "Diario",
+            "yesterday": "Diario",
+            "thisweek": "Semanal",
+            "lastweek": "Semanal",
+            "thismonth": "Mensual",
+            "lastmonth": "Mensual",
+            "thisyear": "Anual",
+            "lastyear": "Anual",
+        }.get(mode, "Seguridad")
+        subject = f"[ORANGEBOX] {subject_period} - Informe de Seguridad {report_groups}"
+        for recipient in recipients:
+            if not re.fullmatch(r"[^\s@]+@[^\s@]+", recipient):
+                print(f"ERROR: correo inválido: {recipient}")
+                continue
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = f"Wazuh SOC <{DEFAULT_FROM}>"
+            msg["To"] = recipient
+            msg.attach(
+                MIMEText("OrangeBox Wazuh Security Activity Report.", "plain", "utf-8")
+            )
+            msg.attach(MIMEText(body, "html", "utf-8"))
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
+                smtp.sendmail(DEFAULT_FROM, [recipient], msg.as_string())
+            print(f"Correo enviado a {recipient}")
+    else:
+        print("Dry-run / sin correo.")
+    print(f"SMTP/correo: {time.monotonic() - t_email:.3f}s")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
