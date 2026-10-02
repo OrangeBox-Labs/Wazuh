@@ -1,5 +1,11 @@
 # orangebox-security-report.py
 
+Motor de reportes OrangeBox Wazuh Security Activity Report.
+
+La implementación productiva actual usa el motor de cache v3, comparte cache con el informe detallado y evita volver a parsear el histórico completo en cada ejecución.
+
+Arquitectura, motivos del cambio, formato del cache, correcciones y benchmarks: orangebox-reportes-v3.md
+
 Motor de reportes **OrangeBox Wazuh Security Activity Report**.
 
 El script genera reportes diarios, semanales, mensuales y anuales, globales o filtrados por grupo Wazuh.
