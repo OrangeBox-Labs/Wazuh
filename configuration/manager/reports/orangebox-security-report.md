@@ -1,255 +1,178 @@
-# orangebox-security-report.py
+# OrangeBox Wazuh — Informe de Seguridad
 
-Motor de reportes OrangeBox Wazuh Security Activity Report.
+Informe ejecutivo de actividad de seguridad generado por Wazuh. La implementación actual es productiva, autocontenida y usa el motor de cache compartido con el informe detallado.
 
-La implementación productiva actual usa el motor de cache v3, comparte cache con el informe detallado y evita volver a parsear el histórico completo en cada ejecución.
+## Qué hace
 
-Arquitectura, motivos del cambio, formato del cache, correcciones y benchmarks: orangebox-reportes-v3.md
+Genera informes diarios, semanales, mensuales y anuales, para uno o varios grupos Wazuh.
 
-Motor de reportes **OrangeBox Wazuh Security Activity Report**.
+El informe resume la actividad de seguridad del período y muestra:
 
-El script genera reportes diarios, semanales, mensuales y anuales, globales o filtrados por grupo Wazuh.
+- eventos de seguridad;
+- alertas de alta severidad;
+- alertas críticas;
+- IPs de origen observadas;
+- servidores afectados;
+- bloqueos automáticos de IPs;
+- intentos de acceso y exploración web;
+- cambios de archivos y actividad FIM;
+- malware y archivos sospechosos;
+- escalamiento de privilegios;
+- detecciones clasificadas como intentos de ataque;
+- técnicas MITRE observadas;
+- servidores más afectados;
+- vulnerabilidades críticas del inventario Wazuh.
 
-Este es el **reporte ejecutivo**. El repositorio también incluye el **Informe de Seguridad Detallado** en `orangebox-detailed-security-report.py`, que presenta el desglose por agente y grupo Wazuh. Su documentación se encuentra en `orangebox-detailed-security-report.md`.
+El objetivo es entregar una vista ejecutiva sin perder la trazabilidad necesaria para investigar un evento.
 
-## Fuente de datos
+## Implementación actual
 
-El script utiliza los logs JSON de alertas de Wazuh:
+El archivo productivo es:
 
-```text
+~~~~text
+/var/ossec/reports/orangebox-security-report.py
+~~~~
+
+El script es autocontenido:
+
+- el motor de lectura y normalización está embebido;
+- la lógica del reporte ejecutivo está embebida;
+- no depende de importar otro script productivo desde el sistema;
+- comparte el mismo cache con el informe detallado;
+- usa sys.dont_write_bytecode = True para no generar __pycache__.
+
+El directorio del cache se llama:
+
+~~~~text
+/var/ossec/reports/cache-proto-v3/
+~~~~
+
+El nombre se conserva por compatibilidad con los datos existentes. No corresponde a un prototipo ni a una implementación alternativa: es el cache productivo que usa actualmente el reporte.
+
+## Fuentes de datos
+
+Se leen las alertas JSON de Wazuh:
+
+~~~~text
 /var/ossec/logs/alerts/alerts.json
 /var/ossec/logs/alerts/YYYY/Mon/ossec-alerts-DD.json.gz
 /var/ossec/logs/alerts/YYYY/Mon/ossec-alerts-DD.json
-```
+~~~~
 
-Los históricos `.json.gz` se leen directamente con `gzip`, sin descomprimirlos a disco.
+Los históricos comprimidos se leen directamente con gzip.
 
-No se utiliza `active-responses.log` como fuente histórica principal. Las ejecuciones de `firewall-drop` se reconstruyen desde las alertas `10458`, cuya alerta contiene el JSON de Active Response dentro de `data.parameters.alert` y `full_log`.
+Las acciones de firewall-drop se reconstruyen desde las alertas 10458. El payload de Active Response contiene la alerta original, la regla, el agente y la IP de origen que provocó el bloqueo.
+
+No se usa active-responses.log como fuente histórica principal.
+
+## Cache y rendimiento
+
+El primer procesamiento de un día cerrado construye un cache comprimido por servidor. Las ejecuciones siguientes reutilizan ese cache y no vuelven a parsear todo el histórico.
+
+La estructura es:
+
+~~~~text
+/var/ossec/reports/cache-proto-v3/
+  YYYY-MM-DD/
+    <agent-id>.jsonl.gz
+    manifest.json
+  YYYY-MM-DD.state.json
+~~~~
+
+### Día actual
+
+Se conserva inode y offset de alerts.json.
+
+Si el archivo no cambió, la siguiente ejecución continúa desde el último punto procesado. Si cambió el inode, disminuyó de tamaño o falta la estructura esperada, el día se reconstruye.
+
+### Días cerrados
+
+Cada día se procesa una vez y se guarda en shards por servidor.
+
+Las reconstrucciones usan directorio temporal y reemplazo atómico. Un proceso interrumpido no convierte un cache incompleto en cache válido.
+
+### Lectura selectiva
+
+El reporte resuelve primero los agentes de los grupos pedidos y después lee solo los shards necesarios.
+
+Esto permite que un informe de cliente no tenga que descomprimir los datos de todos los servidores.
+
+### Prueba validada
+
+En una prueba con:
+
+~~~~text
+56 servidores
+4.233.850 eventos
+9.760 alertas de alta severidad
+9 alertas críticas
+10.839 detecciones de ataque
+~~~~
+
+el resultado con cache construido fue:
+
+~~~~text
+Cache/update:     0,004 s
+Lectura cache:    28,098 s
+Agregación/CVE:    1,790 s
+Render HTML:       0,908 s
+Archivo:           0,013 s
+Tiempo total:     40,058 s
+~~~~
+
+El baseline anterior fue 42,410 s con los mismos conteos.
+
+La primera construcción histórica del cache fue mucho más lenta porque incluyó el procesamiento inicial de los logs. Eso es un costo de calentamiento, no el tiempo normal de ejecución.
+
+En la misma prueba, el cache pasó de aproximadamente 188 MB a 49 MB.
+
+La lectura de los shards sigue siendo la etapa dominante porque el informe todavía debe descomprimir y recorrer millones de eventos seleccionados.
 
 ## Períodos
 
 | Opción | Período |
 |---|---|
-| `--today` | Hoy 00:00 hasta el momento de ejecución |
-| `--yesterday` | Día calendario anterior completo |
-| `--thisweek` | Lunes 00:00 hasta el momento de ejecución |
-| `--lastweek` | Semana calendario anterior completa |
-| `--thismonth` | Día 1 del mes hasta el momento de ejecución |
-| `--lastmonth` | Mes calendario anterior completo |
-| `--thisyear` | 1 de enero hasta el momento de ejecución |
-| `--lastyear` | Año calendario anterior completo |
-| `--date YYYY-MM-DD` | Día específico completo |
+| --today | Hoy desde 00:00 |
+| --yesterday | Día calendario anterior completo |
+| --thisweek | Semana actual desde lunes |
+| --lastweek | Semana calendario anterior |
+| --thismonth | Mes actual desde el día 1 |
+| --lastmonth | Mes calendario anterior |
+| --thisyear | Año actual desde el 1 de enero |
+| --lastyear | Año calendario anterior |
+| --date YYYY-MM-DD | Día indicado |
 
 ## Grupos Wazuh
 
-El filtro `--group` utiliza la pertenencia real de los agentes a grupos Wazuh mediante:
+El parámetro --group acepta uno o varios grupos separados por coma.
 
-```text
-/var/ossec/bin/agent_groups -l -g <grupo>
-```
+La pertenencia de cada servidor se obtiene desde Wazuh usando agent_groups. No existe una lista manual de agentes que deba mantenerse en el script.
 
-`all` incluye todos los agentes. Un grupo específico incluye únicamente los agentes que Wazuh reporta como miembros de ese grupo.
+Con:
 
-## Envío e idioma
+~~~~bash
+/var/ossec/reports/orangebox-security-report.py --yesterday --group CTS,OLC --email <destinatario>
+~~~~
 
-El destinatario se entrega explícitamente con `--email` y es obligatorio.
+el reporte considera solo los servidores pertenecientes a esos grupos.
 
-El idioma por defecto es español. `--lang es|en` permite cambiar el idioma de títulos y etiquetas; las descripciones técnicas de Wazuh se conservan.
+Con:
 
-```bash
-orangebox-security-report.py --yesterday --group all --email <destinatario>
-orangebox-security-report.py --lastmonth --group <grupo_cliente> --email <destinatario>
-orangebox-security-report.py --thismonth --group <grupo_cliente> --email <destinatario> --lang es
-orangebox-security-report.py --lastyear --group all --email <destinatario> --lang en
-```
+~~~~bash
+--group all
+~~~~
 
-El correo se entrega mediante la cola local de Postfix usando `/usr/sbin/sendmail -t -i`. Esto permite que el reporte quede en la cola aunque Postfix esté detenido temporalmente y sea entregado cuando el servicio vuelva.
+el script resuelve los grupos efectivos y genera el consolidado correspondiente. No muestra la etiqueta literal all como si fuera un grupo de cliente.
 
-```text
-From: Wazuh SOC <wazuh@example.com>
-```
+Los grupos sin servidores se omiten.
 
-El HTML generado se archiva bajo:
+## Clasificación de eventos
 
-```text
-/var/ossec/reports/archive/
-```
+La clasificación se basa en IDs y grupos de reglas Wazuh.
 
-## Diseño para correo electrónico
+Las categorías principales son:
 
-El renderer está diseñado específicamente para clientes de correo y utiliza:
-
-- layout basado en tablas HTML;
-- estilos críticos inline;
-- sin `flex`, CSS Grid ni JavaScript;
-- ancho máximo aproximado de 640 px;
-- contenido adaptable a pantallas pequeñas;
-- logo corporativo usado por las alertas OrangeBox;
-- sin listas interactivas de IPs, para mantener una visualización consistente en Gmail, Carbonio, Thunderbird y móvil.
-
-## Vulnerabilidades / CVE
-
-El informe consulta los hallazgos críticos desde:
-
-```text
-wazuh-states-vulnerabilities-*
-```
-
-Para distinguir correctamente entre un agente sin hallazgos CVE y un agente que no está siendo evaluado por Vulnerability Detection, el reporte consulta además el inventario de sistema:
-
-```text
-wazuh-states-inventory-system-*
-```
-
-Cuando un agente es identificado como **CloudLinux**, el informe no presenta el estado como `0 CVE`. Muestra explícitamente que Wazuh no realiza actualmente evaluación nativa de vulnerabilidades para esa distribución y que el resultado **no debe interpretarse como ausencia de CVE**.
-
-Esta distinción es importante porque el inventario de paquetes puede estar funcionando correctamente aunque no existan documentos de Vulnerability Detection para ese agente.
-
-## Contenido del informe
-
-El orden del informe está pensado para comenzar con una visión ejecutiva y terminar con información técnica.
-
-### Resumen
-
-Presenta:
-
-- eventos de seguridad;
-- alertas de alta severidad;
-- IPs de origen observadas;
-- sistemas afectados.
-
-### Respuesta automática · Firewall Drop
-
-Esta sección correlaciona las detecciones que originaron `firewall-drop` con las IPs que fueron bloqueadas.
-
-Para cada sistema y regla muestra:
-
-- motivo de la detección;
-- regla Wazuh que originó el bloqueo;
-- cantidad de intentos/detecciones correlacionados con las IP bloqueadas;
-- cantidad de IPs bloqueadas automáticamente.
-
-No se muestran las IP individuales en el correo. El detalle completo permanece disponible en las alertas JSON de Wazuh y en los datos históricos utilizados por el reporte.
-
-Tampoco se muestra la duración configurada en Active Response porque describe la configuración del mecanismo, no la actividad observada. Ni se muestra la cantidad de ejecuciones `add` como métrica principal, porque varias ejecuciones pueden corresponder a una misma IP.
-
-La correlación utiliza el mismo agente, regla e IP de origen. El contador de **intentos detectados** corresponde a detecciones Wazuh asociadas a las IP que fueron bloqueadas; no equivale necesariamente a la cantidad bruta de conexiones o solicitudes originales. Esto es especialmente importante en reglas de correlación por frecuencia, donde una alerta puede representar múltiples eventos de origen.
-
-### Intentos de acceso
-
-Resume autenticación, SSH, fuerza bruta y otras detecciones relacionadas con acceso.
-
-### Intentos de acceso y exploración web
-
-Resume reconocimiento y solicitudes HTTP asociadas a actividad sospechosa o intentos de acceso no autorizado.
-
-### Cambios detectados en archivos
-
-Resume actividad de File Integrity Monitoring y cambios relevantes detectados por Wazuh.
-
-### Detecciones de malware y archivos sospechosos
-
-Incluye reglas OrangeBox asociadas a malware, webshells y ejecutables sospechosos.
-
-### Escalamiento de privilegios
-
-Incluye reglas de `sudo`, `su` y elevación a root, incluyendo la detección OrangeBox `10005`.
-
-### Detecciones clasificadas como intentos de ataque
-
-Agrupa detecciones asociadas a grupos como:
-
-```text
-attack
-brute_force
-reconnaissance
-credential_discovery
-sensitive_file
-lateral_movement
-```
-
-Además, la clasificación actual considera como actividad de ataque las alertas de severidad 12 o superior que no hayan quedado clasificadas antes en otra categoría específica.
-
-El término **intento de ataque** se utiliza para destacar que la actividad presenta características compatibles con una acción ofensiva, sin afirmar que el atacante haya conseguido comprometer el sistema.
-
-Esta sección es independiente del resumen MITRE. Por eso puede existir un informe donde esta sección indique que no hubo detecciones clasificadas como ataque y, al mismo tiempo, existan técnicas MITRE asociadas a otras alertas de autenticación, web, FIM o privilegios.
-
-### GeoIP y Top países
-
-El reporte utiliza DB-IP City Lite desde la base MMDB local:
-
-```text
-/var/lib/orangebox/geoip/dbip-city-lite.mmdb
-```
-
-La ruta puede sobrescribirse con `ORANGEBOX_GEOIP_CITY_DB`. No se realizan consultas a una API externa durante la ejecución del reporte.
-
-El bloque **Top países · eventos de seguridad** muestra el ranking de países de las **IPs públicas únicas asociadas a detecciones de seguridad del período**. No representa ataques confirmados ni implica por sí solo compromiso.
-
-Junto a ese bloque se muestra **Top países · IPs bloqueadas automáticamente**, construido exclusivamente con las IPs públicas que activaron una respuesta automática `firewall-drop`.
-
-Las IP privadas, reservadas o no globales se identifican como **IP local** cuando aparecen individualmente y no se incluyen en los rankings geográficos.
-
-En las tablas donde se muestra una IP individual, el reporte agrega país y bandera cuando la geolocalización está disponible.
-
-La geolocalización es aproximada. El dato se utiliza como contexto para el análisis de seguridad y no como identificación física exacta del origen.
-
-Fuente: DB-IP Lite, licencia CC BY 4.0.
-
-## Técnicas MITRE observadas en las alertas
-
-Wazuh incorpora en las alertas los identificadores MITRE ATT&CK, junto con el nombre de la técnica y la táctica cuando están disponibles. El informe conserva el identificador técnico y añade una explicación corta pensada para personas no especialistas.
-
-El contador de esta tabla indica **cuántas alertas de Wazuh fueron asociadas a la técnica** durante el período. No significa necesariamente la cantidad de accesos exitosos, conexiones individuales, ataques confirmados ni compromisos.
-
-Por ejemplo, si aparece:
-
-```text
-T1021.004   SSH   Acceso remoto a sistemas mediante SSH.   54,914
-```
-
-el `54,914` debe interpretarse como **54,914 alertas de Wazuh asociadas a la técnica T1021.004**, no como 54,914 ingresos exitosos por SSH.
-
-Las explicaciones se mantienen dentro del propio script para que el reporte sea portable y no dependa de una consulta externa durante su ejecución.
-
-Actualmente se incluyen explicaciones para las técnicas observadas en los reportes OrangeBox, entre ellas:
-
-```text
-T1110       Fuerza bruta
-T1110.001   Password Guessing
-T1021       Remote Services
-T1021.004   SSH
-T1078       Valid Accounts
-T1565.001   Stored Data Manipulation
-T1070.004   File Deletion
-T1485       Data Destruction
-T1548.003   Sudo and Sudo Caching
-T1055       Process Injection
-T1190       Exploit Public-Facing Application
-T1498       Network Denial of Service
-T1595.002   Vulnerability Scanning
-T1083       File and Directory Discovery
-T1552       Unsecured Credentials
-T1098       Account Manipulation
-T1059       Command and Scripting Interpreter
-T1059.004   Unix Shell
-T1105       Ingress Tool Transfer
-T1505.003   Web Shell
-```
-
-Si Wazuh incorpora una técnica que no tenga una explicación local, el script muestra igualmente el ID y el nombre proporcionados por Wazuh y utiliza una explicación genérica, evitando dejar un número sin contexto.
-
-### Sistemas más afectados
-
-Muestra los sistemas con mayor cantidad de detecciones relevantes durante el período.
-
-## Qué se considera evento de seguridad
-
-El motor clasifica las alertas mediante sus IDs y grupos Wazuh. Los eventos que no pertenecen a una categoría de seguridad conocida se mantienen fuera del resumen principal para evitar que el ruido operacional domine el informe.
-
-Las categorías consideradas son:
-
-```text
+~~~~text
 active_response
 authentication
 web
@@ -257,42 +180,174 @@ fim
 malware
 privilege
 attack
-```
+~~~~
 
-Los eventos de prueba controlada OrangeBox se mantienen dentro de los reportes. Esto permite demostrar que las reglas y mecanismos de respuesta han sido probados y que las cifras observadas no son números generados artificialmente.
+También existen reglas y grupos excluidos explícitamente para evitar ruido operacional o excepciones OrangeBox.
 
-## Cron recomendado
+Las alertas de nivel 0 o menor no entran en el resumen.
 
-Reporte diario global a las 10:00:
+Las detecciones de ataque incluyen grupos como attack, brute_force, reconnaissance, credential_discovery, sensitive_file y lateral_movement. Además, una alerta de nivel 12 o superior puede clasificarse como ataque cuando no quedó antes en otra categoría específica.
 
-```cron
+“Intento de ataque” describe una detección con características ofensivas; no significa que el sistema haya sido comprometido.
+
+## Bloqueo automático de IPs
+
+La sección de firewall correlaciona la regla que originó la detección con la acción de firewall-drop.
+
+Para cada servidor y motivo se muestra:
+
+- regla;
+- motivo;
+- intentos detectados asociados;
+- cantidad de IPs bloqueadas.
+
+La correlación mantiene juntos ID de regla y descripción. Esto evita cruzar un motivo con otra regla.
+
+Los intentos detectados son alertas Wazuh asociadas a las IPs que fueron bloqueadas. No equivalen necesariamente a la cantidad bruta de conexiones o solicitudes originales.
+
+Las IP individuales no se listan en el reporte ejecutivo para mantener el informe legible. El detalle queda en las alertas JSON y en el informe detallado.
+
+## GeoIP
+
+La geolocalización usa DB-IP City Lite desde:
+
+~~~~text
+/var/lib/orangebox/geoip/dbip-city-lite.mmdb
+~~~~
+
+La ruta puede cambiarse con ORANGEBOX_GEOIP_CITY_DB.
+
+No se consulta una API externa por cada IP durante la ejecución.
+
+El informe muestra:
+
+- país y bandera en tablas con IP individual;
+- Top países por IPs públicas únicas asociadas a detecciones;
+- Top países por IPs públicas bloqueadas automáticamente.
+
+Las IP privadas, reservadas o no globales se consideran IP local y no entran en los rankings geográficos.
+
+La geolocalización es aproximada y se usa como contexto de seguridad, no como identificación física exacta.
+
+Fuente: DB-IP Lite, licencia CC BY 4.0.
+
+## Técnicas MITRE
+
+Cuando Wazuh entrega información MITRE ATT&CK, el reporte muestra el identificador, nombre y una explicación corta para facilitar la lectura.
+
+El contador representa cantidad de alertas Wazuh asociadas a la técnica durante el período. No representa necesariamente accesos exitosos, conexiones individuales ni compromisos confirmados.
+
+Entre las técnicas contempladas por el catálogo local se encuentran T1110, T1021.004, T1078, T1190, T1595.002, T1083, T1552, T1059.004, T1105 y T1505.003.
+
+Si llega una técnica sin explicación local, se conserva el ID y el nombre informado por Wazuh y se usa una explicación genérica.
+
+## Vulnerabilidades
+
+Los CVE se consultan desde:
+
+~~~~text
+wazuh-states-vulnerabilities-*
+~~~~
+
+Para distinguir entre “sin hallazgos” y “sin evaluación”, también se consulta:
+
+~~~~text
+wazuh-states-inventory-system-*
+~~~~
+
+Cuando un servidor es identificado como CloudLinux, el informe lo indica expresamente. Un resultado vacío de Vulnerability Detection para CloudLinux no debe interpretarse como ausencia de CVE.
+
+Las credenciales de lectura del Indexer se toman de variables de entorno o de:
+
+~~~~text
+/var/ossec/etc/orangebox-indexer.conf
+~~~~
+
+El archivo de configuración debe tener permisos 0600 o más restrictivos. El password no se almacena dentro del repositorio.
+
+## Correo
+
+El destinatario se entrega con --email y puede repetirse para enviar a más de una dirección.
+
+El HTML y el texto plano se envían mediante:
+
+~~~~text
+/usr/sbin/sendmail -t -i
+~~~~
+
+Esto entrega el mensaje a la cola local de Postfix.
+
+Los asuntos actuales siguen este formato:
+
+~~~~text
+[ORANGEBOX] Diario - Informe de Seguridad <grupos>
+[ORANGEBOX] Semanal - Informe de Seguridad <grupos>
+[ORANGEBOX] Mensual - Informe de Seguridad <grupos>
+[ORANGEBOX] Anual - Informe de Seguridad <grupos>
+~~~~
+
+No se usan iconos en el asunto.
+
+El idioma por defecto es español y --lang es|en permite cambiar títulos y etiquetas del reporte.
+
+## HTML y archivo
+
+Los HTML están diseñados para clientes de correo y móvil:
+
+- tablas HTML;
+- estilos críticos inline;
+- sin flexbox, CSS Grid ni JavaScript;
+- ancho aproximado de 640 px;
+- contenido adaptable a pantallas pequeñas.
+
+Cada ejecución se archiva en:
+
+~~~~text
+/var/ossec/reports/archive/
+~~~~
+
+La escritura del HTML usa archivo temporal y reemplazo atómico para evitar archivos incompletos.
+
+## Prueba
+
+Para generar el informe sin enviarlo:
+
+~~~~bash
+/var/ossec/reports/orangebox-security-report.py --yesterday --group all --email <destinatario> --dry-run
+~~~~
+
+El archivo HTML sigue quedando disponible en archive.
+
+## Operación recomendada
+
+Diario global:
+
+~~~~cron
 0 10 * * * root /var/ossec/reports/orangebox-security-report.py --yesterday --group all --email <destinatario>
-```
+~~~~
 
-Reporte mensual global el día 1 a las 10:00:
+Mensual global:
 
-```cron
+~~~~cron
 0 10 1 * * root /var/ossec/reports/orangebox-security-report.py --lastmonth --group all --email <destinatario>
-```
+~~~~
 
-Reporte mensual de un cliente:
+Mensual de cliente:
 
-```cron
+~~~~cron
 0 10 1 * * root /var/ossec/reports/orangebox-security-report.py --lastmonth --group <grupo_cliente> --email <destinatario>
-```
+~~~~
 
-Agregar o retirar un reporte de cliente consiste únicamente en agregar o eliminar una línea de cron.
+Agregar o retirar un cliente consiste en agregar o quitar su línea de cron.
 
-## Seguridad y aislamiento por cliente
+## Mantenimiento
 
-El correo del cliente no se define dentro del código. Cron entrega el destinatario y el grupo en cada ejecución.
+No crear listas manuales de servidores dentro del script.
 
-Por ejemplo:
+No borrar alerts.json ni los históricos mientras exista una política de retención que los necesite.
 
-```bash
---group <grupo_cliente> --email <destinatario>
-```
+No cambiar la estructura del cache sin definir primero una reconstrucción compatible.
 
-contendrá exclusivamente agentes que Wazuh identifica como pertenecientes al grupo indicado.
+El wrapper limpia solo residuos temporales conocidos de ejecuciones interrumpidas.
 
-No se deben utilizar listas manuales de agentes dentro del script para reemplazar la pertenencia oficial a grupos Wazuh.
+Los prototipos de la migración ya no forman parte de la instalación productiva.
