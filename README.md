@@ -116,3 +116,5 @@ Wazuh, Wazuh Manager, Wazuh Agent, Wazuh rules, Wazuh FIM, File Integrity Monito
 ## Documentación
 
 La documentación técnica se mantiene junto al componente que documenta, usando el mismo nombre base con extensión `.md`. Por ejemplo: `orangebox-auth.xml` + `orangebox-auth.md`, `agent.conf` + `agent.md` y `custom-orangebox-email.py` + `custom-orangebox-email.md`.
+
+Los reportes de seguridad productivos usan la arquitectura v3 documentada en `configuration/manager/reports/orangebox-reportes-v3.md`.
