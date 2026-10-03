@@ -8,13 +8,13 @@ set -euo pipefail
 # Official procedure:
 #   git clone https://github.com/wazuh/wazuh
 #   cd wazuh/packages
-#   git checkout v4.14.7
+#   git checkout v4.14.8
 #   ./generate_package.sh -t agent -a amd64 -p /opt/ossec --system rpm
 #
 # Requirements: Docker and Git
 # Output: one official Wazuh RPM for x86_64, installed under /opt/ossec.
 
-WAZUH_VERSION="${WAZUH_VERSION:-4.14.7}"
+WAZUH_VERSION="${WAZUH_VERSION:-4.14.8}"
 JOBS="${JOBS:-2}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 OUTDIR="${OUTDIR:-${SCRIPT_DIR}/output}"
