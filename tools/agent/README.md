@@ -22,7 +22,7 @@ El backend de logging del firewall se adapta a la versión:
 - **EL 6:** iptables -> rsyslog -> `/var/log/orangebox-firewall.log` -> Wazuh.
 - **EL 7+ :** iptables -> journald -> Wazuh.
 
-Si la versión de Enterprise Linux no es 6, 7, 8, 9 o 10, el instalador se detiene.
+Si la versión de Enterprise Linux no es 6, 7, 8, 9 o 10, esa etapa se marca como error y el instalador continúa con las etapas que puede ejecutar.
 
 ## Linux normal
 
@@ -117,18 +117,18 @@ El instalador mantiene el mismo objetivo de logging OrangeBox cuando el servidor
 El instalador normaliza la configuración de auditd en:
 
 ```text
-/etc/audit/rules.d/orangebox-wazuh.rules
+/etc/audit/rules.d/70-orangebox-wazuh.rules
 ```
 
 La lógica es idempotente:
 
-- detecta reglas OrangeBox existentes;
-- migra la implementación OrangeBox antigua cuando corresponde;
+- usa como archivo canónico `70-orangebox-wazuh.rules`, antes de un posible finalizador `99-*`/`90-*`;
+- migra reglas OrangeBox antiguas cuando corresponde;
 - elimina duplicados;
-- conserva una única definición administrada por OrangeBox;
-- genera las reglas necesarias para **ejecución de archivos** y **reconocimiento/ejecución privilegiada**;
-- valida la configuración antes de considerarla instalada;
-- recarga auditd cuando corresponde.
+- genera reglas para **ejecución de archivos** y **reconocimiento/ejecución privilegiada**;
+- instala `audispd-plugins` si falta para que Wazuh pueda usar Whodata;
+- si Audit está en modo inmutable (`enabled=2` / `-e 2`), deja las reglas persistentes y avisa que requieren un reinicio;
+- valida la configuración y las claves cargadas cuando es posible.
 
 No se agregan copias de las mismas reglas cada vez que se ejecuta el instalador.
 
@@ -206,6 +206,21 @@ Los ejecutables del Agent son generados por `install.sh`. La configuración que 
 No existe una copia de estos scripts bajo `configuration/agent/`.
 
 ---
+
+## Fallos y continuidad
+
+Cada etapa importante se ejecuta de forma aislada. Si una etapa falla, el instalador registra el error y continúa con las siguientes.
+
+Al terminar muestra un resumen con:
+
+```text
+[OK]   pasos completados
+[ERROR] pasos con fallas
+```
+
+El código de salida final es `1` si alguna etapa falló.
+
+Esto permite terminar una instalación parcial y saber exactamente qué componente quedó pendiente.
 
 ## Verificación final
 
