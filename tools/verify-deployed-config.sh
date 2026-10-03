@@ -247,25 +247,6 @@ compare_file     "configuration/manager/etc/ossec.conf"     "${OSSEC_HOME}/etc/o
 compare_file     "configuration/manager/etc/shared/agent-template.conf"     "${OSSEC_HOME}/etc/shared/agent-template.conf"
 
 echo
-echo "=== REGLAS MANAGER ==="
-compare_manager_rules "configuration/manager/etc/rules" "${OSSEC_HOME}/etc/rules"
-check_extra_orangebox_rules "configuration/manager/etc/rules" "${OSSEC_HOME}/etc/rules"
-check_rule_cdb_references "${ROOT}/configuration/manager/etc/rules" "${OSSEC_HOME}/etc/ossec.conf"
-
-echo
-echo "=== LISTAS CDB ==="
-
-compare_file "configuration/manager/etc/lists/orangebox-network-recon-programs" "${OSSEC_HOME}/etc/lists/orangebox-network-recon-programs"
-compare_generated_cdb "cpanel" "cpanel" "${OSSEC_HOME}/etc/lists/orangebox-cpanel-agents"
-compare_generated_cdb "zimbra" "zimbra" "${OSSEC_HOME}/etc/lists/orangebox-zimbra-agents"
-
-if [[ -e "${OSSEC_HOME}/etc/lists/orangebox-agent-profiles" ]]; then
-    warn "CDB obsoleta aun desplegada: ${OSSEC_HOME}/etc/lists/orangebox-agent-profiles"
-else
-    ok "CDB obsoleta orangebox-agent-profiles ausente"
-fi
-
-echo
 echo "=== DECODERS ==="
 compare_file     "configuration/manager/etc/decoders/orangebox-yara.xml"     "${OSSEC_HOME}/etc/decoders/orangebox-yara.xml"
 
@@ -459,8 +440,22 @@ compare_file     "configuration/manager/etc/ossec.conf"     "${OSSEC_HOME}/etc/o
 compare_file     "configuration/manager/etc/shared/agent-template.conf"     "${OSSEC_HOME}/etc/shared/agent-template.conf"
 
 echo
+echo "=== REGLAS MANAGER ==="
+compare_manager_rules "configuration/manager/etc/rules" "${OSSEC_HOME}/etc/rules"
+check_extra_orangebox_rules "configuration/manager/etc/rules" "${OSSEC_HOME}/etc/rules"
+check_rule_cdb_references "${ROOT}/configuration/manager/etc/rules" "${OSSEC_HOME}/etc/ossec.conf"
+
+echo
 echo "=== LISTAS CDB ==="
-compare_file     "configuration/manager/etc/lists/orangebox-agent-profiles"     "${OSSEC_HOME}/etc/lists/orangebox-agent-profiles"
+compare_file "configuration/manager/etc/lists/orangebox-network-recon-programs" "${OSSEC_HOME}/etc/lists/orangebox-network-recon-programs"
+compare_generated_cdb "cpanel" "cpanel" "${OSSEC_HOME}/etc/lists/orangebox-cpanel-agents"
+compare_generated_cdb "zimbra" "zimbra" "${OSSEC_HOME}/etc/lists/orangebox-zimbra-agents"
+
+if [[ -e "${OSSEC_HOME}/etc/lists/orangebox-agent-profiles" ]]; then
+    warn "CDB obsoleta aun desplegada: ${OSSEC_HOME}/etc/lists/orangebox-agent-profiles"
+else
+    ok "CDB obsoleta orangebox-agent-profiles ausente"
+fi
 
 echo
 echo "=== DECODERS ==="
