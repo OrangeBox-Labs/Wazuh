@@ -1,54 +1,17 @@
-# CDB de perfiles de agentes OrangeBox
+# CDB y sincronización de agentes OrangeBox
 
 Este directorio contiene listas CDB utilizadas directamente por las reglas del Wazuh Manager.
 
-## CDB dinámicas por grupo Wazuh
+Las CDB se dividen en dos tipos:
 
-Las excepciones de aplicaciones usan grupos Wazuh como fuente de verdad. No se mantiene una lista manual global de hostnames.
+- **estáticas**: se mantienen en el repositorio y se despliegan sin cambios;
+- **dinámicas**: se generan desde grupos Wazuh y no deben editarse manualmente.
 
-### `orangebox-cpanel-agents`
-
-Representa el grupo Wazuh `cpanel`.
-
-El sincronizador:
-
-```text
-configuration/manager/bin/update-orangebox-cpanel-agents.sh
-```
-
-genera la CDB a partir de:
-
-```bash
-/var/ossec/bin/agent_groups -l -g cpanel
-```
-
-Incluye hostname FQDN y hostname corto. No se edita manualmente.
-
-### `orangebox-zimbra-agents`
-
-Representa el grupo Wazuh `zimbra`.
-
-El mismo perfil funcional se utiliza para Zimbra y Carbonio CE.
-
-El sincronizador:
-
-```text
-configuration/manager/bin/update-orangebox-zimbra-agents.sh
-```
-
-genera la CDB a partir de:
-
-```bash
-/var/ossec/bin/agent_groups -l -g zimbra
-```
-
-Incluye hostname FQDN y hostname corto. No se edita manualmente.
-
-Las reglas de autenticación exigen además el comando o contexto operacional validado; pertenecer al grupo por sí solo no autoriza `sudo -> root`.
+## CDB estáticas
 
 ### `orangebox-network-recon-programs`
 
-CDB estática utilizada por las correlaciones `10612` y `10614`.
+Define los comandos que cuentan como reconocimiento de red para las correlaciones `10612` y `10614`.
 
 Formato:
 
@@ -56,88 +19,109 @@ Formato:
 comando:network_recon
 ```
 
-Incluye únicamente comandos de consulta de red definidos por OrangeBox.
+Incluye utilidades de consulta de red como `ip`, `ss`, `netstat`, `lsof`, `route`, `arp`, `ifconfig` y `nmcli`.
 
-La CDB debe estar declarada en el bloque `<ruleset>` de `configuration/manager/etc/ossec.conf`.
+La lista debe estar declarada en el bloque `<ruleset>` de `manager/etc/ossec.conf`.
 
-## Declaración y carga
+### CDB operacionales
 
-Toda CDB usada por una regla debe estar declarada en `ossec.conf`.
+Las CDB adicionales pueden contener orígenes de red o identidades autorizadas para una excepción concreta. Su alcance debe quedar documentado en la regla que las utiliza.
 
-Si una regla apunta a una CDB que no existe o no está declarada, `wazuh-analysisd -t` puede registrar el warning `(7616)` y omitir la regla.
+Una CDB operacional no debe convertirse en una whitelist global de usuario, directorio o shell.
 
-Las CDB dinámicas son generadas por sus sincronizadores y no deben editarse manualmente.
+## CDB dinámicas por grupo Wazuh
 
-## `orangebox-backuppc-static`
+La fuente de verdad es la pertenencia del agente al grupo Wazuh. El hostname no se mantiene manualmente en una segunda lista.
 
-Contiene las IP de BackupPC autorizadas manualmente para la excepción SSH `20001`.
+### `orangebox-cpanel-agents`
 
-Formato:
+Representa el grupo Wazuh `cpanel`.
 
-```text
-<IP>:
-```
-
-El updater dinámico no modifica esta lista.
-
-## `orangebox-backuppc-dynamic`
-
-Contiene la IP actual del hostname BackupPC administrado por `update-orangebox-backuppc.sh`. La lista se reemplaza completamente cuando cambia DNS.
-
-Formato:
+El sincronizador es:
 
 ```text
-<IP>:
+configuration/manager/bin/update-orangebox-cpanel-agents.sh
 ```
 
-No editar esta lista manualmente salvo para recuperación controlada.
+y su cron:
 
-## `orangebox-sftp-certcoopeuch`
+```text
+configuration/manager/etc/cron.d/orangebox-cpanel-agents
+```
 
-Contiene los orígenes autorizados para el SFTP del usuario `certcoopeuch`. La regla `20004` combina esta lista con la condición de usuario.
+Consulta `agent_groups -l -g cpanel`, genera hostname FQDN y hostname corto y actualiza la CDB solo cuando cambia.
 
-Agregar una IP nueva significa agregar una línea `<IP>:` y reiniciar el Manager.
+### `orangebox-zimbra-agents`
 
-## `orangebox-web-auth-proxies`
+Representa el grupo Wazuh `zimbra`.
 
-Contiene los reverse proxies autorizados para la correlación `10025` de brute force web. La regla `20024` consulta esta lista.
+Este contexto cubre Zimbra y Carbonio CE.
 
-## `orangebox-web-discovery-proxies`
+El sincronizador es:
 
-Contiene los reverse proxies autorizados para la correlación `10026` de reconocimiento de archivos sensibles. La regla `20026` consulta esta lista.
+```text
+configuration/manager/bin/update-orangebox-zimbra-agents.sh
+```
 
-Estas dos listas se mantienen separadas porque su alcance puede ser diferente. No se debe asumir que todos los proxies necesitan ambas excepciones.
+y su cron:
 
-## IDs de reglas
+```text
+configuration/manager/etc/cron.d/orangebox-zimbra-agents
+```
 
-Agregar una IP a una CDB existente no requiere un nuevo SID. Cuando realmente haga falta una regla nueva, utilizar un ID libre del rango `20000-29999` y verificar que no exista en ningún otro archivo del ruleset.
+Consulta `agent_groups -l -g zimbra` y genera hostname FQDN y hostname corto.
 
-## Sincronización
+Las reglas de autenticación y comportamiento pueden usar esta CDB para reconocer el contexto del endpoint, pero el grupo por sí solo nunca autoriza una operación privilegiada: la regla debe exigir además identidad, comando o contexto exacto.
 
-El grupo Wazuh distribuye `agent.conf` y etiquetas. La CDB es la condición evaluable por las reglas.
+Las CDB dinámicas no deben editarse manualmente.
 
-Por lo tanto, para un nuevo perfil se deben mantener sincronizados:
+## Declaración en `ossec.conf`
 
-- grupo Wazuh;
-- `agent.conf` del perfil;
-- etiqueta `orangebox.profile`;
-- entrada hostname -> perfil en esta CDB.
+Toda CDB usada por una regla debe estar declarada en el bloque `<ruleset>` de `/var/ossec/etc/ossec.conf`.
 
-## Carga
-
-La lista se declara en `manager/ossec.conf` como:
+Ejemplos:
 
 ```xml
-<list>etc/lists/orangebox-agent-profiles</list>
+<list>etc/lists/orangebox-network-recon-programs</list>
+<list>etc/lists/orangebox-cpanel-agents</list>
+<list>etc/lists/orangebox-zimbra-agents</list>
 ```
 
-Wazuh compila y carga las CDB al iniciar el motor de análisis. Al modificar la lista hay que reiniciar el Manager.
+Si una regla referencia una CDB no declarada o inexistente, `wazuh-analysisd -t` puede registrar el warning `(7616)` y omitir la regla.
+
+## Regla de seguridad
+
+Una excepción operacional debe combinar contexto del endpoint con identidad y/o comando o condición exacta:
+
+```text
+grupo / contexto del endpoint
+        +
+usuario o identidad cuando corresponda
+        +
+comando o condición exacta
+        =
+excepción
+```
+
+No convertir una excepción puntual en una whitelist global.
 
 ## Validación
 
-Con `wazuh-logtest` verificar como mínimo:
+Después de modificar reglas o CDB:
 
-1. perfil correcto + comando permitido -> `level 0`;
-2. hostname sin perfil + mismo comando -> `10005`;
-3. perfil correcto + comando no permitido -> `10005`;
-4. wrapper permitido + comando extra -> `10005`.
+```bash
+/var/ossec/bin/wazuh-analysisd -t
+```
+
+Para validar la sincronización:
+
+```bash
+/var/ossec/bin/update-orangebox-cpanel-agents.sh
+/var/ossec/bin/update-orangebox-zimbra-agents.sh
+```
+
+El verificador `tools/verify-deployed-config.sh` comprueba además que las CDB requeridas por las reglas existan y estén declaradas.
+
+## IDs de reglas
+
+Agregar una IP o agente a una CDB existente no requiere un nuevo SID. Cuando realmente haga falta una regla nueva, usar un ID libre del rango `20000-29999` y comprobar que no exista en otro XML.
