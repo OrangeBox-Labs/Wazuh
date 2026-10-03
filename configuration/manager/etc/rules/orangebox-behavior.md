@@ -29,3 +29,16 @@ Las reglas que deben generar correo inmediato utilizan la marca funcional `orang
 ## Pruebas
 
 Validar 10610, 10611, 10612, 10613 y 10614 por separado y comprobar que 10001/10005 conserven su comportamiento cuando no corresponde una correlación.
+
+
+## 20055 — Excepción de Zimbra
+
+Silencia la alerta `10610` solamente cuando el agente pertenece al grupo Wazuh `zimbra` y el evento auditd corresponde exactamente al chequeo interno de Zimbra:
+
+```text
+/usr/bin/nc -w 15 localhost 7171
+CWD=/opt/zimbra
+AUID/UID/GID=zimbra
+```
+
+La excepción está respaldada por la CDB dinámica `orangebox-zimbra-agents`. No se excluye `nc` de forma global: cualquier otro uso de `nc` mantiene la detección `10610`.
