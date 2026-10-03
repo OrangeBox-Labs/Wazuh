@@ -66,4 +66,31 @@
         <group>attack,orangebox_behavior,orangebox_killchain,orangebox_immediate,</group>
     </rule>
 
+
+    <!--
+        20055 - EXCEPCION: chequeo interno de Zimbra contra zmconfigd.
+
+        Zimbra utiliza "nc -w 15 localhost 7171" para comprobar el servicio
+        zmconfigd. No se excluye "nc" de forma global: solamente se silencia
+        este comando exacto dentro de un agente perteneciente al grupo
+        Wazuh "zimbra".
+
+        La coincidencia se hace sobre el evento auditd bruto para exigir:
+          - AUID/UID/GID = zimbra
+          - /usr/bin/nc
+          - -w 15
+          - localhost
+          - puerto 7171
+          - CWD /opt/zimbra
+
+        Cualquier otra ejecucion de nc mantiene la alerta 10610.
+    -->
+    <rule id="20055" level="0">
+        <if_sid>10610</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^zimbra$">etc/lists/orangebox-zimbra-agents</list>
+        <match type="pcre2">(?s)AUID="zimbra".*?UID="zimbra".*?GID="zimbra".*?type=EXECVE.*?argc=5\s+a0="/usr/bin/nc"\s+a1="-w"\s+a2="15"\s+a3="localhost"\s+a4="7171".*?type=CWD.*?cwd="/opt/zimbra"</match>
+        <description>EXCEPCION: Chequeo interno de Zimbra a zmconfigd mediante nc localhost:7171.</description>
+        <group>orangebox,behavior,whitelist,zimbra,orangebox_exception,</group>
+    </rule>
+
 </group>
