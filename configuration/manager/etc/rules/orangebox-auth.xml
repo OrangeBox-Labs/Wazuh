@@ -502,7 +502,7 @@
               - La integridad de los binarios relevantes se monitoriza por FIM.
         -->
         <if_sid>10005</if_sid>
-        <list field="hostname" lookup="match_key_value" check_value="^zimbra$">etc/lists/orangebox-agent-profiles</list>
+        <list field="hostname" lookup="match_key_value" check_value="^zimbra$">etc/lists/orangebox-zimbra-agents</list>
         <field name="command" type="pcre2">^/opt/(?:zimbra|zextras)/(?:libexec/zmstat-fd(?:\s+.*)?|libexec/zmmailboxdmgr status|libexec/zmmailboxdmgr start(?:\s+.*)?|common/sbin/amavis-mc(?:\s+.*)?|common/sbin/postfix|common/sbin/postalias|common/sbin/qshape\.pl|common/sbin/postconf(?:\s+.*)?|common/sbin/postsuper|common/sbin/postcat|libexec/zmqstat|libexec/zmmtastatus)$</field>
         <description>EXCEPCION: SUDO legitimo de Zimbra/Carbonio para comando operacional validado.</description>
         <group>syslog,sudo,authentication,privilege_escalation,orangebox_exception,orangebox_whitelist,zimbra,carbonio,</group>
