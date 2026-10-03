@@ -17,7 +17,7 @@ El paquete se construye usando el generador oficial de Wazuh. No estamos reinven
 Necesitas:
 
 - Git
-- Docker
+- Docker o Podman
 
 Ejecuta:
 
