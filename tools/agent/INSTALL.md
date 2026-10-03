@@ -22,7 +22,7 @@ El instalador pregunta si el servidor es cPanel/CSF.
 9. Reinicia/valida el agente.
 10. Ejecuta las validaciones finales.
 
-El proceso es idempotente: una segunda ejecución no debería duplicar reglas ni archivos de configuración que ya estén correctamente instalados.
+El proceso es idempotente. Las etapas importantes están aisladas: si una etapa falla, se registra el error y el instalador continúa con las siguientes. Al final muestra un resumen de pasos OK y pasos con error y devuelve código `1` si quedó alguna etapa fallida.
 
 ## Firewall OrangeBox
 
@@ -61,7 +61,7 @@ se utiliza para que una segunda ejecución no vuelva a insertar el bloque.
 El instalador mantiene un único archivo canónico:
 
 ```text
-/etc/audit/rules.d/orangebox-wazuh.rules
+/etc/audit/rules.d/70-orangebox-wazuh.rules
 ```
 
 Las reglas cubren:
@@ -72,14 +72,14 @@ Las reglas cubren:
 
 Las instalaciones antiguas que todavía tengan `99-orangebox-exec.rules` con reglas OrangeBox se respaldan y migran al archivo canónico para evitar el error de reglas duplicadas de `augenrules`.
 
-En Enterprise Linux 10 se instala `audit-rules` cuando corresponde. Después de cargar las reglas, se valida que las claves OrangeBox estén activas y se reinicia Wazuh para consumir `/var/log/audit/audit.log`.
+En Enterprise Linux 10 se instala `audit-rules` cuando corresponde. El instalador también comprueba `audispd-plugins`, necesario para que Wazuh pueda usar Whodata mediante el socket de Audit. Después de cargar las reglas, se valida que las claves OrangeBox estén activas y se reinicia Wazuh para consumir `/var/log/audit/audit.log`.
 
 ## cPanel
 
 El RPM OPT está en el mismo directorio:
 
 ```text
-tools/agent/wazuh-agent_4.14.7-0_x86_64_OPT.rpm
+tools/agent/wazuh-agent_4.14.8-0_x86_64_OPT.rpm
 ```
 
 El instalador lo utiliza únicamente cuando se selecciona cPanel.
