@@ -20,8 +20,8 @@
 
     <!-- Ejecucion registrada por auditd en zona temporal critica. -->
     <rule id="10600" level="12">
-        <decoded_as>auditd</decoded_as>
-        <field name="audit.key">orangebox_exec</field>
+        <if_sid>80700</if_sid>
+        <field name="audit.key" type="pcre2">^orangebox_exec$</field>
         <description>ALERTA: Ejecucion de archivo desde zona temporal critica (/tmp, /var/tmp o /dev/shm).</description>
         <mitre>
             <id>T1204.002</id>
