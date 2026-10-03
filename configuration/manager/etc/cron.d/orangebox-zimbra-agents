@@ -1,0 +1,5 @@
+# OrangeBox Wazuh - sincronizacion automatica de agentes Zimbra / Carbonio
+# Fuente de verdad: grupo Wazuh "zimbra".
+*/10 1-22 * * * root /var/ossec/bin/update-orangebox-zimbra-agents.sh >/dev/null 2>&1
+5-45/10 23 * * * root /var/ossec/bin/update-orangebox-zimbra-agents.sh >/dev/null 2>&1
+15-55/10 0 * * * root /var/ossec/bin/update-orangebox-zimbra-agents.sh >/dev/null 2>&1
