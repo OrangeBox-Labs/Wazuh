@@ -38,6 +38,7 @@
 
     <rule id="10612" level="14" frequency="3" timeframe="300">
         <if_matched_sid>10611</if_matched_sid>
+        <list field="audit.command" lookup="match_key_value" check_value="network_recon">etc/lists/orangebox-network-recon-programs</list>
         <same_location/>
         <different_field>audit.command</different_field>
         <description>ALERTA: POSIBLE RECONOCIMIENTO DE RED DESDE ENDPOINT. SE DETECTARON MULTIPLES COMANDOS DE ENUMERACION EN 5 MINUTOS.</description>
