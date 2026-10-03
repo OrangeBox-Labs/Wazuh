@@ -391,28 +391,36 @@ Especialmente en `authd`: se documenta lo que realmente está configurado, no lo
 - auditd y systemd journal en el Manager.
 
 
-## CDB de perfiles de agentes
+## CDB y listas usadas por reglas
 
-El `<ruleset>` incluye la lista:
+Las CDB utilizadas por reglas OrangeBox deben estar declaradas dentro del bloque `<ruleset>` de este archivo.
+
+### CDB estáticas
+
+`etc/lists/orangebox-network-recon-programs` define los comandos de reconocimiento de red usados por las correlaciones `10612` y `10614`.
+
+### CDB dinámicas por grupo
+
+Las excepciones operacionales de cPanel y Zimbra/Carbonio no dependen de una lista manual global de hostnames.
 
 ```text
-etc/lists/orangebox-agent-profiles
+cpanel -> orangebox-cpanel-agents
+zimbra -> orangebox-zimbra-agents
 ```
 
-Esta CDB relaciona el `hostname` predecodificado del evento con un perfil funcional mediante `match_key_value`.
+Los sincronizadores consultan los grupos con `agent_groups`, generan hostname completo y corto y actualizan la CDB solo cuando cambia.
 
-Perfiles actuales:
+El grupo o perfil nunca debe ser la única condición de autorización: una excepción de aplicación debe sumar identidad y/o comando o contexto exacto.
 
-```text
-cpanel
-zimbra
+### Después de cambios
+
+Validar siempre:
+
+```bash
+/var/ossec/bin/wazuh-analysisd -t
 ```
 
-`zimbra` representa la política funcional compartida por Zimbra y Carbonio CE.
-
-Las excepciones de aplicaciones utilizan esta CDB para reducir falsos positivos en el ruleset antes de que lleguen a la integración de correo.
-
-Después de modificar la CDB se debe reiniciar el Manager para que el motor cargue la nueva lista.
+El verificador `tools/verify-deployed-config.sh` comprueba además que las reglas desplegadas correspondan al repositorio y que las CDB requeridas por las reglas existan y estén declaradas.
 
 ## Persistencia y fuente de alertas
 
