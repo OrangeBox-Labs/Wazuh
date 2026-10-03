@@ -381,7 +381,7 @@
             servidor no queda globalmente autorizada.
         -->
         <if_sid>10035</if_sid>
-        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-agent-profiles</list>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
         <field name="file" type="pcre2">^/etc/cron\.d/cpanel_ssl_reissue$</field>
         <description>EXCEPCION: Cron cPanel cpanel_ssl_reissue regenerado automaticamente.</description>
         <group>orangebox_exception,orangebox_whitelist,cpanel,cron,</group>
@@ -405,7 +405,7 @@
 <group name="orangebox,hardening,fim,whitelist,cpanel,">
     <rule id="20050" level="0">
         <if_sid>10030</if_sid>
-        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-agent-profiles</list>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
         <field name="file" type="pcre2">^/etc/passwd$|^/etc/shadow$|^/etc/group$|^/etc/gshadow$</field>
         <description>EXCEPCION: cPanel modifica archivos de cuentas durante operaciones normales.</description>
         <group>orangebox_exception,orangebox_whitelist,cpanel,identity,</group>
@@ -413,7 +413,7 @@
 
     <rule id="20051" level="0">
         <if_sid>10037</if_sid>
-        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-agent-profiles</list>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
         <field name="file">^/etc/csf/csf\.deny$</field>
         <description>EXCEPCION: CSF/LFD actualiza csf.deny como parte de su operacion normal.</description>
         <group>orangebox_exception,orangebox_whitelist,cpanel,firewall,</group>
@@ -421,7 +421,7 @@
 
     <rule id="20052" level="0">
         <if_sid>10037</if_sid>
-        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-agent-profiles</list>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
         <field name="file">^/etc/sysconfig/nftables\.conf$</field>
         <description>EXCEPCION: cPanel/Imunify regenera nftables.conf con cambios operacionales de counters.</description>
         <group>orangebox_exception,orangebox_whitelist,cpanel,firewall,</group>
