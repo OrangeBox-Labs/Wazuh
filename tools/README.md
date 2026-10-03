@@ -56,6 +56,8 @@ Estas herramientas no forman parte del despliegue base del agente:
 - `update-orangebox-geoip.sh`
 - `update-orangebox-ioc-lists.sh`
 - `update-orangebox-backuppc.sh`
+- `update-orangebox-cpanel-agents.sh`
+- `update-orangebox-zimbra-agents.sh`
 
 ## Build del RPM
 
@@ -72,7 +74,7 @@ No existe un instalador de `authd` para los endpoints en este repo. El enrollmen
 ## Salud y despliegue
 
 - `check-orangebox-wazuh.sh`: comprueba la salud del stack. No modifica nada.
-- `verify-deployed-config.sh`: compara Git contra `/var/ossec`. No modifica nada.
+- `verify-deployed-config.sh`: compara Git contra `/var/ossec`, incluyendo reglas desplegadas y CDB requeridas por esas reglas. No modifica nada.
 - `verify-ossec-permissions.sh`: revisa o repara permisos. Solo cambia archivos con `--fix`.
 
 ## Depuración de reglas y Active Response
@@ -80,3 +82,17 @@ No existe un instalador de `authd` para los endpoints en este repo. El enrollmen
 Guía práctica para probar eventos, revisar `archives.json` y `alerts.json`, usar `wazuh-logtest` y seguir una alerta hasta correo o Active Response:
 
 - [tools/WAZUH-RULE-DEBUG.md](WAZUH-RULE-DEBUG.md)
+
+
+## Sincronización de grupos del Manager
+
+Las excepciones de aplicaciones usan grupos Wazuh como fuente de verdad.
+
+```text
+cpanel -> update-orangebox-cpanel-agents.sh -> orangebox-cpanel-agents
+zimbra -> update-orangebox-zimbra-agents.sh -> orangebox-zimbra-agents
+```
+
+Los sincronizadores generan hostname FQDN y hostname corto y mantienen las CDB sin una lista manual de agentes. Se ejecutan mediante cron cada 10 minutos fuera de la ventana de rotación de medianoche.
+
+No mantener listas manuales de hostnames para estos perfiles.
