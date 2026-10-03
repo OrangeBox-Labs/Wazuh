@@ -1,0 +1,8 @@
+ip:network_recon
+ss:network_recon
+netstat:network_recon
+lsof:network_recon
+route:network_recon
+arp:network_recon
+ifconfig:network_recon
+nmcli:network_recon
