@@ -27,6 +27,8 @@ level 0
 
 Las excepciones actuales usan CDB separadas:
 
+- `20055`: Zimbra / `nc localhost:7171`, restringida al grupo `zimbra` y al contexto exacto de `zmconfigd`.
+
 - `orangebox-cpanel-agents`: agentes del grupo Wazuh `cpanel`.
 - `orangebox-zimbra-agents`: agentes del grupo Wazuh `zimbra`.
 - No existe una CDB global de perfiles para estas excepciones.
