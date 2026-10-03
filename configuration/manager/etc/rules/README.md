@@ -11,19 +11,25 @@ Las excepciones se mantienen al final de los XML cuando modifican el comportamie
 
 ## Perfiles y whitelists
 
-Cuando una excepción corresponde a una aplicación que existe en múltiples agentes, se utiliza preferentemente un perfil funcional respaldado por una CDB.
+Cuando una excepción corresponde a una aplicación que existe en múltiples agentes, se utiliza un contexto de endpoint respaldado por una CDB específica.
 
 ```text
 evento
   ↓
 regla de detección
   ↓
-hostname -> perfil CDB
+grupo Wazuh -> CDB
   ↓
-comando o condición validada
+usuario/comando/contexto validado
   ↓
 level 0
 ```
+
+Las excepciones actuales usan CDB separadas:
+
+- `orangebox-cpanel-agents`: agentes del grupo Wazuh `cpanel`.
+- `orangebox-zimbra-agents`: agentes del grupo Wazuh `zimbra`.
+- No existe una CDB global de perfiles para estas excepciones.
 
 Esto evita whitelists globales para software que solo es legítimo en determinados endpoints.
 
@@ -45,7 +51,7 @@ Las correlaciones SSH principales son:
 Las excepciones de aplicación están separadas por perfil:
 
 - `cpanel` / WP Toolkit: `20031`, `20035`.
-- `zimbra` / Carbonio CE: `110100`.
+- `zimbra` / Carbonio CE: `110100`, respaldada por `orangebox-zimbra-agents`.
 
 Las excepciones de SSH conservan condiciones por IP de origen cuando el sistema autorizado es el origen y no el agente receptor.
 
@@ -98,3 +104,10 @@ No convertir una excepción puntual en una whitelist de directorio, usuario o sh
 ### `orangebox-mail.xml`
 
 Detecta fuerza bruta contra autenticación de correo usando correlaciones nativas de Wazuh. `10700` cubre Postfix y `10701` cubre Exim/Dovecot. Ambas disparan `firewall-drop` durante 24 horas y no generan correo individual.
+
+
+### Reconocimiento de red
+
+En `orangebox-behavior.xml`, la regla `10611` mantiene la observación de comandos de reconocimiento a nivel bajo. La correlación `10612` utiliza únicamente los comandos definidos en `orangebox-network-recon-programs` y `10614` exige además la cadena previa de elevación de privilegios y múltiples comandos de red.
+
+Esto evita convertir secuencias normales como `find`, `ps`, `uname` e `id` en una alerta crítica de reconocimiento de red.
