@@ -42,17 +42,13 @@ El perfil común cubre mecanismos generales de compromiso, persistencia, credenc
 
 La integración **FIM → YARA** permite analizar archivos detectados por Wazuh usando reglas oficiales de Yara-Rules.
 
-El instalador se encuentra en:
+La integración del Agent se instala mediante:
 
 ```text
-tools/orangebox-yara/install-orangebox-yara.sh
+tools/agent/install.sh
 ```
 
-y el runtime desplegable en:
-
-```text
-configuration/agents/common/active-response/bin/orangebox-yara.sh
-```
+El instalador genera directamente en el cliente el runtime YARA y la cuarentena Active Response. No hay instaladores YARA secundarios.
 
 El proyecto registra la versión/commit del ruleset descargado para facilitar auditoría y trazabilidad.
 
