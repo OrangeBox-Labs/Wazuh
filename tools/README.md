@@ -33,8 +33,12 @@ tools/agent/
 ├── install.sh
 ├── README.md
 ├── INSTALL.md
-└── wazuh-agent_4.14.7-0_x86_64_OPT.rpm
+└── wazuh-agent_4.14.8-0_x86_64_OPT.rpm
 ```
+
+## Fallos y resumen del instalador
+
+El instalador unificado ejecuta cada etapa de forma aislada. Un fallo en Firewall, Logging, Auditd, YARA o Cuarentena no detiene las etapas posteriores. Al final muestra un resumen `[OK]` / `[ERROR]` y devuelve `1` si alguna etapa falló.
 
 ## Firewall Shorewall
 
@@ -44,7 +48,7 @@ La cadena `ORANGEBOX-FW` registra TCP SYN a 20 eventos/s con burst 40, incluye l
 
 ## auditd
 
-Las reglas OrangeBox de ejecución usan `/etc/audit/rules.d/orangebox-wazuh.rules` como archivo canónico. El instalador migra `99-orangebox-exec.rules` si contiene reglas OrangeBox, genera reglas para `/tmp`, `/var/tmp`, `/dev/shm` y para ejecutables de scanner/reconocimiento realmente presentes, y valida la carga con `augenrules`/`auditctl`.
+Las reglas OrangeBox de ejecución usan `/etc/audit/rules.d/70-orangebox-wazuh.rules` como archivo canónico. El instalador migra `99-orangebox-exec.rules` si contiene reglas OrangeBox, genera reglas para `/tmp`, `/var/tmp`, `/dev/shm` y para ejecutables de scanner/reconocimiento realmente presentes, y valida la carga con `augenrules`/`auditctl`.
 
 ## Herramientas operativas
 
