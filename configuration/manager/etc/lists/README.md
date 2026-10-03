@@ -2,63 +2,71 @@
 
 Este directorio contiene listas CDB utilizadas directamente por las reglas del Wazuh Manager.
 
-## `orangebox-agent-profiles`
+## CDB dinámicas por grupo Wazuh
 
-Relaciona el hostname predecodificado del evento con el perfil funcional del agente.
+Las excepciones de aplicaciones usan grupos Wazuh como fuente de verdad. No se mantiene una lista manual global de hostnames.
+
+### `orangebox-cpanel-agents`
+
+Representa el grupo Wazuh `cpanel`.
+
+El sincronizador:
+
+```text
+configuration/manager/bin/update-orangebox-cpanel-agents.sh
+```
+
+genera la CDB a partir de:
+
+```bash
+/var/ossec/bin/agent_groups -l -g cpanel
+```
+
+Incluye hostname FQDN y hostname corto. No se edita manualmente.
+
+### `orangebox-zimbra-agents`
+
+Representa el grupo Wazuh `zimbra`.
+
+El mismo perfil funcional se utiliza para Zimbra y Carbonio CE.
+
+El sincronizador:
+
+```text
+configuration/manager/bin/update-orangebox-zimbra-agents.sh
+```
+
+genera la CDB a partir de:
+
+```bash
+/var/ossec/bin/agent_groups -l -g zimbra
+```
+
+Incluye hostname FQDN y hostname corto. No se edita manualmente.
+
+Las reglas de autenticación exigen además el comando o contexto operacional validado; pertenecer al grupo por sí solo no autoriza `sudo -> root`.
+
+### `orangebox-network-recon-programs`
+
+CDB estática utilizada por las correlaciones `10612` y `10614`.
 
 Formato:
 
 ```text
-hostname_del_evento:perfil
+comando:network_recon
 ```
 
-La clave debe corresponder al valor que Wazuh muestra en Phase 1 de `wazuh-logtest` como `hostname`.
+Incluye únicamente comandos de consulta de red definidos por OrangeBox.
 
-Una misma máquina puede necesitar hostname corto y FQDN cuando ambas representaciones aparecen en producción.
+La CDB debe estar declarada en el bloque `<ruleset>` de `configuration/manager/etc/ossec.conf`.
 
-## Perfiles actuales
+## Declaración y carga
 
-### `cpanel`
+Toda CDB usada por una regla debe estar declarada en `ossec.conf`.
 
-cPanel / WHM / WP Toolkit.
+Si una regla apunta a una CDB que no existe o no está declarada, `wazuh-analysisd -t` puede registrar el warning `(7616)` y omitir la regla.
 
-```text
-cpanel01:cpanel
-cpanel01.example.com:cpanel
-```
-
-Se utiliza para las excepciones de WP Toolkit y para `cpanel_ssl_reissue`.
-
-### `zimbra`
-
-Perfil funcional compartido por Zimbra y Carbonio CE.
-
-```text
-/opt/zimbra
-/opt/zextras
-```
-
-La CDB utiliza entradas `hostname:perfil`; la versión pública mantiene un ejemplo genérico y la implementación privada registra los hostnames reales.
-
-Un servidor Carbonio nuevo debe registrarse como `<hostname-observado>:zimbra` después de validar sus eventos reales.
-
-## Formato del archivo CDB
-
-`orangebox-agent-profiles` se mantiene como un archivo de datos puro con líneas `key:value`. La documentación, comentarios y justificación de cada perfil permanecen en este `README.md` para no introducir sintaxis ajena al formato de la CDB.
-
-## Regla de seguridad
-
-El perfil nunca debe ser la única condición de autorización. La arquitectura debe ser:
-
-```text
-perfil
-+
-usuario/identidad cuando corresponda
-+
-comando o condición exacta
-=
-excepción
-```
+Las CDB dinámicas son generadas por sus sincronizadores y no deben editarse manualmente.
 
 ## `orangebox-backuppc-static`
 
