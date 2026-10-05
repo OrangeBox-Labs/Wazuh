@@ -1,6 +1,6 @@
 # OrangeBox Wazuh — Informe de Seguridad Detallado
 
-Informe operativo que complementa el reporte ejecutivo. Muestra la actividad de seguridad por servidor y por grupo Wazuh.
+Informe operativo que acompaña al resumen ejecutivo dentro del mismo correo. Muestra la actividad de seguridad por servidor y por grupo Wazuh.
 
 ## Qué hace
 
@@ -23,15 +23,23 @@ Por cada servidor muestra:
 
 ## Implementación actual
 
-El archivo productivo es:
+El archivo productivo único es:
+
+~~~~text
+/var/ossec/reports/orangebox-security-report.py
+~~~~
+
+Ese archivo genera el resumen y el detallado en una sola ejecución y usa un único motor/cache.
+
+El nombre antiguo:
 
 ~~~~text
 /var/ossec/reports/orangebox-detailed-security-report.py
 ~~~~
 
-El script es autocontenido en ejecución. Lleva embebidos el motor compartido, la lógica necesaria del reporte ejecutivo y el renderer detallado. No importa los archivos Python productivos desde el sistema.
+queda como wrapper de compatibilidad. No contiene otro motor ni genera un segundo correo.
 
-Comparte el mismo cache que el informe ejecutivo:
+Comparte el mismo cache:
 
 ~~~~text
 /var/ossec/reports/cache-proto-v3/
@@ -52,9 +60,11 @@ período
   → lectura de shards de los servidores seleccionados
   → estadísticas por servidor
   → CVE / CloudLinux
+  → HTML ejecutivo
   → HTML detallado
-  → archivo
-  → correo
+  → resumen en el correo
+  → ZIP del detallado
+  → correo único
 ~~~~
 
 El motor compartido normaliza, clasifica y deduplica antes de guardar los eventos en cache.
@@ -145,7 +155,7 @@ No existe una lista manual de agentes que haya que actualizar al incorporar un s
 Con:
 
 ~~~~bash
-/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group CTS,OLC --email <destinatario>
+/var/ossec/reports/orangebox-security-report.py --yesterday --group CLIENTE_02,CLIENTE_03 --email <destinatario>
 ~~~~
 
 se incluyen los servidores pertenecientes a ambos grupos.
@@ -274,6 +284,8 @@ El archivo debe tener permisos 0600 o más restrictivos.
 
 ## Correo
 
+Se envía un solo correo por ejecución y destinatario: el resumen ejecutivo queda visible en el cuerpo y el reporte detallado va adjunto como ZIP.
+
 Se acepta uno o más destinatarios con --email.
 
 La entrega usa:
@@ -295,7 +307,13 @@ Los asuntos actuales son:
 
 Con más de un grupo, el asunto se adapta al consolidado.
 
-## Archivo HTML
+## Archivos
+
+El resumen se guarda como HTML y el detallado se guarda como ZIP:
+
+~~~~text
+/var/ossec/reports/archive/
+~~~~
 
 Cada ejecución se guarda en:
 
@@ -305,26 +323,26 @@ Cada ejecución se guarda en:
 
 La escritura usa archivo temporal y reemplazo atómico.
 
-El correo contiene HTML y una alternativa de texto plano.
+El correo contiene el HTML ejecutivo y una alternativa de texto plano. El detallado va en un adjunto ZIP.
 
 ## Uso
 
-Diario:
+El archivo productivo es siempre el reporte unificado:
 
 ~~~~bash
-/var/ossec/reports/orangebox-detailed-security-report.py --yesterday --group <grupo> --email <destinatario>
+/var/ossec/reports/orangebox-security-report.py --yesterday --group <grupo> --email <destinatario>
 ~~~~
 
 Semanal:
 
 ~~~~bash
-/var/ossec/reports/orangebox-detailed-security-report.py --lastweek --group <grupo> --email <destinatario>
+/var/ossec/reports/orangebox-security-report.py --lastweek --group <grupo> --email <destinatario>
 ~~~~
 
 Mensual:
 
 ~~~~bash
-/var/ossec/reports/orangebox-detailed-security-report.py --lastmonth --group <grupo> --email <destinatario>
+/var/ossec/reports/orangebox-security-report.py --lastmonth --group <grupo> --email <destinatario>
 ~~~~
 
 Todos los grupos:
