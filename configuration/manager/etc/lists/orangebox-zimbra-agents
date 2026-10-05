@@ -1,1 +1,4 @@
-
+# Ejemplos de agentes del grupo Wazuh zimbra.
+# Reemplace por los hostnames reales de su entorno.
+zimbra01.example.invalid:zimbra
+zimbra02.example.invalid:zimbra
