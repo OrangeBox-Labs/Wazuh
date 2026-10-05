@@ -48,7 +48,7 @@ La cadena `ORANGEBOX-FW` registra TCP SYN a 20 eventos/s con burst 40, incluye l
 
 ## auditd
 
-Las reglas OrangeBox de ejecución usan `/etc/audit/rules.d/70-orangebox-wazuh.rules` como archivo canónico. El instalador migra `99-orangebox-exec.rules` si contiene reglas OrangeBox, genera reglas para `/tmp`, `/var/tmp`, `/dev/shm` y para ejecutables de scanner/reconocimiento realmente presentes, y valida la carga con `augenrules`/`auditctl`.
+Las reglas OrangeBox de ejecución usan `/etc/audit/rules.d/70-orangebox-wazuh.rules` como archivo canónico. El instalador migra `99-orangebox-exec.rules` si contiene reglas OrangeBox, genera reglas para `/tmp`, `/var/tmp`, `/dev/shm` y para ejecutables de scanner/reconocimiento realmente presentes, y valida la carga con `augenrules`/`auditctl`. Para Whodata instala `audispd-plugins` y valida `audisp-af_unix`; Wazuh administra su propio `/etc/audit/plugins.d/af_wazuh.conf` y el `af_unix.conf` genérico se deja sin activar.
 
 ## Herramientas operativas
 
