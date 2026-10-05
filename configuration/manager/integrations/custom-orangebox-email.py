@@ -40,7 +40,7 @@ DEFAULT_ALERT_RECIPIENT = "soporte@example.com"
 # Estas opciones solamente controlan destinatarios adicionales.
 #
 # La comparacion de grupos es CASE-INSENSITIVE:
-#   CLIENTE_03 == CLIENTE_03 == cloudlatam
+#   CLIENTE_01 == CLIENTE_01 == CLIENTE_01
 #
 # Para agregar un cliente nuevo solamente hay que agregar una entrada
 # aqui. No es necesario modificar ninguna otra parte del script.
@@ -50,22 +50,22 @@ DEFAULT_ALERT_RECIPIENT = "soporte@example.com"
 # ============================================================
 
 CLIENT_GROUPS = {
-    "CLIENTE_01": {
-        "enabled": 0,
-        "emails": [
-            "security@example.com",
-        ],
-    },
-
     "CLIENTE_02": {
         "enabled": 0,
         "emails": [
-            "security@example.com",
             "security@example.com",
         ],
     },
 
     "CLIENTE_03": {
+        "enabled": 0,
+        "emails": [
+            "security@example.com",
+            "security@example.com",
+        ],
+    },
+
+    "CLIENTE_01": {
         "enabled": 0,
         "emails": [
             "security@example.com",
@@ -282,9 +282,9 @@ def get_agent_groups_from_manager(agent_id):
     output = result.stdout or ""
 
     # Formato habitual:
-    #   has the group: '[u'CLIENTE_04', u'default']'
+    #   has the group: '[u'Nexit', u'default']'
     # y versiones:
-    #   belongs to groups: default, CLIENTE_04
+    #   belongs to groups: default, Nexit
     import re
 
     match = re.search(r"\[([^\]]*)\]", output)
@@ -408,7 +408,7 @@ def extract_ssh_source_ip(full_log):
     no entrega data.srcip al decoder.
 
     Ejemplo esperado:
-        Accepted password for root from 10.8.0.22 port 60943 ssh2
+        Accepted password for root from 198.51.100.22 port 60943 ssh2
 
     Esta ruta de respaldo es necesaria porque algunos eventos
     provenientes de journald llegan al integrador sin srcip aunque
@@ -571,7 +571,7 @@ def ssh_already_notified(agent_id, srcip, event_timestamp, ssh_identity="", full
         # Esta es la politica principal. Es la que debe resolver
         # exactamente el caso:
         #
-        #   Accepted password ... from 10.8.0.22
+        #   Accepted password ... from 198.51.100.22
         #
         # cinco veces durante el dia en el mismo agente -> un solo correo.
         #
@@ -1791,7 +1791,7 @@ for idx, ev in enumerate(
 # ============================================================
 
 wazuh_url = (
-    "https://wazuh.orangebox.cl/app/threat-hunting"
+    "https://wazuh.example.invalid/app/threat-hunting"
     "#/overview/?tab=general&tabView=events"
     f"&agentId={final_data['agent_id']}"
     "&_a=(filters:!(('$state':(store:appState),"
@@ -1860,7 +1860,7 @@ html_template = f"""<!DOCTYPE html>
                             border-radius:20px 20px 0 0;
                         ">
 
-                        <img src="https://www.orangebox.cl/obox/img/logo-dark.png"
+                        <img src="https://www.example.invalid/obox/img/logo-dark.png"
                              alt="OrangeBox"
                              border="0"
                              width="220"
