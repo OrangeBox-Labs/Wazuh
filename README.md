@@ -2,7 +2,7 @@
 
 > Reglas, configuración y herramientas Wazuh para seguridad, FIM, YARA, Active Response y monitoreo de servidores Linux.
 
-[![OrangeBox IT Services](https://img.shields.io/badge/OrangeBox-IT%20Services-ff6a00?style=for-the-badge)](https://www.orangebox.cl/)
+[![OrangeBox IT Services](https://img.shields.io/badge/OrangeBox-IT%20Services-ff6a00?style=for-the-badge)](https://www.example.com/)
 [![Wazuh](https://img.shields.io/badge/Wazuh-security-0073c6?style=for-the-badge)](https://wazuh.com/)
 [![Bash](https://img.shields.io/badge/Bash-tooling-121011?style=for-the-badge&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 
@@ -81,17 +81,14 @@ Wazuh Manager:
 rsync -a configuration/manager/ /var/ossec/
 ```
 
-Agente Linux:
+Wazuh Agent:
 
 ```bash
-rsync -a configuration/agents/common/ /var/ossec/
+cd tools/agent
+./install.sh
 ```
 
-Instalaciones con `/opt/ossec`:
-
-```bash
-rsync -a configuration/agents/common/ /opt/ossec/
-```
+El instalador adapta automáticamente la ruta del Agent entre `/var/ossec` y `/opt/ossec` según el tipo de instalación.
 
 ## Filosofía OrangeBox
 
@@ -103,7 +100,7 @@ Las reglas y scripts deben poder revisarse, probarse y desplegarse sin depender 
 
 Enterprise Linux · Wazuh · Security · Monitoring · Zimbra · VMware · Infrastructure
 
-https://www.orangebox.cl/
+https://www.example.com/
 
 ### Keywords
 
@@ -113,4 +110,4 @@ Wazuh, Wazuh Manager, Wazuh Agent, Wazuh rules, Wazuh FIM, File Integrity Monito
 
 La documentación técnica se mantiene junto al componente que documenta, usando el mismo nombre base con extensión `.md`. Por ejemplo: `orangebox-auth.xml` + `orangebox-auth.md`, `agent.conf` + `agent.md` y `custom-orangebox-email.py` + `custom-orangebox-email.md`.
 
-Los reportes de seguridad productivos usan la arquitectura v3 documentada en `configuration/manager/reports/orangebox-reportes-v3.md`.
+Los reportes de seguridad usan un único motor v4. El reporte ejecutivo y el detallado se generan en la misma ejecución; el detallado se entrega como ZIP. La implementación está en `configuration/manager/reports/orangebox-security-report.py` y la documentación en los archivos `.md` del mismo directorio.
