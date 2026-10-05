@@ -410,7 +410,11 @@ zimbra -> orangebox-zimbra-agents
 
 Los sincronizadores consultan los grupos con `agent_groups`, generan hostname completo y corto y actualizan la CDB solo cuando cambia.
 
-El grupo o perfil nunca debe ser la única condición de autorización: una excepción de aplicación debe sumar identidad y/o comando o contexto exacto.
+Esto evita que agregar un agente nuevo implique acordarse de modificar otra lista a mano.
+
+### Regla importante
+
+El grupo o perfil nunca debe ser la única condición de autorización. Una excepción de aplicación debe sumar identidad y/o comando o contexto exacto según corresponda.
 
 ### Después de cambios
 
