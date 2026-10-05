@@ -89,10 +89,10 @@ La ventaja es que un comando que puede ser legítimo en un servidor Zimbra/Carbo
 Ejemplo:
 
 ```text
-mail01.example.com:zimbra
-mail02.example.com:zimbra
-mail03.example.com:zimbra
-mail04.example.com:zimbra
+zimbra03.example.invalid:zimbra
+zimbra05.example.invalid:zimbra
+mail2.CLIENTE_05.cl:zimbra
+mail.appCLIENTE_04.cl:zimbra
 ```
 
 ## Carbonio CE
