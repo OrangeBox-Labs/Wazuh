@@ -126,7 +126,8 @@ La lógica es idempotente:
 - migra reglas OrangeBox antiguas cuando corresponde;
 - elimina duplicados;
 - genera reglas para **ejecución de archivos** y **reconocimiento/ejecución privilegiada**;
-- instala `audispd-plugins` si falta para que Wazuh pueda usar Whodata;
+- instala `audispd-plugins` si falta para que Wazuh pueda usar Whodata mediante `audisp-af_unix`;
+- deja que Wazuh genere y administre `/etc/audit/plugins.d/af_wazuh.conf`; no activa ni modifica el `af_unix.conf` genérico de `audispd-plugins`;
 - si Audit está en modo inmutable (`enabled=2` / `-e 2`), deja las reglas persistentes y avisa que requieren un reinicio;
 - valida la configuración y las claves cargadas cuando es posible.
 
