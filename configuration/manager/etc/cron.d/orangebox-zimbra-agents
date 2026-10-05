@@ -1,5 +1,15 @@
 # OrangeBox Wazuh - sincronizacion automatica de agentes Zimbra / Carbonio
-# Fuente de verdad: grupo Wazuh "zimbra".
-*/10 1-22 * * * root /var/ossec/bin/update-orangebox-zimbra-agents.sh >/dev/null 2>&1
-5-45/10 23 * * * root /var/ossec/bin/update-orangebox-zimbra-agents.sh >/dev/null 2>&1
-15-55/10 0 * * * root /var/ossec/bin/update-orangebox-zimbra-agents.sh >/dev/null 2>&1
+# ============================================================================
+#
+# Mantiene actualizada la CDB orangebox-zimbra-agents a partir del grupo
+# Wazuh "zimbra". No requiere una lista manual de agentes.
+#
+# La ventana de medianoche se evita para no coincidir con la rotacion diaria
+# de logs y cualquier operacion de ciclo de vida del wazuh-manager.
+#
+# Los errores se conservan para poder detectar fallos de sincronizacion;
+# la salida normal permanece silenciosa.
+#
+*/10 1-22 * * * root /var/ossec/bin/update-orangebox-zimbra-agents.sh >/dev/null 2>>/var/ossec/logs/orangebox-zimbra-agents.log
+5-45/10 23 * * * root /var/ossec/bin/update-orangebox-zimbra-agents.sh >/dev/null 2>>/var/ossec/logs/orangebox-zimbra-agents.log
+15-55/10 0 * * * root /var/ossec/bin/update-orangebox-zimbra-agents.sh >/dev/null 2>>/var/ossec/logs/orangebox-zimbra-agents.log
