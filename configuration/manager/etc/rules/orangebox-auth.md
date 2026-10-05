@@ -123,8 +123,8 @@ El perfil se resuelve mediante `configuration/manager/etc/lists/orangebox-agent-
 Ejemplo:
 
 ```text
-cpanel01:cpanel
-cpanel01.example.com:cpanel
+srv27:cpanel
+srv27.cloudlatam.cl:cpanel
 ```
 
 `20031` contiene comandos directos conocidos de WP Toolkit/cPanel.
@@ -161,10 +161,10 @@ Los árboles reconocidos son:
 Hosts actualmente registrados en la CDB:
 
 ```text
-mail01.example.com:zimbra
-mail02.example.com:zimbra
-mail03.example.com:zimbra
-mail04.example.com:zimbra
+mail.orangebox.cl:zimbra
+zimbra10.orangebox.cl:zimbra
+mail2.jhg.cl:zimbra
+mail.appnexit.cl:zimbra
 ```
 
 ### 110100 — Comandos Zimbra/Carbonio autorizados
@@ -194,9 +194,9 @@ Para agregar otro BackupPC estático, agregar una línea `<IP>:` a la CDB estát
 
 Ambas excepciones producen `level 0` y no alteran la alerta base `10001`.
 
-### SFTP certcoopeuch
+### SFTP sftp-service
 
-`20004` valida el usuario `certcoopeuch` y consulta las IP de origen en `etc/lists/orangebox-sftp-certcoopeuch`.
+`20004` valida el usuario `sftp-service` y consulta las IP de origen en `etc/lists/orangebox-sftp-authorized`.
 
 Para agregar otro origen autorizado, agregar una nueva línea `<IP>:` a la CDB y reiniciar el Manager. No se crea una regla adicional por cada IP.
 
@@ -260,7 +260,7 @@ Cada nuevo wrapper debe probarse también con una variante que agregue `;`, `&&`
 - CDB `etc/lists/orangebox-agent-profiles`;
 - CDB `etc/lists/orangebox-backuppc-static`;
 - CDB `etc/lists/orangebox-backuppc-dynamic`;
-- CDB `etc/lists/orangebox-sftp-certcoopeuch`;
+- CDB `etc/lists/orangebox-sftp-authorized`;
 - CDB `etc/lists/orangebox-web-auth-proxies`;
 - CDB `etc/lists/orangebox-web-discovery-proxies`;
 - entrada de las CDB declarada en `manager/ossec.conf`;
