@@ -3,13 +3,25 @@
 
     Formato emitido por orangebox-yara.sh:
 
-    wazuh-yara: ALERT - Match: category=webshells rule=php_reverse_shell path=/path/to/file
+    wazuh-yara: ALERT - Match: category=webshells rule=php_reverse_shell correlation=php_reverse_shell path=/path/to/file
+
+    "rule" conserva el nombre original de YARA para investigacion.
+    "yara_correlation_rule" representa la raiz logica de una regla
+    compuesta padre/hija y se usa para correlacionar firmas distintas.
 -->
 <decoder name="orangebox_yara">
     <prematch>^wazuh-yara:</prematch>
 </decoder>
 
+<!-- Formato actual con clave de correlacion. -->
 <decoder name="orangebox_yara_result">
+    <parent>orangebox_yara</parent>
+    <regex type="pcre2">^wazuh-yara: ALERT - Match: category=(\S+) rule=(\S+) correlation=(\S+) path=(.+)$</regex>
+    <order>yara_category,yara_rule,yara_correlation_rule,yara_scanned_file</order>
+</decoder>
+
+<!-- Compatibilidad con eventos generados por versiones anteriores del runtime. -->
+<decoder name="orangebox_yara_result_legacy">
     <parent>orangebox_yara</parent>
     <regex type="pcre2">^wazuh-yara: ALERT - Match: category=(\S+) rule=(\S+) path=(.+)$</regex>
     <order>yara_category,yara_rule,yara_scanned_file</order>
