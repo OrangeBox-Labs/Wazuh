@@ -74,10 +74,12 @@
   <!--
       Public SYN flood + known malicious source IP.
 
-      This IOC child is independently attached to the 30-day firewall-drop Active Response.
+      10454 is the final SYN flood detection and directly owns the
+      firewall-drop Active Response. This IOC child only adds the
+      known-malicious-IP context and higher severity.
   -->
   <rule id="10463" level="14">
-    <if_sid>10457</if_sid>
+    <if_sid>10454</if_sid>
     <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
     <description>ALERTA IOC: SYN FLOOD DESDE IP MALICIOSA CONOCIDA $(srcip).</description>
     <group>attack,network,dos,orangebox_ioc,orangebox_firewall,orangebox_behavior,</group>
