@@ -174,7 +174,7 @@
 
     <rule id="10007" level="13">
         <if_sid>5712</if_sid>
-        <match>from 192.168.|from 10.8.</match>
+        <match>from 10.0.|from 10.0.</match>
         <description>ALERTA: Posible movimiento lateral. Rafaga de fallos SSH desde la red interna.</description>
         <group>authentication_failed,lateral_movement,attack,orangebox_auth,privilege_escalation_root,</group>
     </rule>
@@ -358,24 +358,24 @@
     </rule>
 
     <!--
-        SFTP certcoopeuch - origenes autorizados.
+        SFTP sftp-service - origenes autorizados.
 
         Las IP de origen se mantienen en la CDB
-        "etc/lists/orangebox-sftp-certcoopeuch".
+        "etc/lists/orangebox-sftp-authorized".
 
         Para agregar otro origen autorizado se agrega una nueva línea
         "<IP>:" a esa CDB. No se debe crear una regla 200xx adicional
         solo por una IP nueva.
 
-        La condición de usuario "certcoopeuch" se conserva para que la
+        La condición de usuario "sftp-service" se conserva para que la
         excepción no convierta cualquier SSH desde una IP autorizada
         en una excepción global.
     -->
     <rule id="20004" level="0">
         <if_sid>10001</if_sid>
-        <list field="srcip" lookup="address_match_key">etc/lists/orangebox-sftp-certcoopeuch</list>
-        <user>certcoopeuch</user>
-        <description>EXCEPCION: Acceso SFTP automatizado legitimo de certcoopeuch desde origen autorizado.</description>
+        <list field="srcip" lookup="address_match_key">etc/lists/orangebox-sftp-authorized</list>
+        <user>sftp-service</user>
+        <description>EXCEPCION: Acceso SFTP automatizado legitimo de sftp-service desde origen autorizado.</description>
         <group>authentication_success,orangebox_exception,orangebox_whitelist,sftp,</group>
     </rule>
 
@@ -489,7 +489,7 @@
             Zimbra / Carbonio CE - comandos operativos validados.
 
             Perfil funcional:
-                hostname -> CDB -> zimbra
+                hostname -> grupo Wazuh "zimbra" -> CDB
 
             Se reconocen ambos arboles:
                 /opt/zimbra
