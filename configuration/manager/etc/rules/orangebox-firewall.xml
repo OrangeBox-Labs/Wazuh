@@ -19,7 +19,7 @@
             |
             v
         10453 - misma IP origen + misma IP destino + puertos destino diferentes
-                  12 eventos en 30 segundos
+                  12 eventos en 5 segundos
 
     Importante
     ----------
@@ -80,7 +80,7 @@
     <!--
         10453 - POSIBLE ESCANEO DE PUERTOS
 
-        12 intentos TCP SYN en 30 segundos
+        12 intentos TCP SYN en 5 segundos
         +
         misma IP origen
         +
@@ -96,7 +96,7 @@
             Se mantiene como una alerta relevante. La política de correo
             se decide de forma independiente en la integración.
     -->
-    <rule id="10453" level="11" frequency="12" timeframe="30" ignore="60">
+    <rule id="10453" level="11" frequency="12" timeframe="5" ignore="60">
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
         <same_dstip />
