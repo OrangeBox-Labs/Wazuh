@@ -11,6 +11,10 @@
         - En webroots se mantienen extensiones de alto interes para evitar
           analizar innecesariamente archivos estaticos o multimedia.
         - Las firmas son EXCLUSIVAMENTE las oficiales de Yara-Rules/rules.
+        - Un match YARA NO se considera automaticamente malware confirmado:
+          la prioridad depende de la categoria y del contexto.
+        - No se asume T1505.003 para todo match. Solo los resultados de
+          la categoria webshells reciben esa tecnica MITRE.
         - YARA funciona solo en deteccion. No existe Active Response
           destructivo ni eliminacion automatica.
 
@@ -23,15 +27,17 @@
           ->
         orangebox-yara.sh
           ->
-        Yara-Rules/rules:
-            webshells_index.yar
-            malware_index.yar
+        Yara-Rules/rules
           ->
         active-responses.log
           ->
         decoder
           ->
-        10501
+        10500/10501 = match base
+          ->
+        10502..10505 = prioridad por categoria
+          ->
+        10510/10511 = escalamiento por multiples firmas distintas
     ================================================================
 -->
 
@@ -66,20 +72,104 @@
 <!-- RESULTADOS YARA -->
 <group name="orangebox,yara,">
 
+    <!--
+        Regla base:
+        cualquier match YARA queda registrado con nivel bajo.
+        Las reglas hijas determinan la prioridad final.
+    -->
     <rule id="10500" level="0">
         <decoded_as>orangebox_yara</decoded_as>
         <description>ORANGEBOX: RESULTADO DE ANALISIS YARA.</description>
         <group>orangebox_yara,</group>
     </rule>
 
-    <rule id="10501" level="14">
+    <rule id="10501" level="3">
         <if_sid>10500</if_sid>
         <field name="yara_rule" type="pcre2">.+</field>
-        <description>ALERTA: YARA DETECTO "$(yara_rule)" EN "$(yara_scanned_file)" [$(yara_category)].</description>
+        <description>ORANGEBOX: YARA encontro una firma "$(yara_rule)" en "$(yara_scanned_file)" [$(yara_category)].</description>
+        <group>yara_match,orangebox_yara,</group>
+    </rule>
+
+    <!--
+        Webshell:
+        categoria especifica y contexto directamente relacionado con
+        ejecucion persistente del servidor web. Escala a nivel 14.
+    -->
+    <rule id="10502" level="14">
+        <if_sid>10501</if_sid>
+        <field name="yara_category" type="pcre2">^webshells$</field>
+        <description>ALERTA: YARA detecto posible WEBSHELL "$(yara_rule)" en "$(yara_scanned_file)".</description>
         <mitre>
             <id>T1505.003</id>
         </mitre>
-        <group>malware,webshell,yara,orangebox_malware,orangebox_webshell,</group>
+        <group>yara,webshell,orangebox_yara,orangebox_webshell,</group>
+    </rule>
+
+    <!--
+        Malware:
+        se mantiene alto para investigacion, pero por debajo de un webshell
+        porque la categoria malware puede contener firmas de menor
+        especificidad o de otro contexto.
+    -->
+    <rule id="10503" level="10">
+        <if_sid>10501</if_sid>
+        <field name="yara_category" type="pcre2">^malware$</field>
+        <description>ALERTA: YARA detecto firma de MALWARE "$(yara_rule)" en "$(yara_scanned_file)".</description>
+        <group>yara,malware,orangebox_yara,orangebox_malware,</group>
+    </rule>
+
+    <!--
+        Categorias de correo:
+        prioridad informativa. Un match en contenido/header de correo no
+        implica por si solo que exista malware en el servidor.
+    -->
+    <rule id="10504" level="5">
+        <if_sid>10501</if_sid>
+        <field name="yara_category" type="pcre2">^email$</field>
+        <description>ORANGEBOX: YARA encontro una firma de CORREO "$(yara_rule)" en "$(yara_scanned_file)".</description>
+        <group>yara,email,orangebox_yara,</group>
+    </rule>
+
+    <!-- Documentos maliciosos/sospechosos: requiere investigacion. -->
+    <rule id="10505" level="8">
+        <if_sid>10501</if_sid>
+        <field name="yara_category" type="pcre2">^maldocs$</field>
+        <description>ALERTA: YARA detecto una firma en DOCUMENTO "$(yara_rule)" en "$(yara_scanned_file)".</description>
+        <group>yara,maldoc,orangebox_yara,</group>
+    </rule>
+
+    <!--
+        Escalamiento: dos firmas webshell LOGICAMENTE DISTINTAS sobre el mismo
+        archivo dentro de 5 minutos elevan el evento a nivel 15.
+
+        La correlacion usa yara_correlation_rule, calculado por el runtime
+        YARA a partir de la jerarquia padre/hija del ruleset. Esto evita
+        contar una regla compuesta y una de sus subreglas como dos firmas.
+    -->
+    <rule id="10510" level="15" frequency="2" timeframe="300">
+        <if_matched_sid>10502</if_matched_sid>
+        <same_field>yara_scanned_file</same_field>
+        <different_field>yara_correlation_rule</different_field>
+        <description>ALERTA CRITICA: "$(yara_scanned_file)" genero multiples firmas YARA de webshell logicamente distintas.</description>
+        <mitre>
+            <id>T1505.003</id>
+        </mitre>
+        <group>yara,webshell,orangebox_yara,orangebox_webshell,</group>
+    </rule>
+
+    <!--
+        Escalamiento: dos firmas malware LOGICAMENTE DISTINTAS sobre el mismo
+        archivo dentro de 5 minutos elevan el evento a nivel 13.
+
+        La correlacion usa yara_correlation_rule, calculado por el runtime
+        YARA a partir de la jerarquia padre/hija del ruleset.
+    -->
+    <rule id="10511" level="13" frequency="2" timeframe="300">
+        <if_matched_sid>10503</if_matched_sid>
+        <same_field>yara_scanned_file</same_field>
+        <different_field>yara_correlation_rule</different_field>
+        <description>ALERTA: "$(yara_scanned_file)" genero multiples firmas YARA logicamente distintas.</description>
+        <group>yara,malware,orangebox_yara,orangebox_malware,</group>
     </rule>
 
 </group>
