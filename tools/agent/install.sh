@@ -19,10 +19,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 # ---------------------------------------------------------------------------
 IS_CPANEL=''
 WAZUH_VERSION='4.14.8'
-WAZUH_MANAGER='wazuh.orangebox.cl'
+WAZUH_MANAGER='TU_HOSTNAME'
 WAZUH_AGENT_GROUP='default'
 WAZUH_AGENT_NAME=''
-WAZUH_REGISTRATION_PASSWORD='tu_pass'
+WAZUH_REGISTRATION_PASSWORD=''
 WAZUH_AGENT_RPM=''
 WAZUH_OSSEC_SIZE='1G'
 WAZUH_OSSEC_LV='wazuh'
@@ -33,6 +33,10 @@ YARA_BIN=''
 YARA_NO_PACKAGE_INSTALL='no'
 ORANGEBOX_PUBLIC_IP=''
 ORANGEBOX_PRIVATE_IP=''
+PYTHON3_BIN=''
+EPEL6_ARCHIVE_BASEURL='http://mirror.math.princeton.edu/pub/fedora-archive/epel/6/$basearch'
+EPEL6_RELEASE_RPM_URL='http://mirror.math.princeton.edu/pub/fedora-archive/epel/6/x86_64/epel-release-6-8.noarch.rpm'
+EPEL6_REPO_FILE='/etc/yum.repos.d/orangebox-epel6.repo'
 
 WAZUH_HOME='/var/ossec'
 FIREWALL_LOG="/var/log/orangebox-firewall.log"
@@ -45,6 +49,14 @@ LOGGING_BACKEND=""
 ERROR_COUNT=0
 STEP_OK=()
 STEP_FAILED=()
+AGENT_ACTION_REQUIRED=0
+AGENT_ACTION_FILE="/tmp/orangebox-agent-action-required.$"
+rm -f "$AGENT_ACTION_FILE"
+trap 'rm -f "$AGENT_ACTION_FILE"' EXIT
+
+request_agent_action() {
+    : > "$AGENT_ACTION_FILE"
+}
 
 step_error() {
     echo "ERROR: $*" >&2
@@ -78,6 +90,12 @@ run_step() {
         echo "ERROR: ${label} falló; se continuará con el siguiente paso." >&2
     fi
 
+    # Las etapas se ejecutan en subshell; recuperar solicitudes de activación
+    # mediante un archivo para que el estado sobreviva al subshell.
+    if [ -f "$AGENT_ACTION_FILE" ]; then
+        AGENT_ACTION_REQUIRED=1
+    fi
+
     return 0
 }
 
@@ -86,6 +104,96 @@ ok() { echo "OK: $*"; }
 warn() { echo "AVISO: $*" >&2; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
+ensure_epel6() {
+    [ "$EL_MAJOR" = "6" ] || return 0
+    has yum || fail "EL6 requiere yum para habilitar EPEL6."
+
+    local epel_was_installed="yes"
+    if ! rpm -q epel-release >/dev/null 2>&1; then
+        epel_was_installed="no"
+        echo "==> EPEL6 no está instalado; instalando epel-release 6-8 desde el archivo de Fedora..."
+        yum install -y "$EPEL6_RELEASE_RPM_URL" || fail "No se pudo instalar epel-release para EL6."
+    fi
+
+    [ -f /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-6 ] || \
+        fail "epel-release quedó instalado pero falta RPM-GPG-KEY-EPEL-6."
+
+    rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-6 >/dev/null 2>&1 || \
+        fail "No se pudo importar la llave GPG de EPEL6."
+
+    cat > "$EPEL6_REPO_FILE" <<'EPEL6_REPO'
+[orangebox-epel6]
+name=OrangeBox EPEL 6 archive
+baseurl=@@EPEL6_ARCHIVE_BASEURL@@
+enabled=0
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-6
+EPEL6_REPO
+
+    sed -i "s|@@EPEL6_ARCHIVE_BASEURL@@|$EPEL6_ARCHIVE_BASEURL|g" "$EPEL6_REPO_FILE" || \
+        fail "No se pudo configurar el repositorio OrangeBox EPEL6."
+
+    # El epel.repo original apunta a mirrorlist ya retirado. Si nosotros
+    # acabamos de instalar epel-release, lo dejamos deshabilitado y usamos
+    # exclusivamente el repo archivado de OrangeBox para EL6.
+    if [ "$epel_was_installed" = "no" ] && [ -f /etc/yum.repos.d/epel.repo ]; then
+        sed -i 's/^[[:space:]]*enabled[[:space:]]*=[[:space:]]*1[[:space:]]*$/enabled=0/' \
+            /etc/yum.repos.d/epel.repo || fail "No se pudo deshabilitar el EPEL6 mirrorlist antiguo."
+    fi
+
+    ok "EPEL6 archivado disponible para dependencias OrangeBox."
+}
+
+ensure_python3() {
+    if has python3; then
+        PYTHON3_BIN="$(command -v python3)"
+        return 0
+    fi
+
+    local python_package="python3"
+    if [ "$EL_MAJOR" = "6" ]; then
+        python_package="python34"
+    fi
+
+    echo "==> Python 3 no encontrado; instalando $python_package..."
+
+    if has yum; then
+        if [ "$EL_MAJOR" = "6" ]; then
+            ensure_epel6
+            yum --disablerepo='epel*' --enablerepo=orangebox-epel6 install -y "$python_package" || \
+                fail "No se pudo instalar $python_package para Python 3 desde EPEL6 archivado."
+        else
+            yum install -y "$python_package" || fail "No se pudo instalar $python_package para Python 3."
+        fi
+    elif has dnf; then
+        dnf install -y "$python_package" || fail "No se pudo instalar $python_package para Python 3."
+    else
+fail "No existe yum ni dnf para instalar Python 3."
+    fi
+
+    if has python3; then
+        PYTHON3_BIN="$(command -v python3)"
+        ok "Python 3 disponible: $PYTHON3_BIN."
+        return 0
+    fi
+
+    # EL6/EPEL entrega python3.4 sin necesariamente crear el alias python3.
+    # Crear el alias solo si no existe otro python3; nunca tocar Python 2.
+    local python3_candidate=""
+    for python3_candidate in /usr/bin/python3.4 /usr/local/bin/python3.4; do
+        if [ -x "$python3_candidate" ]; then
+            if [ ! -e /usr/bin/python3 ] && [ ! -L /usr/bin/python3 ]; then
+                ln -s "$python3_candidate" /usr/bin/python3 || \
+                    fail "No se pudo crear /usr/bin/python3 -> $python3_candidate."
+            fi
+            break
+        fi
+    done
+
+    has python3 || fail "Python 3 no quedó disponible después de instalar $python_package."
+    PYTHON3_BIN="$(command -v python3)"
+    ok "Python 3 disponible: $PYTHON3_BIN."
+}
 yesno() {
     local a
     while true; do
@@ -485,23 +593,56 @@ install_agent() {
 
     agent_installed || fail "Wazuh Agent no quedó instalado."
     [ -f "$WAZUH_HOME/etc/ossec.conf" ] || fail "No existe $WAZUH_HOME/etc/ossec.conf."
+    request_agent_action
     ok "Wazuh Agent disponible en $WAZUH_HOME: $(agent_version)"
 }
-restart_agent() {
+activate_agent_final() {
+    agent_installed || fail "No se puede activar Wazuh: el agente no está instalado."
+
     if has systemctl; then
-        systemctl enable --now wazuh-agent || fail "No se pudo habilitar/iniciar wazuh-agent."
+        systemctl enable wazuh-agent >/dev/null 2>&1 || fail "No se pudo habilitar wazuh-agent."
+
+        if [ "$AGENT_ACTION_REQUIRED" -eq 1 ]; then
+            if systemctl is-active --quiet wazuh-agent; then
+                systemctl restart wazuh-agent || fail "No se pudo reiniciar wazuh-agent."
+            else
+                systemctl start wazuh-agent || fail "No se pudo iniciar wazuh-agent."
+            fi
+        elif ! systemctl is-active --quiet wazuh-agent; then
+            systemctl start wazuh-agent || fail "wazuh-agent no está activo."
+        fi
+
         systemctl is-active --quiet wazuh-agent || fail "wazuh-agent no está activo."
 
         if [ "$IS_CPANEL" != "yes" ] && systemctl is-enabled orangebox-iptables.service >/dev/null 2>&1; then
-            systemctl start orangebox-iptables.service || fail "No se pudo iniciar orangebox-iptables.service."
-            systemctl is-active --quiet orangebox-iptables.service || fail "orangebox-iptables.service no está activo."
+            systemctl is-active --quiet orangebox-iptables.service ||
+                systemctl start orangebox-iptables.service ||
+                fail "No se pudo iniciar orangebox-iptables.service."
+            systemctl is-active --quiet orangebox-iptables.service ||
+                fail "orangebox-iptables.service no está activo."
         fi
     else
         chkconfig wazuh-agent on >/dev/null 2>&1 || true
-        service wazuh-agent restart || fail "No se pudo reiniciar wazuh-agent."
-        service wazuh-agent status >/dev/null 2>&1 || fail "No se pudo validar wazuh-agent."
+
+        if [ "$AGENT_ACTION_REQUIRED" -eq 1 ]; then
+            if service wazuh-agent status >/dev/null 2>&1; then
+                service wazuh-agent restart || fail "No se pudo reiniciar wazuh-agent."
+            else
+                service wazuh-agent start || fail "No se pudo iniciar wazuh-agent."
+            fi
+        elif ! service wazuh-agent status >/dev/null 2>&1; then
+            service wazuh-agent start || fail "No se pudo iniciar wazuh-agent."
+        fi
+
+        service wazuh-agent status >/dev/null 2>&1 ||
+            fail "No se pudo validar wazuh-agent."
     fi
-    ok "wazuh-agent activo."
+
+    if [ "$AGENT_ACTION_REQUIRED" -eq 1 ]; then
+        ok "wazuh-agent activado/reiniciado una sola vez al final."
+    else
+        ok "wazuh-agent ya estaba activo; no fue reiniciado."
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -560,7 +701,7 @@ if [ -n "$IPTABLES" ]; then
 
     "$IPTABLES" -A ORANGEBOX-FW ! -i lo -p tcp --syn \
         -m limit --limit 20/second --limit-burst 40 \
-        -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 || true
+        -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 || true
     "$IPTABLES" -A ORANGEBOX-FW -j RETURN || true
 
     if ! "$IPTABLES" -L INPUT -n 2>/dev/null |
@@ -637,6 +778,8 @@ iptables_chain_exists() {
     iptables -L ORANGEBOX-FW -n >/dev/null 2>&1
 }
 
+# LOG de firewall en severidad debug (7): se conserva en journald/rsyslog
+# para Wazuh, pero no llega a la consola con el console_loglevel normal.
 iptables_log_rule_exists() {
     iptables -L ORANGEBOX-FW -n 2>/dev/null |
         grep -F 'LOG' |
@@ -670,6 +813,31 @@ configure_wazuh_agent_firewall_service() {
         step_error "El servicio wazuh-agent.service no existe; no se pudo crear la dependencia del firewall."
         return 1
     }
+
+
+    # -----------------------------------------------------------------------
+    # Eliminar helpers antiguos de firewall de versiones previas.
+    # El servicio actual ejecuta iptables directamente; estos wrappers ya no
+    # forman parte de la implementación y no deben quedar instalados.
+    # -----------------------------------------------------------------------
+    local legacy_start_helper="/var/ossec/bin/orangebox-iptables"
+    local legacy_stop_helper="/var/ossec/bin/orangebox-iptables-stop"
+
+    if [ -e "$legacy_start_helper" ]; then
+        rm -f "$legacy_start_helper" || {
+            step_error "No se pudo retirar el helper antiguo $legacy_start_helper."
+            return 1
+        }
+        ok "Helper antiguo OrangeBox retirado: $legacy_start_helper."
+    fi
+
+    if [ -e "$legacy_stop_helper" ]; then
+        rm -f "$legacy_stop_helper" || {
+            step_error "No se pudo retirar el helper antiguo $legacy_stop_helper."
+            return 1
+        }
+        ok "Helper antiguo OrangeBox retirado: $legacy_stop_helper."
+    fi
 
     local iptables_bin="/usr/sbin/iptables"
     local iptables_save="/usr/sbin/iptables-save"
@@ -714,7 +882,7 @@ EOF
     fi
 
     cat >> "$WAZUH_FIREWALL_SERVICE" <<EOF
-ExecStart=$iptables_bin -A ORANGEBOX-FW -m limit --limit 20/second --limit-burst 40 -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4
+ExecStart=$iptables_bin -A ORANGEBOX-FW -m limit --limit 20/second --limit-burst 40 -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7
 ExecStart=$iptables_bin -A ORANGEBOX-FW -j RETURN
 ExecStart=/bin/bash -c '$iptables_bin -D INPUT -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 || true; $iptables_bin -I INPUT 1 -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW'
 ExecStart=/bin/bash -c '$iptables_save > /etc/sysconfig/iptables'
@@ -743,7 +911,7 @@ EOF
         return 1
     }
 
-    systemctl restart orangebox-iptables.service || {
+    systemctl restart orangebox-iptables.service >/dev/null 2>&1 || {
         step_error "No se pudo iniciar/reiniciar orangebox-iptables.service."
         return 1
     }
@@ -819,7 +987,7 @@ configure_iptables() {
         echo "==> Agregando LOG a ORANGEBOX-FW..."
         if iptables -A ORANGEBOX-FW \
             -m limit --limit 20/second --limit-burst 40 \
-            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4; then
+            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7; then
             if iptables_log_rule_exists; then
                 ok "Validación: regla LOG ORANGEBOX-FW instalada."
             else
@@ -943,20 +1111,20 @@ configure_firewalld() {
     if firewall-cmd --direct --query-rule ipv4 filter INPUT 0 \
         -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 \
         -m limit --limit 20/second --limit-burst 40 \
-        -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 >/dev/null 2>&1; then
+        -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 >/dev/null 2>&1; then
         ok "Regla ORANGEBOX-FW ya existe en firewalld."
     else
         echo "==> Agregando regla ORANGEBOX-FW a firewalld..."
         firewall-cmd --permanent --direct --add-rule ipv4 filter INPUT 0 \
             -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 \
             -m limit --limit 20/second --limit-burst 40 \
-            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 \
+            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 \
             || fail "No se pudo agregar la regla a firewalld."
         firewall-cmd --reload || fail "No se pudo recargar firewalld."
         firewall-cmd --direct --query-rule ipv4 filter INPUT 0 \
             -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 \
             -m limit --limit 20/second --limit-burst 40 \
-            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 >/dev/null 2>&1 \
+            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 >/dev/null 2>&1 \
             || fail "No se pudo validar la regla firewalld."
         ok "Regla ORANGEBOX-FW instalada en firewalld."
     fi
@@ -1022,7 +1190,7 @@ PRIVATE_IP="$private_ip"
 if [ -n "\$PUBLIC_IP" ] && [ -n "\$PRIVATE_IP" ]; then
     \$IPTABLES -A ORANGEBOX-FW ! -i lo -p tcp --syn -s "\$PUBLIC_IP" -d "\$PRIVATE_IP" -j RETURN
 fi
-\$IPTABLES -A ORANGEBOX-FW ! -i lo -p tcp --syn -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4
+\$IPTABLES -A ORANGEBOX-FW ! -i lo -p tcp --syn -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7
 \$IPTABLES -A ORANGEBOX-FW -j RETURN
 if ! \$IPTABLES -L INPUT -n 2>/dev/null | awk '\$2 == "ORANGEBOX-FW" { found=1 } END { exit !found }'; then
     \$IPTABLES -I INPUT 1 \
@@ -1032,7 +1200,6 @@ if ! \$IPTABLES -L INPUT -n 2>/dev/null | awk '\$2 == "ORANGEBOX-FW" { found=1 }
 fi
 EOF
         chmod 700 "$firewall" || fail "No se pudieron establecer permisos en $firewall."
-
         if ! grep -Fqx "$firewall" "$csf_post" 2>/dev/null; then
             cp -p "$csf_post" "$csf_post.orangebox-backup.$(date +%Y%m%d%H%M%S)" || fail "No se pudo respaldar $csf_post."
             { cat "$csf_post"; echo; echo "# OrangeBox - Wazuh firewall logging"; echo "$firewall"; } > "$csf_post.orangebox.tmp" || fail "No se pudo preparar $csf_post."
@@ -1140,9 +1307,11 @@ configure_firewall() {
 # ---------------------------------------------------------------------------
 
 rsyslog_rule_exists() {
-    [ -f "$RSYSLOG_FILE" ] &&     grep -Fq ':msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log' "$RSYSLOG_FILE" &&     grep -Fxq ':msg, contains, "ORANGEBOX-FW" ~' "$RSYSLOG_FILE" && \
-    grep -Fq ':msg, contains, "LOG:ORANGEB" -/var/log/orangebox-firewall.log' "$RSYSLOG_FILE" && \
-    grep -Fxq ':msg, contains, "LOG:ORANGEB" ~' "$RSYSLOG_FILE"
+    [ -f "$RSYSLOG_FILE" ] && \
+        grep -Fq ':msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log' "$RSYSLOG_FILE" && \
+        grep -Fxq ':msg, contains, "ORANGEBOX-FW" ~' "$RSYSLOG_FILE" && \
+        grep -Fq ':msg, contains, "LOG:ORANGEB" -/var/log/orangebox-firewall.log' "$RSYSLOG_FILE" && \
+        grep -Fxq ':msg, contains, "LOG:ORANGEB" ~' "$RSYSLOG_FILE"
 }
 
 remove_legacy_rsyslog_rule() {
@@ -1364,7 +1533,7 @@ fi
 
 run_step "Firewall" configure_firewall
 run_step "Logging" configure_logging
-run_step "Reinicio / activación del agente" restart_agent
+# El agente se activa una sola vez al final, si alguna etapa lo requiere.
 
 # ---------------------------------------------------------------------------
 # 7. Componentes OrangeBox integrados: auditd + YARA
@@ -1378,6 +1547,8 @@ configure_exec_audit() {
         echo "ERROR: ejecutar como root." >&2
         return 1
     fi
+
+    ensure_python3 || return 1
 
     echo "==> Verificando paquetes audit..."
 
@@ -1407,9 +1578,12 @@ configure_exec_audit() {
         fi
     fi
 
-    # Wazuh usa el plugin af_unix de Audit para recibir eventos de who-data
-    # mediante queue/sockets/audit. Para Audit 3.1.1+ el plugin se entrega
-    # mediante audispd-plugins y debe estar instalado en el endpoint.
+    # Wazuh genera y utiliza su propio plugin:
+    #   /etc/audit/plugins.d/af_wazuh.conf
+    # El paquete audispd-plugins solo aporta el binario que ese plugin ejecuta:
+    #   /sbin/audisp-af_unix
+    # No se debe buscar, activar ni modificar el af_unix.conf genérico.
+    AUDISPD_PLUGINS_INSTALLED=0
     if ! rpm -q audispd-plugins >/dev/null 2>&1; then
         echo "==> Instalando audispd-plugins para Whodata..."
         if has dnf; then
@@ -1419,10 +1593,26 @@ configure_exec_audit() {
         else
             fail "No existe dnf ni yum para instalar audispd-plugins."
         fi
+        AUDISPD_PLUGINS_INSTALLED=1
     fi
 
     rpm -q audispd-plugins >/dev/null 2>&1 ||
         fail "audispd-plugins no quedó instalado."
+
+    # En Audit 3.1.1+ Wazuh usa el ejecutable audisp-af_unix del paquete
+    # audispd-plugins. Validamos el binario, no el af_unix.conf genérico.
+    AUDISP_AF_UNIX_BIN=""
+    for audisp_af_unix_path in /sbin/audisp-af_unix /usr/sbin/audisp-af_unix; do
+        if [ -x "$audisp_af_unix_path" ]; then
+            AUDISP_AF_UNIX_BIN="$audisp_af_unix_path"
+            break
+        fi
+    done
+
+    [ -n "$AUDISP_AF_UNIX_BIN" ] ||
+        fail "audispd-plugins está instalado, pero no existe audisp-af_unix en /sbin o /usr/sbin."
+
+    ok "audisp-af_unix disponible: $AUDISP_AF_UNIX_BIN."
 
     # Resolver auditctl/augenrules aunque /usr/sbin no esté en PATH.
     for audit_tool in auditctl augenrules; do
@@ -1445,7 +1635,7 @@ configure_exec_audit() {
 
     if [[ -f "$WAZUH_CONF" ]] && ! grep -q '<log_format>audit</log_format>' "$WAZUH_CONF"; then
         cp -a "$WAZUH_CONF" "${WAZUH_CONF}.before-orangebox-exec"
-        python3 - "$WAZUH_CONF" <<'PY'
+        "$PYTHON3_BIN" - "$WAZUH_CONF" <<'PY'
 import pathlib
 import sys
 
@@ -1466,23 +1656,26 @@ PY
     fi
 
     # Garantizar que auditd quede habilitado y activo.
-    # Después de instalar audispd-plugins, reiniciamos auditd para que el
-    # plugin af_unix quede disponible. No intentamos cambiar reglas cuando
-    # Audit está en modo inmutable (-e 2).
+    # En EL7+ systemd bloquea el restart manual de auditd (RefuseManualStop/Start).
+    # Red Hat indica usar service auditd restart para este demonio; systemctl
+    # queda reservado para enable/status. En EL6 también usamos service.
     if has systemctl && systemctl list-unit-files 2>/dev/null | grep -q "^auditd\.service"; then
         systemctl enable auditd >/dev/null 2>&1 || warn "No se pudo habilitar auditd con systemctl."
-        if ! systemctl is-active --quiet auditd; then
+    fi
+
+    if has service; then
+        if service auditd status >/dev/null 2>&1; then
+            # Solo reiniciar si audispd-plugins acaba de instalarse o si
+            # necesitamos que auditd vuelva a cargar sus plugins/configuracion.
+            if [ "${AUDISPD_PLUGINS_INSTALLED:-0}" -eq 1 ]; then
+                service auditd restart || fail "No se pudo reiniciar auditd después de instalar audispd-plugins."
+            fi
+        else
+            service auditd start || fail "No se pudo iniciar auditd."
+        fi
+    elif has systemctl; then
+        systemctl is-active --quiet auditd ||
             systemctl start auditd || fail "No se pudo iniciar auditd."
-        elif rpm -q audispd-plugins >/dev/null 2>&1; then
-            systemctl restart auditd || fail "No se pudo reiniciar auditd después de instalar audispd-plugins."
-        fi
-    elif has chkconfig && chkconfig auditd on >/dev/null 2>&1; then
-        if has service; then
-            service auditd restart || fail "No se pudo reiniciar auditd después de instalar audispd-plugins."
-        fi
-    elif has service; then
-        service auditd status >/dev/null 2>&1 || service auditd start || fail "No se pudo iniciar auditd."
-        service auditd restart || fail "No se pudo reiniciar auditd después de instalar audispd-plugins."
     fi
 
     # Migración idempotente de implementaciones OrangeBox antiguas.
@@ -1543,9 +1736,17 @@ EOF
         [[ "$path" = /* ]] || return 0
 
         for arch in b64 b32; do
-            local rule="-a always,exit -F arch=${arch} -S execve -F exe=${path} -F auid>=0 -F auid!=4294967295 -k audit-wazuh-c"
-            if ! grep -Fqx -- "$rule" "$RULE_FILE" 2>/dev/null; then
-                printf '%s\n' "$rule" >> "$RULE_FILE"
+            if [ "$EL_MAJOR" = "6" ]; then
+                # Audit 2.4.x de EL6 no soporta -F exe=. Usar watch -p x.
+                local rule="-w ${path} -p x -k audit-wazuh-c"
+                if ! grep -Fqx -- "$rule" "$RULE_FILE" 2>/dev/null; then
+                    printf '%s\n' "$rule" >> "$RULE_FILE"
+                fi
+            else
+                local rule="-a always,exit -F arch=${arch} -S execve -F exe=${path} -F auid>=0 -F auid!=4294967295 -k audit-wazuh-c"
+                if ! grep -Fqx -- "$rule" "$RULE_FILE" 2>/dev/null; then
+                    printf '%s\n' "$rule" >> "$RULE_FILE"
+                fi
             fi
         done
     }
@@ -1597,15 +1798,7 @@ EOF
         ok "No se detectaron ejecutables scanner/recon adicionales; no se agregaron reglas ${KEY_BEHAVIOR}."
     fi
 
-    if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files 2>/dev/null | grep -q '^wazuh-agent\\.service'; then
-        systemctl restart wazuh-agent || fail "No se pudo reiniciar wazuh-agent después de configurar auditd."
-    elif command -v service >/dev/null 2>&1 && service wazuh-agent status >/dev/null 2>&1; then
-        service wazuh-agent restart || fail "No se pudo reiniciar wazuh-agent después de configurar auditd."
-    elif [ -x "${WAZUH_HOME}/bin/wazuh-control" ]; then
-        "${WAZUH_HOME}/bin/wazuh-control" restart || fail "No se pudo reiniciar wazuh-agent después de configurar auditd."
-    else
-        fail "No se pudo encontrar un mecanismo para reiniciar wazuh-agent."
-    fi
+    request_agent_action
 
     if [ "$audit_enabled" = "2" ] &&
        ! auditctl -l | grep -E -- '(-k[[:space:]]+|-F[[:space:]]+key=)orangebox_exec' >/dev/null 2>&1; then
@@ -1616,12 +1809,137 @@ EOF
 }
 
 configure_yara() {
+    ensure_python3 || return 1
+
+    build_yara_correlation() {
+        local rules_dir="$1"
+        local output_file="$2"
+
+        "$PYTHON3_BIN" - "$rules_dir" "$output_file" <<'PY'
+import os
+import re
+import sys
+
+rules_dir = sys.argv[1]
+output_file = sys.argv[2]
+
+rule_re = re.compile(
+    r'^\s*(?:(?:private|global)\s+)*rule\s+([A-Za-z_][A-Za-z0-9_]*)\b',
+    re.IGNORECASE,
+)
+condition_re = re.compile(r'^\s*condition\s*:', re.IGNORECASE)
+identifier_re = re.compile(r'\b[A-Za-z_][A-Za-z0-9_]*\b')
+string_re = re.compile(r'"(?:\\.|[^"\\])*"')
+
+rule_names = set()
+conditions = {}
+
+for root, _dirs, files in os.walk(rules_dir):
+    for filename in sorted(files):
+        if not filename.endswith(('.yar', '.yara')):
+            continue
+
+        path = os.path.join(root, filename)
+        with open(path, 'r', encoding='utf-8', errors='replace') as source:
+            current = None
+            collecting = False
+            condition_lines = []
+
+            for raw_line in source:
+                line = raw_line.rstrip('\n')
+                match = rule_re.match(line)
+
+                if match:
+                    if current and collecting:
+                        conditions[current] = '\n'.join(condition_lines)
+                    current = match.group(1)
+                    rule_names.add(current)
+                    collecting = False
+                    condition_lines = []
+                    continue
+
+                if current and condition_re.match(line):
+                    collecting = True
+                    condition_lines = [line.split(':', 1)[1]]
+
+                    if re.search(r'}\s*$', condition_lines[0]):
+                        condition_lines[0] = condition_lines[0].rsplit('}', 1)[0]
+                        conditions[current] = '\n'.join(condition_lines)
+                        current = None
+                        collecting = False
+                        condition_lines = []
+
+                    continue
+
+                if current and collecting:
+                    if re.match(r'^\s*}\s*$', line):
+                        conditions[current] = '\n'.join(condition_lines)
+                        current = None
+                        collecting = False
+                        condition_lines = []
+                    else:
+                        condition_lines.append(line)
+
+            if current and collecting:
+                conditions[current] = '\n'.join(condition_lines)
+
+parents = {name: set() for name in rule_names}
+
+for rule_name, condition in conditions.items():
+    condition = re.sub(r'/\*.*?\*/', ' ', condition, flags=re.S)
+    condition = re.sub(r'//.*$', ' ', condition, flags=re.M)
+    condition = string_re.sub(' ', condition)
+
+    for identifier in identifier_re.findall(condition):
+        if identifier in rule_names and identifier != rule_name:
+            parents[rule_name].add(identifier)
+
+memo = {}
+
+def roots(rule_name, visiting):
+    if rule_name in memo:
+        return memo[rule_name]
+
+    if rule_name in visiting:
+        return set()
+
+    direct = parents.get(rule_name, set())
+    if not direct:
+        result = {rule_name}
+    else:
+        result = set()
+        next_visiting = visiting | {rule_name}
+        for parent in direct:
+            result.update(roots(parent, next_visiting))
+
+    memo[rule_name] = result
+    return result
+
+with open(output_file, 'w', encoding='utf-8') as destination:
+    for child in sorted(rule_names):
+        root_set = roots(child, set())
+
+        # Solo se normaliza cuando existe una unica raiz logica.
+        # Si hay varias raices, se conserva el nombre propio.
+        if len(root_set) == 1:
+            root = next(iter(root_set))
+            if root != child:
+                destination.write("{}|{}\n".format(child, root))
+PY
+
+        [[ -f "$output_file" ]] || {
+            echo "ERROR: no se pudo generar la tabla de correlacion YARA." >&2
+            return 1
+        }
+
+        return 0
+    }
+
     local SCRIPT_SRC="$WAZUH_HOME/active-response/bin/orangebox-yara.sh"
     mkdir -p "$(dirname "$SCRIPT_SRC")" || fail "No se pudo crear el directorio Active Response."
 
     # El instalador es autosuficiente: genera directamente el runtime del agente.
-    # El mismo archivo también está versionado en configuration/agent para
-    # documentar y mantener la estructura que replica /var/ossec.
+    # Este instalador es el unico source of truth del runtime desplegado.
     cat > "$SCRIPT_SRC" <<'ORANGEBOX_YARA_RUNTIME'
 #!/usr/bin/env bash
 set -u
@@ -1644,6 +1962,7 @@ AR_LOG="${WAZUH_HOME}/logs/active-responses.log"
 YARA_LOG="${WAZUH_HOME}/logs/orangebox-yara.log"
 LOCK_FILE="${WAZUH_HOME}/logs/orangebox-yara.lock"
 RULES_DIR="${SCRIPT_DIR}/yara/rules/yara-rules"
+CORRELATION_FILE="${RULES_DIR}/YARA-RULE-CORRELATION"
 MAX_FILE_SIZE='5242880'
 YARA_TIMEOUT='15'
 
@@ -1701,7 +2020,6 @@ fi
     log_info "Archivo omitido por no ser regular: ${FILENAME}"
     exit 0
 }
-
 # Dar una pequeña ventana para que una escritura recién terminada se estabilice,
 # pero sin bloquear el Active Response durante segundos.
 sleep 0.2
@@ -1732,6 +2050,25 @@ fi
 [[ -d "${RULES_DIR}" ]] || {
     log_error "No se encontro el ruleset oficial: ${RULES_DIR}"
     exit 1
+}
+
+declare -A YARA_CORRELATIONS=()
+if [[ -r "${CORRELATION_FILE}" ]]; then
+    while IFS='|' read -r child root; do
+        [[ -z "${child}" || -z "${root}" ]] && continue
+        YARA_CORRELATIONS["${child}"]="${root}"
+    done < "${CORRELATION_FILE}"
+fi
+
+correlation_for_rule() {
+    local rule_name="$1"
+    local correlation="${rule_name}"
+
+    if [[ -n "${YARA_CORRELATIONS[${rule_name}]+x}" ]]; then
+        correlation="${YARA_CORRELATIONS[${rule_name}]}"
+    fi
+
+    printf '%s\n' "${correlation}"
 }
 
 command -v timeout >/dev/null 2>&1 || {
@@ -1791,9 +2128,11 @@ run_scan() {
 
         [[ -n "${rule_name}" && -n "${scanned_path}" && "${rule_name}" != "${line}" ]] || continue
 
-        # Mantener exactamente este formato: rule 10501 lo consume.
-        printf 'wazuh-yara: ALERT - Match: category=%s rule=%s path=%s\n' \
-            "${category}" "${rule_name}" "${scanned_path}" >> "${AR_LOG}"
+        correlation="$(correlation_for_rule "${rule_name}")"
+
+        # rule conserva el nombre original; correlation identifica la raiz logica.
+        printf 'wazuh-yara: ALERT - Match: category=%s rule=%s correlation=%s path=%s\n' \
+            "${category}" "${rule_name}" "${correlation}" "${scanned_path}" >> "${AR_LOG}"
     done < "${output_file}"
 
     rm -f "${output_file}"
@@ -1806,7 +2145,7 @@ run_scan "malware" "${RULES_DIR}/malware_index.yar" || exit 0
 exit 0
 
 ORANGEBOX_YARA_RUNTIME
-    local WAZUH_GROUP    local WAZUH_GROUP
+    local WAZUH_GROUP
     WAZUH_GROUP="$(stat -c '%G' "$WAZUH_HOME/active-response/bin" 2>/dev/null || echo wazuh)"
     [[ -n "$WAZUH_GROUP" && "$WAZUH_GROUP" != "UNKNOWN" ]] || WAZUH_GROUP="wazuh"
     chown root:"$WAZUH_GROUP" "$SCRIPT_SRC" || fail "No se pudo asignar propietario a $SCRIPT_SRC"
@@ -1864,6 +2203,7 @@ install_missing_packages() {
     command -v jq >/dev/null 2>&1 || packages+=(jq)
     command -v git >/dev/null 2>&1 || packages+=(git)
 
+
     local yara_found="no"
     for candidate in /usr/local/bin/yara /usr/bin/yara /usr/local/sbin/yara; do
         if [[ -x "${candidate}" ]]; then
@@ -1881,7 +2221,42 @@ install_missing_packages() {
 
     case "${manager}" in
         dnf|yum)
+            # En CentOS/EL6, jq y YARA viven en EPEL6. Como EL6 está archivado,
+            # usar el repositorio OrangeBox archivado y no el mirrorlist retirado.
+            if [[ "${EL_MAJOR}" == "6" && "${IS_CPANEL}" != "yes" &&
+                  ( " ${packages[*]} " == *" jq "* || " ${packages[*]} " == *" yara "* ) ]]; then
+                ensure_epel6
+                "${manager}" --disablerepo='epel*' --enablerepo=orangebox-epel6 install -y "${packages[@]}" || {
+                    echo "ERROR: no se pudieron instalar las dependencias EL6 desde EPEL6 archivado." >&2
+                    return 1
+                }
+                return 0
+            fi
+
             if "${manager}" install -y "${packages[@]}"; then
+                return 0
+            fi
+
+            # CentOS 7 ya no publica todos los paquetes auxiliares en los
+            # repositorios configurados. jq y YARA se distribuyen normalmente
+            # mediante EPEL. Solo habilitar EPEL cuando estamos en EL7 y
+            # realmente faltan dependencias de esta etapa.
+            if [[ "${EL_MAJOR}" == "7" && "${IS_CPANEL}" != "yes" &&
+                  -f /etc/redhat-release ]] &&
+               grep -qi "CentOS" /etc/redhat-release &&
+               [[ " ${packages[*]} " == *" jq "* ||
+                  " ${packages[*]} " == *" yara "* ]]; then
+                echo "==> Dependencias EL7 no disponibles; habilitando EPEL..."
+                "${manager}" install -y epel-release || {
+                    echo "ERROR: no se pudo instalar epel-release." >&2
+                    return 1
+                }
+
+                "${manager}" install -y "${packages[@]}" || {
+                    echo "ERROR: no se pudieron instalar las dependencias desde EPEL." >&2
+                    return 1
+                }
+
                 return 0
             fi
 
@@ -2010,7 +2385,23 @@ fi
 echo "==> Descargando Yara-Rules oficial..."
 git clone --depth 1 --branch "${YARA_RULES_BRANCH}"     "${YARA_RULES_REPO}" "${TMP_DIR}/rules"
 
-RULESET_COMMIT="$(git -C "${TMP_DIR}/rules" rev-parse HEAD)"
+RULESET_COMMIT="$(cd "${TMP_DIR}/rules" && git rev-parse HEAD)"
+
+# Algunas YARA empaquetadas para EL7 no incluyen el modulo Cuckoo.
+# El snapshot usado por OrangeBox tiene una regla activa que lo importa:
+# malware/MALW_AZORULT.yar. Solo se excluye esa regla cuando el modulo falta.
+CUCKOO_TEST="${TMP_DIR}/orangebox-cuckoo-test.yar"
+printf "%s\n" 'import "cuckoo"' 'rule orangebox_cuckoo_test { condition: cuckoo.sync.mutex(/orangebox/) }' > "${CUCKOO_TEST}"
+YARA_RULES_ADJUSTMENTS=""
+if ! "${YARA_BIN}" -w "${CUCKOO_TEST}" /dev/null >/dev/null 2>&1; then
+    AZORULT_INCLUDE='include "./malware/MALW_AZORULT.yar"'
+    if grep -Fqx "${AZORULT_INCLUDE}" "${TMP_DIR}/rules/malware_index.yar"; then
+        grep -Fvx "${AZORULT_INCLUDE}" "${TMP_DIR}/rules/malware_index.yar" > "${TMP_DIR}/malware_index.yar.tmp" || return 1
+        mv "${TMP_DIR}/malware_index.yar.tmp" "${TMP_DIR}/rules/malware_index.yar" || return 1
+        YARA_RULES_ADJUSTMENTS="malware/MALW_AZORULT.yar"
+        echo "AVISO: YARA no tiene Cuckoo; se excluye malware/MALW_AZORULT.yar del indice malware."
+    fi
+fi
 
 # Validar el ruleset completo antes de reemplazar el instalado.
 for index in webshells_index.yar malware_index.yar; do
@@ -2021,12 +2412,15 @@ for index in webshells_index.yar malware_index.yar; do
         return 1
     }
 
-    "${YARA_BIN}" -w "${INDEX_PATH}" /dev/null >/dev/null 2>&1 || {
+    local yara_check_output=""
+    if ! yara_check_output="$("${YARA_BIN}" -w "${INDEX_PATH}" /dev/null 2>&1)"; then
         echo "ERROR: YARA no pudo cargar el indice ${index}." >&2
+        printf "%s\n" "${yara_check_output}" >&2
         return 1
-    }
+    fi
 done
 
+    build_yara_correlation "${TMP_DIR}/rules" "${TMP_DIR}/rules/YARA-RULE-CORRELATION" || return 1
 # No conservar el .git del clon: el agente solo necesita las firmas.
 rm -rf "${TMP_DIR}/rules/.git"
 
@@ -2053,6 +2447,11 @@ mv "${RULESET_DIR}.new" "${RULESET_DIR}" || {
 rm -rf "${RULESET_DIR}.previous"
 
 printf '%s\n' "${RULESET_COMMIT}" > "${DEST_RULES}/YARA-RULES-COMMIT"
+if [[ -n "${YARA_RULES_ADJUSTMENTS}" ]]; then
+    printf "%s\n" "${YARA_RULES_ADJUSTMENTS}" > "${DEST_RULES}/YARA-RULES-ADJUSTMENTS"
+else
+    rm -f "${DEST_RULES}/YARA-RULES-ADJUSTMENTS"
+fi
 printf '%s\n' "${YARA_RULES_REPO}" > "${DEST_RULES}/YARA-RULES-REPOSITORY"
 printf '%s\n' "${YARA_RULES_BRANCH}" > "${DEST_RULES}/YARA-RULES-BRANCH"
 
@@ -2080,6 +2479,7 @@ WAZUH_HOME='@@WAZUH_HOME@@'
 YARA_RULES_REPO='@@YARA_RULES_REPO@@'
 YARA_RULES_BRANCH='@@YARA_RULES_BRANCH@@'
 YARA_BIN='@@YARA_BIN@@'
+PYTHON3_BIN='@@PYTHON3_BIN@@'
 DEST_RULES="${WAZUH_HOME}/active-response/bin/yara/rules"
 RULESET_DIR="${DEST_RULES}/yara-rules"
 LOG_FILE="${WAZUH_HOME}/logs/orangebox-yara-update.log"
@@ -2105,10 +2505,149 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 git clone --depth 1 --branch "${YARA_RULES_BRANCH}" \
     "${YARA_RULES_REPO}" "${TMP_DIR}/rules"
 
-NEW_COMMIT="$(git -C "${TMP_DIR}/rules" rev-parse HEAD)"
+NEW_COMMIT="$(cd "${TMP_DIR}/rules" && git rev-parse HEAD)"
 OLD_COMMIT="$(cat "${DEST_RULES}/YARA-RULES-COMMIT" 2>/dev/null || true)"
 
-if [[ -n "${OLD_COMMIT}" && "${OLD_COMMIT}" == "${NEW_COMMIT}" ]]; then
+build_yara_correlation() {
+    local rules_dir="$1"
+    local output_file="$2"
+
+    "$PYTHON3_BIN" - "$rules_dir" "$output_file" <<'PY'
+import os
+import re
+import sys
+
+rules_dir = sys.argv[1]
+output_file = sys.argv[2]
+
+rule_re = re.compile(
+    r'^\s*(?:(?:private|global)\s+)*rule\s+([A-Za-z_][A-Za-z0-9_]*)\b',
+    re.IGNORECASE,
+)
+condition_re = re.compile(r'^\s*condition\s*:', re.IGNORECASE)
+identifier_re = re.compile(r'\b[A-Za-z_][A-Za-z0-9_]*\b')
+string_re = re.compile(r'"(?:\\.|[^"\\])*"')
+
+rule_names = set()
+conditions = {}
+
+for root, _dirs, files in os.walk(rules_dir):
+    for filename in sorted(files):
+        if not filename.endswith(('.yar', '.yara')):
+            continue
+
+        path = os.path.join(root, filename)
+        with open(path, 'r', encoding='utf-8', errors='replace') as source:
+            current = None
+            collecting = False
+            condition_lines = []
+
+            for raw_line in source:
+                line = raw_line.rstrip('\n')
+                match = rule_re.match(line)
+
+                if match:
+                    if current and collecting:
+                        conditions[current] = '\n'.join(condition_lines)
+                    current = match.group(1)
+                    rule_names.add(current)
+                    collecting = False
+                    condition_lines = []
+                    continue
+
+                if current and condition_re.match(line):
+                    collecting = True
+                    condition_lines = [line.split(':', 1)[1]]
+
+                    if re.search(r'}\s*$', condition_lines[0]):
+                        condition_lines[0] = condition_lines[0].rsplit('}', 1)[0]
+                        conditions[current] = '\n'.join(condition_lines)
+                        current = None
+                        collecting = False
+                        condition_lines = []
+
+                    continue
+
+                if current and collecting:
+                    if re.match(r'^\s*}\s*$', line):
+                        conditions[current] = '\n'.join(condition_lines)
+                        current = None
+                        collecting = False
+                        condition_lines = []
+                    else:
+                        condition_lines.append(line)
+
+            if current and collecting:
+                conditions[current] = '\n'.join(condition_lines)
+
+parents = {name: set() for name in rule_names}
+
+for rule_name, condition in conditions.items():
+    condition = re.sub(r'/\*.*?\*/', ' ', condition, flags=re.S)
+    condition = re.sub(r'//.*$', ' ', condition, flags=re.M)
+    condition = string_re.sub(' ', condition)
+
+    for identifier in identifier_re.findall(condition):
+        if identifier in rule_names and identifier != rule_name:
+            parents[rule_name].add(identifier)
+
+memo = {}
+
+def roots(rule_name, visiting):
+    if rule_name in memo:
+        return memo[rule_name]
+
+    if rule_name in visiting:
+        return set()
+
+    direct = parents.get(rule_name, set())
+    if not direct:
+        result = {rule_name}
+    else:
+        result = set()
+        next_visiting = visiting | {rule_name}
+        for parent in direct:
+            result.update(roots(parent, next_visiting))
+
+    memo[rule_name] = result
+    return result
+
+with open(output_file, 'w', encoding='utf-8') as destination:
+    for child in sorted(rule_names):
+        root_set = roots(child, set())
+
+        # Solo se normaliza cuando existe una unica raiz logica.
+        # Si hay varias raices, se conserva el nombre propio.
+        if len(root_set) == 1:
+            root = next(iter(root_set))
+            if root != child:
+                destination.write("{}|{}\n".format(child, root))
+PY
+
+    [[ -f "$output_file" ]] || {
+        echo "ERROR: no se pudo generar la tabla de correlacion YARA." >&2
+        return 1
+    }
+
+    return 0
+}
+
+# Mantener la misma compatibilidad del instalador: YARA sin Cuckoo
+# no puede compilar MALW_AZORULT.yar del snapshot oficial.
+CUCKOO_TEST="${TMP_DIR}/orangebox-cuckoo-test.yar"
+printf "%s\n" 'import "cuckoo"' 'rule orangebox_cuckoo_test { condition: cuckoo.sync.mutex(/orangebox/) }' > "${CUCKOO_TEST}"
+YARA_RULES_ADJUSTMENTS=""
+if ! "${YARA_BIN}" -w "${CUCKOO_TEST}" /dev/null >/dev/null 2>&1; then
+    AZORULT_INCLUDE='include "./malware/MALW_AZORULT.yar"'
+    if grep -Fqx "${AZORULT_INCLUDE}" "${TMP_DIR}/rules/malware_index.yar"; then
+        grep -Fvx "${AZORULT_INCLUDE}" "${TMP_DIR}/rules/malware_index.yar" > "${TMP_DIR}/malware_index.yar.tmp" || exit 1
+        mv "${TMP_DIR}/malware_index.yar.tmp" "${TMP_DIR}/rules/malware_index.yar" || exit 1
+        YARA_RULES_ADJUSTMENTS="malware/MALW_AZORULT.yar"
+        echo "AVISO: YARA no tiene Cuckoo; se excluye malware/MALW_AZORULT.yar del indice malware."
+    fi
+fi
+
+if [[ -n "${OLD_COMMIT}" && "${OLD_COMMIT}" == "${NEW_COMMIT}" && -f "${RULESET_DIR}/YARA-RULE-CORRELATION" ]]; then
     echo "OK: Yara-Rules ya esta actualizado en ${NEW_COMMIT}."
     exit 0
 fi
@@ -2124,6 +2663,8 @@ for index in webshells_index.yar malware_index.yar; do
         exit 1
     }
 done
+
+build_yara_correlation "${TMP_DIR}/rules" "${TMP_DIR}/rules/YARA-RULE-CORRELATION" || exit 1
 
 rm -rf "${TMP_DIR}/rules/.git"
 rm -rf "${RULESET_DIR}.new"
@@ -2150,6 +2691,11 @@ fi
 
 rm -rf "${RULESET_DIR}.previous"
 printf '%s\n' "${NEW_COMMIT}" > "${DEST_RULES}/YARA-RULES-COMMIT"
+if [[ -n "${YARA_RULES_ADJUSTMENTS}" ]]; then
+    printf "%s\n" "${YARA_RULES_ADJUSTMENTS}" > "${DEST_RULES}/YARA-RULES-ADJUSTMENTS"
+else
+    rm -f "${DEST_RULES}/YARA-RULES-ADJUSTMENTS"
+fi
 printf '%s\n' "${YARA_RULES_REPO}" > "${DEST_RULES}/YARA-RULES-REPOSITORY"
 printf '%s\n' "${YARA_RULES_BRANCH}" > "${DEST_RULES}/YARA-RULES-BRANCH"
 
@@ -2166,6 +2712,7 @@ sed -i \
     -e "s|@@YARA_RULES_REPO@@|${YARA_RULES_REPO}|g" \
     -e "s|@@YARA_RULES_BRANCH@@|${YARA_RULES_BRANCH}|g" \
     -e "s|@@YARA_BIN@@|${YARA_BIN}|g" \
+    -e "s|@@PYTHON3_BIN@@|${PYTHON3_BIN}|g" \
     "${YARA_UPDATE_SCRIPT}"
 
 bash -n "${YARA_UPDATE_SCRIPT}" || {
@@ -2194,11 +2741,12 @@ echo "  Commit      : ${RULESET_COMMIT} (snapshot instalado; se actualiza diaria
 echo "  YARA        : ${YARA_BIN}"
 echo "  Grupo       : ${WAZUH_GROUP}"
 echo
-echo "No se reinicio el agente automaticamente."
+echo "No se reinicio el agente durante este paso."
 
 }
 
 configure_quarantine() {
+    ensure_python3 || return 1
     local SCRIPT_SRC="$WAZUH_HOME/active-response/bin/orangebox-quarantine.py"
     local WAZUH_GROUP
 
@@ -2278,7 +2826,12 @@ def main():
     source_stat = None
 
     try:
-        source_fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        open_flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            open_flags |= os.O_NOFOLLOW
+        if hasattr(os, "O_CLOEXEC"):
+            open_flags |= os.O_CLOEXEC
+        source_fd = os.open(path, open_flags)
         source_stat = os.fstat(source_fd)
 
         if not stat.S_ISREG(source_stat.st_mode):
@@ -2404,17 +2957,18 @@ if __name__ == "__main__":
 
 ORANGEBOX_QUARANTINE_RUNTIME
 
-    command -v python3 >/dev/null 2>&1 || fail "python3 es requerido por orangebox-quarantine.py."
+    [ -n "$PYTHON3_BIN" ] || fail "Python 3 no quedó disponible para orangebox-quarantine.py."
     WAZUH_GROUP="$(stat -c '%G' "$WAZUH_HOME/active-response/bin" 2>/dev/null || echo wazuh)"
     [[ -n "$WAZUH_GROUP" && "$WAZUH_GROUP" != "UNKNOWN" ]] || WAZUH_GROUP="wazuh"
 
     chown root:"$WAZUH_GROUP" "$SCRIPT_SRC" || fail "No se pudo asignar propietario a $SCRIPT_SRC"
     chmod 750 "$SCRIPT_SRC" || fail "No se pudieron establecer permisos en $SCRIPT_SRC"
-    if ! python3 - "$SCRIPT_SRC" <<'PY' >/dev/null 2>&1
+    if ! "$PYTHON3_BIN" - "$SCRIPT_SRC" <<'PY' >/dev/null 2>&1
 import sys
-from pathlib import Path
 path = sys.argv[1]
-compile(Path(path).read_text(encoding="utf-8"), path, "exec")
+with open(path, "r") as source_file:
+    source = source_file.read()
+compile(source, path, "exec")
 PY
     then
         fail "orangebox-quarantine.py tiene un error de sintaxis."
@@ -2424,6 +2978,7 @@ PY
 run_step "Auditd / monitoreo de ejecución" configure_exec_audit
 run_step "YARA" configure_yara
 run_step "Cuarentena Active Response" configure_quarantine
+run_step "Activación final del agente" activate_agent_final
 
 final_verification() {
     local failed=0
