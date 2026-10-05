@@ -6,6 +6,8 @@ Agregar contexto OrangeBox a los indicadores de compromiso que Wazuh ya detecta.
 
 La fuente de los IOC sigue siendo la CDB oficial de Wazuh: IP maliciosas, dominios maliciosos y hashes de malware.
 
+Para SYN flood, la regla IOC 10463 hereda directamente de 10454, que es la detección final del flood. No depende de una regla intermedia eliminada.
+
 ## Respuesta
 
 Los IOC de origen conocido pueden activar firewall-drop cuando la alerta contiene una IP de origen.
