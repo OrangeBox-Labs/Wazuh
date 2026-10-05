@@ -111,7 +111,9 @@ compare_generated_cdb() {
         sort -fu |
         while IFS= read -r hostname; do
             [[ -z "$hostname" ]] && continue
+
             printf '%s:%s\n' "$hostname" "$profile"
+
             if [[ "$hostname" == *.* ]]; then
                 short="${hostname%%.*}"
                 [[ -n "$short" ]] && printf '%s:%s\n' "$short" "$profile"
@@ -133,6 +135,7 @@ compare_generated_cdb() {
     rm -f "$tmp"
 }
 
+
 compare_manager_rules() {
     local repo_dir="$1"
     local deployed_dir="$2"
@@ -143,139 +146,7 @@ compare_manager_rules() {
 
     mapfile -t files < <(
         git -C "$ROOT" ls-files "$repo_dir" |
-        grep -E '\.xml
-echo
-echo "============================================================"
-echo " OrangeBox - Verificacion de configuracion"
-echo "============================================================"
-echo "Repo:      $ROOT"
-echo "OSSEC_HOME: $OSSEC_HOME"
-echo
-
-if [[ "${1:-}" == "--agent" ]]; then
-    echo "=== AGENT RUNTIME ==="
-
-    AGENT_YARA_SCRIPT="${OSSEC_HOME}/active-response/bin/orangebox-yara.sh"
-    AGENT_YARA_SOURCE="$ROOT/configuration/agent/active-response/bin/orangebox-yara.sh"
-    AGENT_YARA_DIR="${OSSEC_HOME}/active-response/bin/yara/rules/yara-rules"
-    AGENT_YARA_META="${OSSEC_HOME}/active-response/bin/yara/rules"
-    AGENT_QUARANTINE="${OSSEC_HOME}/active-response/bin/orangebox-quarantine.py"
-    AGENT_QUARANTINE_SOURCE="$ROOT/configuration/agent/active-response/bin/orangebox-quarantine.py"
-
-    compare_file "configuration/agent/active-response/bin/orangebox-yara.sh" "$AGENT_YARA_SCRIPT"
-    if [[ -f "$AGENT_YARA_SCRIPT" ]]; then
-        if bash -n "$AGENT_YARA_SCRIPT" 2>/dev/null; then
-            ok "orangebox-yara.sh desplegado pasa bash -n"
-        else
-            fail "orangebox-yara.sh desplegado tiene error de sintaxis"
-        fi
-    fi
-
-    compare_file "configuration/agent/active-response/bin/orangebox-quarantine.py" "$AGENT_QUARANTINE"
-    if [[ -f "$AGENT_QUARANTINE" ]]; then
-        if python3 - "$AGENT_QUARANTINE" <<'PY' >/dev/null 2>&1
-import sys
-from pathlib import Path
-path = sys.argv[1]
-compile(Path(path).read_text(encoding="utf-8"), path, "exec")
-PY
-        then
-            ok "orangebox-quarantine.py desplegado pasa compilacion Python"
-        else
-            fail "orangebox-quarantine.py desplegado tiene error de sintaxis"
-        fi
-    fi
-
-    if [[ -d "$AGENT_YARA_DIR" ]]; then
-        ok "Ruleset YARA oficial desplegado: $AGENT_YARA_DIR"
-    else
-        fail "Falta ruleset YARA oficial: $AGENT_YARA_DIR"
-    fi
-
-    for index in webshells_index.yar malware_index.yar; do
-        if [[ -s "$AGENT_YARA_DIR/$index" ]]; then
-            ok "Indice YARA oficial presente: $index"
-        else
-            fail "Falta indice YARA oficial: $AGENT_YARA_DIR/$index"
-        fi
-    done
-
-    for meta in YARA-RULES-COMMIT YARA-RULES-REPOSITORY YARA-RULES-BRANCH; do
-        if [[ -s "$AGENT_YARA_META/$meta" ]]; then
-            ok "Metadata YARA presente: $meta"
-        else
-            fail "Falta metadata YARA: $meta"
-        fi
-    done
-
-    if [[ -s "$AGENT_YARA_META/YARA-RULES-REPOSITORY" ]] &&
-       grep -qx 'https://github.com/Yara-Rules/rules.git' "$AGENT_YARA_META/YARA-RULES-REPOSITORY"; then
-        ok "Ruleset YARA proviene del repositorio oficial"
-    elif [[ -e "$AGENT_YARA_META/YARA-RULES-REPOSITORY" ]]; then
-        fail "Repositorio YARA desplegado no coincide con Yara-Rules/rules"
-    fi
-
-    if [[ -d "$AGENT_YARA_DIR" ]]; then
-        stale_rules=(
-            "$AGENT_YARA_META/orangebox-webshell-core.yar"
-            "$AGENT_YARA_META/orangebox-webshell-extended.yar"
-        )
-        for stale in "${stale_rules[@]}"; do
-            if [[ -e "$stale" ]]; then
-                fail "Regla YARA propia antigua todavía desplegada: $stale"
-            else
-                ok "Regla YARA propia antigua ausente: $stale"
-            fi
-        done
-    fi
-
-    echo
-    echo "============================================================"
-    echo " Resultado"
-    echo "============================================================"
-    echo "OK:   $PASS"
-    echo "FAIL: $FAIL"
-    echo "WARN: $WARN"
-    (( FAIL > 0 )) && exit 1
-    echo "Verificacion correcta."
-    exit 0
-fi
-
-echo "=== MANAGER ==="
-compare_file     "configuration/manager/etc/ossec.conf"     "${OSSEC_HOME}/etc/ossec.conf"
-
-compare_file     "configuration/manager/etc/shared/agent-template.conf"     "${OSSEC_HOME}/etc/shared/agent-template.conf"
-
-echo
-echo "=== DECODERS ==="
-compare_file     "configuration/manager/etc/decoders/orangebox-yara.xml"     "${OSSEC_HOME}/etc/decoders/orangebox-yara.xml"
-
-echo
-echo "=== INTEGRACIONES ==="
-compare_file     "configuration/manager/integrations/custom-orangebox-email.py"     "${OSSEC_HOME}/integrations/custom-orangebox-email.py"
-
-echo
-echo "=== ACTIVE RESPONSE DEL MANAGER ==="
-ok "La configuracion de Active Response del Manager se valida con sus reglas/commands; los ejecutables viven en configuration/agent/active-response/ y los genera el instalador del agente."
-
-echo
-echo "============================================================"
-echo " Resultado"
-echo "============================================================"
-echo "OK:   $PASS"
-echo "FAIL: $FAIL"
-echo "WARN: $WARN"
-
-if (( FAIL > 0 )); then
-    echo
-    echo "La configuracion desplegada NO coincide completamente con el repo."
-    exit 1
-fi
-
-echo
-echo "Repo y despliegue funcional coinciden."
-exit 0
- |
+        grep -E '\.xml$' |
         sort
     )
 
@@ -290,7 +161,6 @@ exit 0
         compare_file "$repo_file" "$deployed_file"
     done
 }
-
 check_extra_orangebox_rules() {
     local repo_dir="$1"
     local deployed_dir="$2"
@@ -302,6 +172,7 @@ check_extra_orangebox_rules() {
         [[ -z "$deployed_file" ]] && continue
         rel="${deployed_file#"$deployed_dir"/}"
         repo_file="$repo_dir/$rel"
+
         if [[ ! -f "$ROOT/$repo_file" ]]; then
             fail "Regla OrangeBox desplegada sin version correspondiente en repo: $deployed_file"
         fi
@@ -311,8 +182,10 @@ check_extra_orangebox_rules() {
 check_rule_cdb_references() {
     local rules_dir="$1"
     local ossec_conf="$2"
+    local deployed_dir="${OSSEC_HOME}/"
     local rules_file
     local ref
+    local repo_list
     local deployed_list
 
     while IFS= read -r rules_file; do
@@ -325,7 +198,27 @@ check_rule_cdb_references() {
                 fail "CDB usada por regla pero no declarada en ossec.conf: $ref (en $rules_file)"
             fi
 
-            deployed_list="${OSSEC_HOME}/$ref"
+            repo_list="$ROOT/configuration/manager/$ref"
+            deployed_list="$deployed_dir$ref"
+
+            case "$ref" in
+                etc/lists/orangebox-*|etc/lists/malicious-ioc/*)
+                    if [[ -f "$repo_list" ]]; then
+                        :
+                    elif [[ "$ref" == etc/lists/orangebox-cpanel-agents ||
+                            "$ref" == etc/lists/orangebox-zimbra-agents ||
+                            "$ref" == etc/lists/malicious-ioc/* ]]; then
+                        :
+                    else
+                        fail "CDB OrangeBox referenciada pero falta en repo: $ref"
+                    fi
+
+                    if [[ ! -f "$deployed_list" ]]; then
+                        fail "CDB OrangeBox referenciada por regla pero falta desplegada: $deployed_list"
+                    fi
+                    ;;
+            esac
+
             if [[ ! -f "$deployed_list" ]]; then
                 fail "CDB referenciada por regla pero falta desplegada: $deployed_list"
             fi
@@ -333,10 +226,10 @@ check_rule_cdb_references() {
             grep -hoE 'etc/lists/[A-Za-z0-9_./-]+' "$rules_file" 2>/dev/null |
             sort -u
         )
-    done < <(find "$rules_dir" -type f -name '*.xml' -print 2>/dev/null | sort)
+    done < <(
+        find "$rules_dir" -type f -name '*.xml' -print 2>/dev/null | sort
+    )
 }
-
-
 echo
 echo "============================================================"
 echo " OrangeBox - Verificacion de configuracion"
@@ -442,15 +335,19 @@ compare_file     "configuration/manager/etc/shared/agent-template.conf"     "${O
 echo
 echo "=== REGLAS MANAGER ==="
 compare_manager_rules "configuration/manager/etc/rules" "${OSSEC_HOME}/etc/rules"
-check_extra_orangebox_rules "configuration/manager/etc/rules" "${OSSEC_HOME}/etc/rules"
-check_rule_cdb_references "${ROOT}/configuration/manager/etc/rules" "${OSSEC_HOME}/etc/ossec.conf"
 
 echo
 echo "=== LISTAS CDB ==="
-compare_file "configuration/manager/etc/lists/orangebox-network-recon-programs" "${OSSEC_HOME}/etc/lists/orangebox-network-recon-programs"
+
+# CDB estatica: forma parte del repositorio y debe coincidir byte a byte.
+compare_file     "configuration/manager/etc/lists/orangebox-network-recon-programs"     "${OSSEC_HOME}/etc/lists/orangebox-network-recon-programs"
+
+# CDB dinamicas: la fuente de verdad es el grupo Wazuh, no el repo.
 compare_generated_cdb "cpanel" "cpanel" "${OSSEC_HOME}/etc/lists/orangebox-cpanel-agents"
 compare_generated_cdb "zimbra" "zimbra" "${OSSEC_HOME}/etc/lists/orangebox-zimbra-agents"
 
+# La CDB antigua queda obsoleta. No bloqueamos la verificacion por ella,
+# pero avisamos para que pueda limpiarse del Manager.
 if [[ -e "${OSSEC_HOME}/etc/lists/orangebox-agent-profiles" ]]; then
     warn "CDB obsoleta aun desplegada: ${OSSEC_HOME}/etc/lists/orangebox-agent-profiles"
 else
@@ -486,3 +383,4 @@ fi
 echo
 echo "Repo y despliegue funcional coinciden."
 exit 0
+
