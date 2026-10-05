@@ -205,7 +205,7 @@ No se confía en User-Agent para permitir crawlers. Se puede falsificar demasiad
 
 ## 16B. Port scan OrangeBox
 
-La regla OrangeBox `10453` ejecuta `firewall-drop` localmente cuando se detectan 12 intentos TCP SYN en 90 segundos desde la misma IP hacia diferentes puertos destino.
+La regla OrangeBox `10453` detecta una secuencia corta de reconocimiento: 4 intentos TCP SYN en 5 segundos desde la misma IP, hacia el mismo destino, manteniendo el mismo puerto origen y buscando diversidad de puertos destino.
 
 El bloqueo inicial es de:
 
@@ -215,7 +215,9 @@ El bloqueo inicial es de:
 
 El Active Response recibe `srcip` y aplica el bloqueo local en el agente donde se generó la alerta.
 
-La duración inicial se mantiene en una hora para permitir una respuesta automática sin convertir la primera detección en un bloqueo permanente. La reincidencia se evaluará posteriormente mediante los mecanismos de repetición de Active Response.
+El umbral se redujo de forma deliberada para detectar rápidamente un escaneo básico. No buscamos esperar a un barrido grande: varios puertos consultados en pocos segundos ya son una señal útil de reconocimiento.
+
+El mecanismo `different_dstport` de Wazuh participa en la correlación, pero no debe interpretarse como un contador matemático perfecto de puertos únicos. Por eso el diseño combina esa condición con la misma IP, destino y puerto origen.
 
 ## 16C. Flood y DoS de red
 
@@ -223,9 +225,15 @@ Las señales de volumen utilizan la misma fuente `/var/log/orangebox-firewall.lo
 
 ### 10454 - SYN flood desde una misma IP
 
-Se requieren 60 TCP SYN en 10 segundos, desde la misma IP y hacia el mismo puerto destino.
+Se requieren **1000 TCP SYN en 10 segundos** desde la misma IP, hacia el mismo destino y el mismo puerto destino.
 
-`10454` tiene Active Response `firewall-drop` durante 3600 segundos.
+El puerto origen **no participa** en esta detección. Puede variar libremente en un ataque y no es una señal fiable para decidir si existe un flood.
+
+El umbral equivale a aproximadamente **100 SYN por segundo sostenidos durante 10 segundos**. Se eligió deliberadamente alto para separar el tráfico normal de aplicaciones, retransmisiones TCP y monitoreo de un volumen que ya represente un ataque con capacidad real de saturar un servicio.
+
+`10454` es la regla final de detección y tiene Active Response `firewall-drop` durante 3600 segundos. No existe una regla intermedia `10457`: cuando `10454` dispara, el bloqueo se ejecuta directamente.
+
+Esto también evita que el conteo de retransmisiones o ráfagas legítimas que encontramos en Zabbix y Winbind convierta el evento en un bloqueo automático.
 
 ### 10455 - posible DoS distribuido
 
@@ -233,9 +241,29 @@ Se requieren 200 IPs origen diferentes en 10 segundos hacia el mismo puerto dest
 
 No se aplica Active Response automáticamente a `10455`, porque un evento individual no identifica una única IP que represente al conjunto del ataque.
 
-Los elementos `same_srcip`, `different_srcip` y `same_dstport` son filtros de correlación soportados por Wazuh y se usan junto con `frequency` y `timeframe`. 
+Los elementos `same_srcip`, `different_srcip` y `same_dstport` son filtros de correlación soportados por Wazuh y se usan junto con `frequency` y `timeframe`.
 
-Los umbrales son valores iniciales de OrangeBox y deben validarse contra el comportamiento real de cada servidor antes de endurecer la respuesta automática.
+### Decisión de diseño
+
+La política OrangeBox separa dos comportamientos:
+
+```text
+Port scan
+4 SYN / 5 s
++ diversidad de puerto destino
+→ detección rápida
+→ firewall-drop
+
+SYN flood
+1000 SYN / 10 s
++ misma IP
++ mismo destino
++ mismo servicio
+→ volumen deliberadamente alto
+→ firewall-drop
+```
+
+No se usan listas blancas globales para estas reglas. Una IP interna puede ser bloqueada si realmente ejecuta un reconocimiento o flood confirmado; lo que se evita son las falsas detecciones por tráfico normal.
 
 ## 17. Comandos locales
 
