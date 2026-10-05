@@ -1,4 +1,5 @@
-# OrangeBox Wazuh - actualizacion automatica de Geo-IP
-# El script vive en /var/ossec/bin para mantener todos los scripts operacionales
-# del Manager en un unico lugar.
+# ==============================================================================
+# OrangeBox Wazuh - Actualizacion automatica de listas Geo-IP
+# ==============================================================================
+
 15 3 * * * root /var/ossec/bin/update-orangebox-geoip.sh >> /var/log/orangebox-geoip-update.log 2>&1
