@@ -1883,7 +1883,7 @@ for root, _dirs, files in os.walk(rules_dir):
             if current and collecting:
                 conditions[current] = '\n'.join(condition_lines)
 
-parents = {name: set() for name in rule_names}
+children = {name: set() for name in rule_names}
 
 for rule_name, condition in conditions.items():
     condition = re.sub(r'/\*.*?\*/', ' ', condition, flags=re.S)
@@ -1892,7 +1892,16 @@ for rule_name, condition in conditions.items():
 
     for identifier in identifier_re.findall(condition):
         if identifier in rule_names and identifier != rule_name:
-            parents[rule_name].add(identifier)
+            children[rule_name].add(identifier)
+
+# In YARA a rule can be a logical parent of several child rules.
+# Correlation must normalize every child to the highest unique parent,
+# so a match of "WarpStrings" plus its parent "Warp" counts as one
+# logical signature, not two different signatures.
+parents_of = {name: set() for name in rule_names}
+for parent, child_rules in children.items():
+    for child in child_rules:
+        parents_of[child].add(parent)
 
 memo = {}
 
@@ -1903,7 +1912,7 @@ def roots(rule_name, visiting):
     if rule_name in visiting:
         return set()
 
-    direct = parents.get(rule_name, set())
+    direct = parents_of.get(rule_name, set())
     if not direct:
         result = {rule_name}
     else:
@@ -1920,7 +1929,8 @@ with open(output_file, 'w', encoding='utf-8') as destination:
         root_set = roots(child, set())
 
         # Solo se normaliza cuando existe una unica raiz logica.
-        # Si hay varias raices, se conserva el nombre propio.
+        # Si varias reglas padre independientes alcanzan a la misma firma,
+        # se conserva el nombre propio para no inventar una correlacion.
         if len(root_set) == 1:
             root = next(iter(root_set))
             if root != child:
@@ -2580,7 +2590,7 @@ for root, _dirs, files in os.walk(rules_dir):
             if current and collecting:
                 conditions[current] = '\n'.join(condition_lines)
 
-parents = {name: set() for name in rule_names}
+children = {name: set() for name in rule_names}
 
 for rule_name, condition in conditions.items():
     condition = re.sub(r'/\*.*?\*/', ' ', condition, flags=re.S)
@@ -2589,7 +2599,16 @@ for rule_name, condition in conditions.items():
 
     for identifier in identifier_re.findall(condition):
         if identifier in rule_names and identifier != rule_name:
-            parents[rule_name].add(identifier)
+            children[rule_name].add(identifier)
+
+# In YARA a rule can be a logical parent of several child rules.
+# Correlation must normalize every child to the highest unique parent,
+# so a match of "WarpStrings" plus its parent "Warp" counts as one
+# logical signature, not two different signatures.
+parents_of = {name: set() for name in rule_names}
+for parent, child_rules in children.items():
+    for child in child_rules:
+        parents_of[child].add(parent)
 
 memo = {}
 
@@ -2600,7 +2619,7 @@ def roots(rule_name, visiting):
     if rule_name in visiting:
         return set()
 
-    direct = parents.get(rule_name, set())
+    direct = parents_of.get(rule_name, set())
     if not direct:
         result = {rule_name}
     else:
@@ -2617,7 +2636,8 @@ with open(output_file, 'w', encoding='utf-8') as destination:
         root_set = roots(child, set())
 
         # Solo se normaliza cuando existe una unica raiz logica.
-        # Si hay varias raices, se conserva el nombre propio.
+        # Si varias reglas padre independientes alcanzan a la misma firma,
+        # se conserva el nombre propio para no inventar una correlacion.
         if len(root_set) == 1:
             root = next(iter(root_set))
             if root != child:
