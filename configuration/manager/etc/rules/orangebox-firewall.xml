@@ -18,8 +18,8 @@
         10450 - TCP SYN / connection_attempt
             |
             v
-        10453 - misma IP origen + puertos destino diferentes
-                  12 eventos en 90 segundos
+        10453 - misma IP origen + misma IP destino + puertos destino diferentes
+                  12 eventos en 30 segundos
 
     Importante
     ----------
@@ -35,8 +35,9 @@
     que same_srcip funciona correctamente cuando se referencia directamente
     el SID 10450.
 
-    La deteccion de port scan se endurece con different_dstport para evitar
-    tratar multiples intentos contra un unico servicio como escaneo de puertos.
+    La deteccion de port scan exige misma IP origen, mismo destino y diversidad
+    de puerto. El umbral se concentra en una ventana corta para reducir falsos
+    positivos por uso normal de servicios.
 
     El match de 10450 exige "RES=0x00 SYN URGP=0". Esto evita contar eventos
     "ACK SYN" como nuevos intentos de conexion.
@@ -79,9 +80,11 @@
     <!--
         10453 - POSIBLE ESCANEO DE PUERTOS
 
-        12 intentos TCP SYN en 90 segundos
+        12 intentos TCP SYN en 30 segundos
         +
         misma IP origen
+        +
+        mismo destino
         +
         diferentes puertos destino
 
@@ -93,9 +96,10 @@
             Se mantiene como una alerta relevante. La política de correo
             se decide de forma independiente en la integración.
     -->
-    <rule id="10453" level="11" frequency="12" timeframe="90" ignore="90">
+    <rule id="10453" level="11" frequency="12" timeframe="30" ignore="60">
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
+        <same_dstip />
         <different_dstport />
         <description>ALERTA: POSIBLE ESCANEO DE PUERTOS TCP DESDE LA MISMA IP DE ORIGEN.</description>
         <mitre>
@@ -112,6 +116,8 @@
         +
         misma IP origen
         +
+        mismo destino
+        +
         mismo puerto destino
 
         Es una condicion de volumen sobre un unico servicio y no una
@@ -120,6 +126,7 @@
     <rule id="10454" level="11" frequency="60" timeframe="10" ignore="60">
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
+        <same_dstip />
         <same_dstport />
         <description>ALERTA: POSIBLE SYN FLOOD DESDE LA MISMA IP DE ORIGEN.</description>
         <mitre>
@@ -129,32 +136,28 @@
     </rule>
 
     <!--
-        10456 - ACTIVE RESPONSE SOLO PARA ORIGENES PUBLICOS / PORT SCAN
+        10456 - ACTIVE RESPONSE / PORT SCAN
 
-        10453 sigue siendo la deteccion principal y permanece visible para
-        toda IP. Esta regla es exclusivamente el disparador del bloqueo
-        automatico y exige que srcip NO pertenezca a las redes privadas
-        definidas en orangebox-private-networks.
+        10453 es la deteccion principal. Esta regla es exclusivamente el
+        disparador del bloqueo automatico y bloquea cualquier origen que
+        cumpla la deteccion, incluyendo IPs internas.
     -->
     <rule id="10456" level="11">
         <if_sid>10453</if_sid>
-        <list field="srcip" lookup="not_address_match_key">etc/lists/orangebox-private-networks</list>
-        <description>ALERTA: ESCANEO DE PUERTOS DESDE IP PUBLICA $(srcip).</description>
+        <description>ALERTA: ESCANEO DE PUERTOS DESDE $(srcip).</description>
         <group>orangebox,firewall,network_scan,active_response,</group>
     </rule>
 
     <!--
-        10457 - ACTIVE RESPONSE SOLO PARA ORIGENES PUBLICOS / SYN FLOOD
+        10457 - ACTIVE RESPONSE / SYN FLOOD
 
-        10454 sigue siendo la deteccion principal y permanece visible para
-        toda IP. Esta regla es exclusivamente el disparador del bloqueo
-        automatico y exige que srcip NO pertenezca a las redes privadas
-        definidas en orangebox-private-networks.
+        10454 es la deteccion principal. Esta regla es exclusivamente el
+        disparador del bloqueo automatico y bloquea cualquier origen que
+        cumpla la deteccion, incluyendo IPs internas.
     -->
     <rule id="10457" level="11">
         <if_sid>10454</if_sid>
-        <list field="srcip" lookup="not_address_match_key">etc/lists/orangebox-private-networks</list>
-        <description>ALERTA: SYN FLOOD DESDE IP PUBLICA $(srcip).</description>
+        <description>ALERTA: SYN FLOOD DESDE $(srcip).</description>
         <group>orangebox,firewall,flood,denial_of_service,active_response,</group>
     </rule>
 
