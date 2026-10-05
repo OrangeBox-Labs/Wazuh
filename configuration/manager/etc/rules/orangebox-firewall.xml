@@ -20,7 +20,7 @@
             v
         10453 - misma IP origen + misma IP destino + mismo puerto origen
                   + puertos destino diferentes
-                  12 eventos en 5 segundos
+                  4 eventos en 5 segundos
 
     Importante
     ----------
@@ -81,7 +81,7 @@
     <!--
         10453 - POSIBLE ESCANEO DE PUERTOS
 
-        12 intentos TCP SYN en 5 segundos
+        4 intentos TCP SYN en 5 segundos
         +
         misma IP origen
         +
@@ -99,7 +99,7 @@
             Se mantiene como una alerta relevante. La política de correo
             se decide de forma independiente en la integración.
     -->
-    <rule id="10453" level="11" frequency="12" timeframe="5" ignore="60">
+    <rule id="10453" level="11" frequency="4" timeframe="5" ignore="60">
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
         <same_dstip />
@@ -116,7 +116,7 @@
     <!--
         10454 - SYN FLOOD DESDE UNA MISMA IP HACIA UN MISMO SERVICIO
 
-        60 TCP SYN en 10 segundos
+        1000 TCP SYN en 10 segundos
         +
         misma IP origen
         +
@@ -124,10 +124,18 @@
         +
         mismo puerto destino
 
-        Es una condicion de volumen sobre un unico servicio y no una
-        deteccion de port scan. Usa la misma señal 10450.
+        Es una condicion de volumen alto sobre un unico servicio. El
+        puerto origen no participa en la correlacion porque puede variar
+        libremente durante un ataque y no es una señal fiable de flood.
+
+        El umbral es deliberadamente alto para separar el funcionamiento
+        normal de aplicaciones, retransmisiones TCP y monitoreo de un
+        volumen que ya representa un ataque de denegacion de servicio.
+
+        10454 es la regla que activa directamente el Active Response
+        firewall-drop en la configuracion del Manager.
     -->
-    <rule id="10454" level="11" frequency="60" timeframe="10" ignore="60">
+    <rule id="10454" level="11" frequency="1000" timeframe="10" ignore="60">
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
         <same_dstip />
@@ -150,19 +158,6 @@
         <if_sid>10453</if_sid>
         <description>ALERTA: ESCANEO DE PUERTOS DESDE $(srcip).</description>
         <group>orangebox,firewall,network_scan,active_response,</group>
-    </rule>
-
-    <!--
-        10457 - ACTIVE RESPONSE / SYN FLOOD
-
-        10454 es la deteccion principal. Esta regla es exclusivamente el
-        disparador del bloqueo automatico y bloquea cualquier origen que
-        cumpla la deteccion, incluyendo IPs internas.
-    -->
-    <rule id="10457" level="11">
-        <if_sid>10454</if_sid>
-        <description>ALERTA: SYN FLOOD DESDE $(srcip).</description>
-        <group>orangebox,firewall,flood,denial_of_service,active_response,</group>
     </rule>
 
     <!--
