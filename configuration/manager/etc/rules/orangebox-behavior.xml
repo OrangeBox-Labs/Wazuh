@@ -36,9 +36,26 @@
         <group>discovery,command_execution,orangebox_behavior,orangebox_recon,</group>
     </rule>
 
-    <rule id="10612" level="14" frequency="3" timeframe="300">
-        <if_matched_sid>10611</if_matched_sid>
+    <!--
+        10620 - Evento base exclusivo para correlacionar comandos de red.
+
+        Debe seguir siendo visible para la maquinaria de correlacion de Wazuh,
+        pero no debe generar una alerta propia ni aparecer en el dashboard.
+
+        Importante: nivel 0 no puede usarse con if_matched_sid, por eso se usa
+        nivel 1 + no_log.
+    -->
+    <rule id="10620" level="1">
+        <if_sid>80792</if_sid>
         <list field="audit.command" lookup="match_key_value" check_value="network_recon">etc/lists/orangebox-network-recon-programs</list>
+        <options>no_log</options>
+        <description>ORANGEBOX: COMANDO DE RECONOCIMIENTO DE RED.</description>
+        <mitre><id>T1046</id><id>T1016</id></mitre>
+        <group>discovery,network_service_scanning,orangebox_behavior,orangebox_recon,</group>
+    </rule>
+
+    <rule id="10612" level="14" frequency="3" timeframe="300">
+        <if_matched_sid>10620</if_matched_sid>
         <same_location/>
         <different_field>audit.command</different_field>
         <description>ALERTA: POSIBLE RECONOCIMIENTO DE RED DESDE ENDPOINT. SE DETECTARON MULTIPLES COMANDOS DE RED EN 5 MINUTOS.</description>
@@ -68,7 +85,6 @@
         <mitre><id>T1046</id><id>T1068</id></mitre>
         <group>attack,orangebox_behavior,orangebox_killchain,orangebox_immediate,</group>
     </rule>
-
 
     <!--
         20055 - EXCEPCION: chequeo interno de Zimbra contra zmconfigd.
