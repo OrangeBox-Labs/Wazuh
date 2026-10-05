@@ -18,7 +18,8 @@
         10450 - TCP SYN / connection_attempt
             |
             v
-        10453 - misma IP origen + misma IP destino + puertos destino diferentes
+        10453 - misma IP origen + misma IP destino + mismo puerto origen
+                  + puertos destino diferentes
                   12 eventos en 5 segundos
 
     Importante
@@ -35,9 +36,9 @@
     que same_srcip funciona correctamente cuando se referencia directamente
     el SID 10450.
 
-    La deteccion de port scan exige misma IP origen, mismo destino y diversidad
-    de puerto. El umbral se concentra en una ventana corta para reducir falsos
-    positivos por uso normal de servicios.
+    La deteccion de port scan exige misma IP origen, mismo destino, mismo puerto
+    origen y diversidad de puerto destino. Esto separa un scan tipico (un flujo
+    de origen que prueba muchos destinos) del uso normal de varios servicios.
 
     El match de 10450 exige "RES=0x00 SYN URGP=0". Esto evita contar eventos
     "ACK SYN" como nuevos intentos de conexion.
@@ -86,6 +87,8 @@
         +
         mismo destino
         +
+        mismo puerto origen
+        +
         diferentes puertos destino
 
         El umbral conserva la idea de la regla nativa de Wazuh 40601,
@@ -100,6 +103,7 @@
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
         <same_dstip />
+        <same_srcport />
         <different_dstport />
         <description>ALERTA: POSIBLE ESCANEO DE PUERTOS TCP DESDE LA MISMA IP DE ORIGEN.</description>
         <mitre>
