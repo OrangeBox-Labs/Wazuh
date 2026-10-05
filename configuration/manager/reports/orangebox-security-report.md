@@ -1,6 +1,6 @@
 # OrangeBox Wazuh — Informe de Seguridad
 
-Informe ejecutivo de actividad de seguridad generado por Wazuh. La implementación actual es productiva, autocontenida y usa el motor de cache compartido con el informe detallado.
+Informe de actividad de seguridad generado por Wazuh. La implementación actual es productiva, autocontenida y genera en una sola ejecución el resumen ejecutivo y el reporte detallado.
 
 ## Qué hace
 
@@ -38,7 +38,8 @@ El script es autocontenido:
 - el motor de lectura y normalización está embebido;
 - la lógica del reporte ejecutivo está embebida;
 - no depende de importar otro script productivo desde el sistema;
-- comparte el mismo cache con el informe detallado;
+- usa un único motor y un único cache para el resumen y el detallado;
+- genera el resumen en el cuerpo del correo y el detallado como ZIP adjunto;
 - usa sys.dont_write_bytecode = True para no generar __pycache__.
 
 El directorio del cache se llama:
@@ -151,7 +152,7 @@ La pertenencia de cada servidor se obtiene desde Wazuh usando agent_groups. No e
 Con:
 
 ~~~~bash
-/var/ossec/reports/orangebox-security-report.py --yesterday --group CTS,OLC --email <destinatario>
+/var/ossec/reports/orangebox-security-report.py --yesterday --group CLIENTE_02,CLIENTE_03 --email <destinatario>
 ~~~~
 
 el reporte considera solo los servidores pertenecientes a esos grupos.
@@ -267,6 +268,8 @@ El archivo de configuración debe tener permisos 0600 o más restrictivos. El pa
 
 ## Correo
 
+Cada ejecución envía un solo correo por destinatario: el informe ejecutivo queda en el cuerpo del mensaje y el informe detallado completo se adjunta como archivo ZIP.
+
 El destinatario se entrega con --email y puede repetirse para enviar a más de una dirección.
 
 El HTML y el texto plano se envían mediante:
@@ -291,6 +294,8 @@ No se usan iconos en el asunto.
 El idioma por defecto es español y --lang es|en permite cambiar títulos y etiquetas del reporte.
 
 ## HTML y archivo
+
+El HTML ejecutivo queda en el cuerpo del correo y también se archiva. El HTML detallado se comprime dentro de un ZIP para el adjunto y el histórico. Esto evita enviar varios correos y reduce drásticamente el tamaño del mensaje.
 
 Los HTML están diseñados para clientes de correo y móvil:
 
