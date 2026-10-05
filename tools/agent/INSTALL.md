@@ -72,7 +72,7 @@ Las reglas cubren:
 
 Las instalaciones antiguas que todavía tengan `99-orangebox-exec.rules` con reglas OrangeBox se respaldan y migran al archivo canónico para evitar el error de reglas duplicadas de `augenrules`.
 
-En Enterprise Linux 10 se instala `audit-rules` cuando corresponde. El instalador también comprueba `audispd-plugins`, necesario para que Wazuh pueda usar Whodata mediante el socket de Audit. Después de cargar las reglas, se valida que las claves OrangeBox estén activas y se reinicia Wazuh para consumir `/var/log/audit/audit.log`.
+En Enterprise Linux 10 se instala `audit-rules` cuando corresponde. El instalador también comprueba `audispd-plugins`, necesario para que Wazuh pueda usar Whodata mediante `audisp-af_unix`. Wazuh utiliza su propio plugin `/etc/audit/plugins.d/af_wazuh.conf`; el `af_unix.conf` genérico de `audispd-plugins` no se activa ni se modifica. Después de cargar las reglas, se valida que las claves OrangeBox estén activas y se reinicia Wazuh para consumir `/var/log/audit/audit.log`.
 
 ## cPanel
 
