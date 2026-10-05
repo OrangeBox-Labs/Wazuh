@@ -19,15 +19,43 @@ Formato:
 comando:network_recon
 ```
 
-Incluye utilidades de consulta de red como `ip`, `ss`, `netstat`, `lsof`, `route`, `arp`, `ifconfig` y `nmcli`.
+Incluye solamente utilidades de consulta de red como `ip`, `ss`, `netstat`, `lsof`, `route`, `arp`, `ifconfig` y `nmcli`.
 
 La lista debe estar declarada en el bloque `<ruleset>` de `manager/etc/ossec.conf`.
 
-### CDB operacionales
+### `orangebox-sftp-authorized`
 
-Las CDB adicionales pueden contener orígenes de red o identidades autorizadas para una excepción concreta. Su alcance debe quedar documentado en la regla que las utiliza.
+Contiene los orígenes autorizados para el SFTP del usuario `sftp-service`. La regla `20004` combina esta lista con la condición de usuario.
 
-Una CDB operacional no debe convertirse en una whitelist global de usuario, directorio o shell.
+Formato:
+
+```text
+<IP>:
+```
+
+Agregar una IP nueva significa agregar una línea y recargar o reiniciar el Manager según el método de carga utilizado.
+
+### `orangebox-web-auth-proxies`
+
+Contiene los reverse proxies autorizados para la correlación `10025` de brute force web.
+
+### `orangebox-web-discovery-proxies`
+
+Contiene los reverse proxies autorizados para la correlación `10026` de reconocimiento de archivos sensibles.
+
+Estas dos listas se mantienen separadas porque su alcance puede ser diferente.
+
+### `orangebox-backuppc-static`
+
+Contiene las IP de BackupPC autorizadas manualmente para la excepción SSH `20001`.
+
+El updater dinámico de BackupPC no modifica esta lista.
+
+### `orangebox-backuppc-dynamic`
+
+Contiene la IP actual obtenida por el updater dinámico de BackupPC.
+
+No editar esta lista manualmente salvo para recuperación controlada.
 
 ## CDB dinámicas por grupo Wazuh
 
@@ -49,13 +77,18 @@ y su cron:
 configuration/manager/etc/cron.d/orangebox-cpanel-agents
 ```
 
-Consulta `agent_groups -l -g cpanel`, genera hostname FQDN y hostname corto y actualiza la CDB solo cuando cambia.
+Consulta `agent_groups -l -g cpanel`, genera hostname FQDN y hostname corto, normaliza FQDN sin punto final y actualiza la CDB solo cuando cambia.
 
 ### `orangebox-zimbra-agents`
 
 Representa el grupo Wazuh `zimbra`.
 
-Este contexto cubre Zimbra y Carbonio CE.
+Este perfil funcional cubre Zimbra y Carbonio CE:
+
+```text
+/opt/zimbra
+/opt/zextras
+```
 
 El sincronizador es:
 
@@ -71,7 +104,7 @@ configuration/manager/etc/cron.d/orangebox-zimbra-agents
 
 Consulta `agent_groups -l -g zimbra` y genera hostname FQDN y hostname corto.
 
-Las reglas de autenticación y comportamiento pueden usar esta CDB para reconocer el contexto del endpoint, pero el grupo por sí solo nunca autoriza una operación privilegiada: la regla debe exigir además identidad, comando o contexto exacto.
+Las reglas de autenticación usan esta CDB para reconocer el contexto Zimbra/Carbonio, pero el grupo por sí solo nunca autoriza `sudo -> root`: la regla también exige el comando operacional validado.
 
 Las CDB dinámicas no deben editarse manualmente.
 
@@ -87,7 +120,7 @@ Ejemplos:
 <list>etc/lists/orangebox-zimbra-agents</list>
 ```
 
-Si una regla referencia una CDB no declarada o inexistente, `wazuh-analysisd -t` puede registrar el warning `(7616)` y omitir la regla.
+Si una regla referencia una CDB no declarada o inexistente, `wazuh-analysisd -t` puede ignorar la regla y registrar el warning `(7616)`.
 
 ## Regla de seguridad
 
@@ -103,7 +136,7 @@ comando o condición exacta
 excepción
 ```
 
-No convertir una excepción puntual en una whitelist global.
+No convertir una excepción puntual en una whitelist global de usuario, directorio o shell.
 
 ## Validación
 
@@ -120,7 +153,7 @@ Para validar la sincronización:
 /var/ossec/bin/update-orangebox-zimbra-agents.sh
 ```
 
-El verificador `tools/verify-deployed-config.sh` comprueba además que las CDB requeridas por las reglas existan y estén declaradas.
+El verificador `tools/verify-deployed-config.sh` también compara las CDB dinámicas con la pertenencia real a los grupos Wazuh.
 
 ## IDs de reglas
 
