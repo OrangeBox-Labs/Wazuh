@@ -353,6 +353,6 @@ No borrar alerts.json ni los históricos mientras exista una política de retenc
 
 No cambiar la estructura del cache sin definir primero una reconstrucción compatible.
 
-El wrapper limpia solo residuos temporales conocidos de ejecuciones interrumpidas.
+La implementación unificada limpia solo residuos temporales conocidos de ejecuciones interrumpidas.
 
 Los prototipos de la migración ya no forman parte de la instalación productiva.
