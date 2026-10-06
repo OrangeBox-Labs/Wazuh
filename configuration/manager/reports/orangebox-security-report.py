@@ -117,6 +117,10 @@ REPORT = load_embedded(
 REPORT_MODULE = types.ModuleType("orangebox_embedded_normal_report")
 REPORT_MODULE.__dict__.update(REPORT)
 
+# Compatibilidad con el renderer detallado: este espera un helper llamado
+# "standardize", mientras el reporte normal expone "standardize_rule_description".
+REPORT_MODULE.standardize = REPORT["standardize_rule_description"]
+
 # Fuente única del formato y modelo de datos: snapshot del renderer detallado
 # productivo. Se ejecuta aislado para no pisar helpers del normal.
 DETAIL = load_embedded(
