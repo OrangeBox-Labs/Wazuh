@@ -112,6 +112,11 @@ REPORT = load_embedded(
     "/var/ossec/reports/orangebox-security-report.py",
 )
 
+# Compatibilidad interna: algunos componentes del reporte detallado usan
+# el nombre corto "standardize", mientras el renderer normal expone
+# "standardize_rule_description".
+REPORT["standardize"] = REPORT["standardize_rule_description"]
+
 # Interfaz de módulo real para las funciones del detallado que esperan
 # atributos (module.indexer_settings, module.geoip_country_map, etc.).
 REPORT_MODULE = types.ModuleType("orangebox_embedded_normal_report")
