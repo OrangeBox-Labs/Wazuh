@@ -1,0 +1,70 @@
+name: Compile report table test v5
+
+on:
+  push:
+    branches:
+      - ci/server-table-align-20261006
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Compile outer script
+        run: python -m py_compile configuration/manager/reports/orangebox-security-report.py
+      - name: Compile embedded sources and validate patched table
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          path = Path("configuration/manager/reports/orangebox-security-report.py")
+          source = path.read_text(encoding="utf-8")
+          tree = ast.parse(source, filename=str(path))
+
+          wanted = {"ENGINE_SOURCE", "REPORT_SOURCE", "DETAIL_SOURCE"}
+          values = {}
+          for node in tree.body:
+              if isinstance(node, ast.Assign):
+                  for target in node.targets:
+                      if isinstance(target, ast.Name) and target.id in wanted:
+                          values[target.id] = ast.literal_eval(node.value)
+
+          assert wanted == values.keys(), wanted - values.keys()
+          for name, value in values.items():
+              compile(value, "<%s>" % name, "exec")
+
+          report_source = values["REPORT_SOURCE"]
+          header_lines = [
+              line for line in report_source.splitlines()
+              if "source_ips_col" in line and "background:#29414c" in line
+          ]
+          assert len(header_lines) == 1, header_lines
+          header = header_lines[0]
+          assert "Servidor" in header
+          assert header.count("text-align:center;") == 4, repr(header)
+          for marker in ("events", "high", "source_ips_col", "attack_alerts"):
+              assert marker in header, (marker, header)
+
+          ns = {}
+          exec(compile(source, str(path), "exec"), ns, ns)
+          report = ns["load_embedded"](
+              values["REPORT_SOURCE"],
+              "orangebox_embedded_normal_report",
+              "orangebox-security-report.py",
+          )
+          assert report["standardize_rule_description"](
+              "10456", "ALERTA: ESCANEO DE PUERTOS DESDE 1.2.3.4."
+          ) == "ESCANEO DE PUERTOS"
+          assert report["standardize_rule_description"](
+              "10457", "ALERTA: SYN FLOOD DESDE 1.2.3.4."
+          ) == "SYN FLOOD"
+
+          print("OK: script exterior compilado")
+          print("OK: ENGINE_SOURCE/REPORT_SOURCE/DETAIL_SOURCE compilados")
+          print("OK: cabecera Servidores: 4 columnas numéricas centradas")
+          print("OK: normalización 10456/10457 preservada")
+          PY
