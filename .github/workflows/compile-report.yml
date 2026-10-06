@@ -1,0 +1,137 @@
+name: Compile OrangeBox report
+
+on:
+  push:
+    branches:
+      - ci/compile-report-20261006
+
+jobs:
+  compile-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Compile outer report
+        run: |
+          python -m py_compile configuration/manager/reports/orangebox-security-report.py
+
+      - name: Compile embedded sources and exercise interfaces
+        run: |
+          python - <<'PY'
+          import ast
+          import tempfile
+          from pathlib import Path
+
+          path = Path("configuration/manager/reports/orangebox-security-report.py")
+          source = path.read_text(encoding="utf-8")
+          tree = ast.parse(source, filename=str(path))
+
+          names = {"ENGINE_SOURCE", "REPORT_SOURCE", "DETAIL_SOURCE"}
+          values = {}
+          for node in tree.body:
+              if isinstance(node, ast.Assign):
+                  for target in node.targets:
+                      if isinstance(target, ast.Name) and target.id in names:
+                          values[target.id] = ast.literal_eval(node.value)
+
+          missing = names - values.keys()
+          if missing:
+              raise AssertionError("Faltan fuentes embebidas: " + ", ".join(sorted(missing)))
+
+          for name in sorted(values):
+              compile(values[name], "<%s>" % name, "exec")
+
+          outer_ns = {}
+          exec(compile(source, str(path), "exec"), outer_ns, outer_ns)
+
+          engine = outer_ns["load_embedded"](
+              values["ENGINE_SOURCE"],
+              "orangebox_embedded_engine",
+              "orangebox-report-engine-v3.py",
+          )
+          report = outer_ns["load_embedded"](
+              values["REPORT_SOURCE"],
+              "orangebox_embedded_normal_report",
+              "orangebox-security-report.py",
+          )
+          detail = outer_ns["load_embedded"](
+              values["DETAIL_SOURCE"],
+              "orangebox_embedded_detailed_report",
+              "orangebox-detailed-security-report.py",
+          )
+
+          assert "standardize_rule_description" in report
+          report["standardize"] = report["standardize_rule_description"]
+          assert report["standardize"]("10456", "ALERTA: ESCANEO DE PUERTOS DESDE 1.2.3.4.") == "ESCANEO DE PUERTOS"
+          assert report["standardize"]("10457", "ALERTA: SYN FLOOD DESDE 1.2.3.4.") == "SYN FLOOD"
+
+          module = type("ReportModule", (), {})()
+          module.__dict__.update(report)
+          module.standardize = report["standardize"]
+
+          assert detail["accumulate_event"]
+          stats = detail["init_agent_stats"](
+              {"001"},
+              {"001": {"id": "001", "name": "test", "ip": "127.0.0.1", "status": "Active"}},
+          )
+          detail["accumulate_event"](
+              stats,
+              {
+                  "agent_id": "001",
+                  "outer_rule": "10458",
+                  "rule_id": "10457",
+                  "description": "ALERTA: SYN FLOOD DESDE 1.2.3.4.",
+                  "groups": ["orangebox", "firewall", "flood"],
+                  "level": 11,
+                  "srcip": "1.2.3.4",
+                  "command": "add",
+              },
+              module,
+          )
+          assert stats["001"]["blocked"]["1.2.3.4"]["reasons"]["SYN FLOOD"] == 1
+          assert stats["001"]["blocked"]["1.2.3.4"]["rules"]["10457"] == 1
+
+          with tempfile.TemporaryDirectory() as tmp:
+              conf = Path(tmp) / "ossec.conf"
+              conf.write_text(
+                  """<active-response>
+          <command>firewall-drop</command>
+          <rules_id>10454</rules_id>
+          <timeout>3600</timeout>
+          </active-response>""",
+                  encoding="utf-8",
+              )
+
+              report["WAZUH_OSSEC_CONF"] = str(conf)
+              timeouts = report["load_firewall_timeouts"]()
+              assert timeouts["10454"] == 3600
+              assert timeouts["10457"] == 3600
+
+              detail["OSSEC_CONF"] = conf
+              timeouts_detail = detail["load_firewall_timeouts"]()
+              assert timeouts_detail["10454"] == 3600
+              assert timeouts_detail["10457"] == 3600
+
+          print("OK: outer + ENGINE_SOURCE + REPORT_SOURCE + DETAIL_SOURCE compilados")
+          print("OK: alias 10457 -> 10454 y normalización 10456/10457 verificadas")
+          print("OK: accumulate_event detallado verificado")
+          print("OK: timeout histórico 10457 -> 10454 verificado")
+          PY
+
+      - name: XML well-formedness
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          for path in [
+              "configuration/manager/etc/rules/orangebox-firewall.xml",
+              "configuration/manager/etc/ossec.conf",
+          ]:
+              ET.parse(path)
+              print("OK:", path)
+          PY
