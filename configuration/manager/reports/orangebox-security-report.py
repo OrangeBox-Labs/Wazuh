@@ -181,7 +181,6 @@ def build_summary(events, allowed):
             agent_id = aid
             agent_name = event.get("agent_name", "unknown")
             rule_id = str(event.get("rule_id", "unknown"))
-            rule_id = str(event.get("rule_id", "unknown"))
             description = REPORT["standardize"](
                 rule_id,
                 event.get("description", "Firewall Drop"),
