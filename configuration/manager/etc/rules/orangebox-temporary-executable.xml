@@ -43,7 +43,7 @@
             554  = File added
             10410 = alerta OrangeBox
     -->
-    <rule id="10410" level="15">
+    <rule id="10410" level="5">
         <if_sid>554</if_sid>
         <field name="file" type="pcre2">^/tmp/|^/var/tmp/|^/dev/shm/</field>
         <field name="perm" type="pcre2">\w\wx</field>
