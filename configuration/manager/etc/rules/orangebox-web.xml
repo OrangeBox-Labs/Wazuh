@@ -199,6 +199,26 @@
 
 </group>
 
+
+<!-- ================================================================
+     DETECCION ESPECIFICA: INTENTO DE ACCESO A CREDENCIALES CLOUD
+     Regla hija de la deteccion nativa 31115 (URL excesivamente larga).
+     Solo dispara cuando la misma peticion contiene el endpoint IAM
+     de metadatos de AWS; no bloquea por longitud solamente.
+================================================================ -->
+<group name="orangebox,web,cloud_metadata,ssrf,attack,">
+    <rule id="10030" level="14">
+        <if_sid>31115</if_sid>
+        <url type="pcre2">(?i)169\.254\.169\.254/latest/meta-data/iam/security-credentials/?</url>
+        <description>ALERTA CRITICA: Posible intento de acceso a credenciales IAM mediante endpoint de metadatos cloud desde $(srcip).</description>
+        <mitre>
+            <id>T1190</id>
+            <id>T1552.005</id>
+        </mitre>
+        <group>web,ssrf,cloud_metadata,credential_access,attack,orangebox_web,orangebox_cloud_metadata,</group>
+    </rule>
+</group>
+
 <!-- =================================================================
      EXCEPCIONES / WHITELIST - ESTA SECCION SIEMPRE VA AL FINAL
      =================================================================
