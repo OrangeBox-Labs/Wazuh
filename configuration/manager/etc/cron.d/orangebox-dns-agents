@@ -1,0 +1,15 @@
+# OrangeBox Wazuh - sincronizacion automatica de agentes DNS
+# ===============================================================
+#
+# Mantiene actualizada la CDB orangebox-dns-agents a partir del grupo
+# Wazuh "dns". No requiere una lista manual de agentes.
+#
+# Los errores se conservan para poder detectar fallos de sincronizacion;
+# la salida normal permanece silenciosa.
+#
+# La ventana de medianoche se evita para no coincidir con la rotacion diaria
+# de logs y cualquier operacion de ciclo de vida del wazuh-manager.
+#
+*/10 1-22 * * * root /var/ossec/bin/update-orangebox-dns-agents.sh >/dev/null 2>>/var/ossec/logs/orangebox-dns-agents.log
+5-45/10 23 * * * root /var/ossec/bin/update-orangebox-dns-agents.sh >/dev/null 2>>/var/ossec/logs/orangebox-dns-agents.log
+15-55/10 0 * * * root /var/ossec/bin/update-orangebox-dns-agents.sh >/dev/null 2>>/var/ossec/logs/orangebox-dns-agents.log
