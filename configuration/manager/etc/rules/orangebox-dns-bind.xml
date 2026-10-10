@@ -1,0 +1,169 @@
+<!--
+    ORANGEBOX - Deteccion de ataques contra servidores DNS BIND
+    ============================================================
+
+    Dependencias
+    ------------
+    - Decoder nativo "kernel" para el trafico registrado por
+      ORANGEBOX-FW.
+    - Decoder/rules nativos "named" de Wazuh para eventos de BIND.
+
+    Politica
+    --------
+    - Deteccion de flood DNS UDP hacia puerto 53 desde una sola IP.
+    - Senal de observacion para flood DNS UDP distribuido.
+    - Correlacion de flood DNS UDP distribuido persistente.
+    - Deteccion de SYN flood TCP/53.
+    - Deteccion de SYN flood TCP/53 distribuido.
+    - Deteccion de multiples intentos AXFR denegados desde una IP.
+    - Deteccion de multiples intentos de update DNS denegados.
+    - Escalamiento de multiples fallos de cache.
+    - Paquete DNS invalido con prioridad alta.
+    - Caida fatal de BIND/named con prioridad critica.
+
+    Importante
+    ----------
+    Las reglas de flood utilizan los eventos del firewall OrangeBox.
+    UDP/53 genera un evento por paquete. TCP/53 genera un evento por
+    SYN, porque el logger TCP de OrangeBox registra solamente nuevos
+    intentos de conexion.
+
+    La regla 10803 es deliberadamente una senal de observacion de
+    nivel bajo: en DNS publico es normal recibir trafico de muchas
+    IPs distintas en ventanas cortas. La alerta de prioridad alta
+    se reserva para la correlacion 10811, que exige varias detecciones
+    distribuidas en un periodo sostenido.
+
+    No existe Active Response en este archivo. Primero detectamos y
+    validamos los umbrales con trafico real antes de bloquear clientes
+    o resolveres legitimos.
+-->
+
+<!-- ================================================================
+     DNS / BIND - TRAFICO DE RED
+     ================================================================ -->
+
+<group name="orangebox,dns,bind,firewall,">
+
+    <!-- 10800 - EVENTO BASE UDP/53. Soporte para correlaciones. -->
+    <rule id="10800" level="1">
+        <if_sid>4100</if_sid>
+        <protocol>UDP</protocol>
+        <dstport>^53$</dstport>
+        <options>no_log</options>
+        <description>ORANGEBOX: Trafico UDP entrante hacia DNS/BIND (puerto 53).</description>
+        <group>dns,bind,network,connection_attempt,</group>
+    </rule>
+
+    <!-- 10801 - EVENTO BASE TCP/53. El firewall registra el SYN. -->
+    <rule id="10801" level="1">
+        <if_sid>4100</if_sid>
+        <protocol>TCP</protocol>
+        <dstport>^53$</dstport>
+        <regex type="pcre2">RES=0x00 SYN URGP=0</regex>
+        <options>no_log</options>
+        <description>ORANGEBOX: Intento TCP SYN entrante hacia DNS/BIND (puerto 53).</description>
+        <group>dns,bind,network,connection_attempt,</group>
+    </rule>
+
+    <!-- 10802 - DNS UDP FLOOD DESDE UNA SOLA IP. 1000 paquetes en 10 s. -->
+    <rule id="10802" level="14" frequency="1000" timeframe="10" ignore="60">
+        <if_matched_sid>10800</if_matched_sid>
+        <same_srcip/>
+        <same_dstip/>
+        <same_dstport/>
+        <description>ALERTA CRITICA: Posible DNS UDP flood desde una misma IP hacia BIND $(srcip).</description>
+        <group>orangebox,dns,bind,attack,flood,denial_of_service,</group>
+    </rule>
+
+    <!-- 10803 - SENAL DE OBSERVACION: 500 IPs distintas en 10 s. -->
+    <rule id="10803" level="5" frequency="500" timeframe="10" ignore="60">
+        <if_matched_sid>10800</if_matched_sid>
+        <different_srcip/>
+        <same_dstip/>
+        <same_dstport/>
+        <description>OBSERVACION: Trafico UDP DNS distribuido elevado contra BIND: 500 IPs distintas en 10 segundos.</description>
+        <group>orangebox,dns,bind,observation,flood,ddos,</group>
+    </rule>
+
+    <!-- 10804 - SYN FLOOD TCP/53 DESDE UNA SOLA IP. 1000 SYN en 10 s. -->
+    <rule id="10804" level="14" frequency="1000" timeframe="10" ignore="60">
+        <if_matched_sid>10801</if_matched_sid>
+        <same_srcip/>
+        <same_dstip/>
+        <same_dstport/>
+        <description>ALERTA CRITICA: Posible TCP SYN flood contra DNS/BIND desde $(srcip).</description>
+        <group>orangebox,dns,bind,attack,flood,denial_of_service,</group>
+    </rule>
+
+    <!-- 10805 - SYN FLOOD TCP/53 DISTRIBUIDO. 200 IPs distintas en 10 s. -->
+    <rule id="10805" level="14" frequency="200" timeframe="10" ignore="60">
+        <if_matched_sid>10801</if_matched_sid>
+        <different_srcip/>
+        <same_dstip/>
+        <same_dstport/>
+        <description>ALERTA CRITICA: Posible TCP SYN flood distribuido contra DNS/BIND.</description>
+        <group>orangebox,dns,bind,attack,flood,denial_of_service,ddos,</group>
+    </rule>
+
+    <!-- 10811 - CORRELACION FUERTE: 3 senales 10803 en 5 minutos. -->
+    <rule id="10811" level="14" frequency="3" timeframe="300" ignore="300">
+        <if_matched_sid>10803</if_matched_sid>
+        <same_dstip/>
+        <same_dstport/>
+        <description>ALERTA ALTA: Posible DNS UDP flood distribuido persistente contra BIND: 3 eventos de trafico distribuido en 5 minutos.</description>
+        <group>orangebox,dns,bind,attack,flood,denial_of_service,ddos,persistent,</group>
+    </rule>
+
+</group>
+
+<!-- ================================================================
+     BIND - ACTIVIDAD DE PROTOCOLO / ADMINISTRACION
+     ================================================================ -->
+
+<group name="orangebox,dns,bind,attack,">
+
+    <!-- 10806 - 3 AXFR denegados desde la misma IP en 5 minutos. -->
+    <rule id="10806" level="12" frequency="3" timeframe="300" ignore="300">
+        <if_matched_sid>12102</if_matched_sid>
+        <same_srcip/>
+        <description>ALERTA: Multiples intentos de transferencia de zona AXFR denegados contra BIND desde $(srcip).</description>
+        <group>orangebox,dns,bind,reconnaissance,attack,</group>
+    </rule>
+
+    <!-- 10807 - 3 updates denegados desde la misma IP en 5 minutos. -->
+    <rule id="10807" level="12" frequency="3" timeframe="300" ignore="300">
+        <if_matched_sid>12103</if_matched_sid>
+        <same_srcip/>
+        <description>ALERTA: Multiples intentos de actualizacion DNS no autorizada contra BIND desde $(srcip).</description>
+        <group>orangebox,dns,bind,attack,unauthorized_update,</group>
+    </rule>
+
+    <!--
+        10808 - OBSERVACION: multiples consultas de cache denegadas.
+        BIND rechazo las consultas; el evento queda registrado en Wazuh
+        para investigacion, pero nivel 8 queda por debajo del umbral 12
+        de la integracion de correo OrangeBox.
+        No activa Active Response.
+    -->
+    <rule id="10808" level="8">
+        <if_sid>12149</if_sid>
+        <description>OBSERVACION: BIND rechazo multiples consultas de cache desde $(srcip).</description>
+        <group>orangebox,dns,bind,observation,abuse,</group>
+    </rule>
+
+    <!-- 10809 - Escala la regla nativa 12101 de paquete DNS invalido. -->
+    <rule id="10809" level="12">
+        <if_sid>12101</if_sid>
+        <description>ALERTA: BIND recibio un paquete DNS invalido; posible actividad de ataque.</description>
+        <group>orangebox,dns,bind,attack,invalid_access,</group>
+    </rule>
+
+    <!-- 10810 - Escala la regla nativa 12109 de error fatal de named. -->
+    <rule id="10810" level="15">
+        <if_sid>12109</if_sid>
+        <description>ALERTA CRITICA: BIND/named termino por un error fatal y el servicio DNS puede estar fuera de servicio.</description>
+        <group>orangebox,dns,bind,service_availability,attack,</group>
+    </rule>
+
+</group>
