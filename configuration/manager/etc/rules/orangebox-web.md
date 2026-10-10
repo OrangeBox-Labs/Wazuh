@@ -93,3 +93,15 @@ Las reglas de ráfaga usan `same_srcip`. Sin eso, varios clientes legítimos pod
 - Active Response `firewall-drop` para la respuesta asociada a `10026`.
 
 Las rutas sensibles y las IP de reverse proxy deben revisarse cuando cambie la arquitectura web.
+
+
+## 10030 — Intento de acceso a credenciales de metadatos cloud
+
+La regla 10030 es hija de la regla nativa 31115 (URL excesivamente larga) y exige además que el campo URL contenga el endpoint de metadatos de AWS `169.254.169.254/latest/meta-data/iam/security-credentials`.
+
+- Nivel: 14.
+- MITRE ATT&CK: T1190 (explotación de aplicación expuesta) y T1552.005 (credenciales de servicios cloud).
+- Active Response: `firewall-drop` durante 24 horas, asociado explícitamente a la regla 10030 en `ossec.conf`.
+- Alcance: no bloquea por una URL larga aislada; requiere la señal concreta del endpoint IAM.
+
+La coincidencia indica un intento sospechoso, no demuestra por sí sola que la aplicación haya accedido al servicio de metadatos ni que se hayan obtenido credenciales. Validar el cuerpo HTTP y los registros de la aplicación si el evento ocurrió en producción.
