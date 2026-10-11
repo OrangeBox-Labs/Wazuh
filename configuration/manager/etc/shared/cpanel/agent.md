@@ -19,8 +19,8 @@ configuration/lists/orangebox-agent-profiles
 Ejemplo:
 
 ```text
-srv27:cpanel
-srv27.CLIENTE_01.cl:cpanel
+srv27.example.invalid:cpanel
+srv27.example.invalid:cpanel
 ```
 
 La pertenencia al grupo y la entrada CDB deben mantenerse sincronizadas.
