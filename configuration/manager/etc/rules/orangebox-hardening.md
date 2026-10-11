@@ -117,6 +117,30 @@ cPanel regenera este cron durante tareas normales de renovación/reemisión SSL.
 
 La condición de perfil evita convertir una excepción específica de cPanel en una whitelist global.
 
+### 20057 — Limpieza de plugins cPanel SocialBee/XOVI en DNSOnly
+
+La regla nativa OrangeBox `10044` detecta la eliminación de unidades persistentes de systemd. La excepción `20057` cubre únicamente estos archivos bajo `/etc/systemd/system/`:
+
+```text
+initialize_socialbee_plugin.service
+initialize_socialbee_plugin.timer
+initialize_xovi_plugin.service
+initialize_xovi_plugin.timer
+```
+
+Debe cumplirse además que el agente pertenezca al grupo Wazuh `DNS`, verificado mediante la CDB dinámica `orangebox-dns-agents`. No se exceptúa el directorio completo ni otros servicios; las eliminaciones de otras unidades siguen generando la alerta crítica `10044`. La validación operacional inicial debe confirmar que estos cuatro archivos corresponden a la limpieza esperada de DNSOnly antes de desplegar la regla.
+
+### 20058 — Limpieza de unidades de montaje Snap
+
+La excepción cubre únicamente eventos de eliminación atribuidos al proceso `snapd` y archivos/unidades que coincidan con:
+
+```text
+/etc/systemd/system/snap-*.mount
+/etc/systemd/system/snap-*.mount.<n>~
+```
+
+La regla exige el actor `process_name=snapd` y el patrón exacto de archivo, y solo rebaja la eliminación a nivel 0. No autoriza cambios de contenido, otras unidades de systemd ni eliminaciones realizadas por otros procesos. El campo de proceso proviene de la auditoría Who-Data; confirma que el agente tenga Who-Data habilitado para las rutas relevantes y valida el evento con `wazuh-logtest` antes de desplegarlo ampliamente.
+
 ### Criterio para mantener estas excepciones
 
 Las excepciones anteriores corresponden a falsos positivos validados en producción. No se debe extender una excepción a todo un directorio, proceso o usuario cuando el evento concreto puede expresarse mediante una ruta exacta y, cuando está disponible, una condición adicional sobre el contenido o el resultado de FIM.
