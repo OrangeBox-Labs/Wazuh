@@ -30,3 +30,9 @@ Antes de desplegar a todos los servidores de correo:
 5. Confirmar que NO llega correo individual por la integración OrangeBox.
 
 Si un formato real de Dovecot o Exim no entrega correctamente `srcip`, se debe corregir primero la extracción antes de automatizar contención.
+
+## Anomalía IDN de SpamAssassin (regla 20056)
+
+La regla nativa `40106` detecta una secuencia extensa de arrobas y la etiqueta como posible desbordamiento de búfer en yppasswd. Cuando el evento proviene de `spamd` y contiene el error `idn_to_ascii: conversion to ACE failed`, la regla `20056` rebaja el nivel a 5 porque el log acredita un fallo de conversión del nombre IDN, no un desbordamiento confirmado.
+
+El evento **no se suprime**: sigue disponible como alerta para revisar el correo asociado. Esta excepción no declara el mensaje legítimo ni reemplaza la revisión de cabeceras, cuerpo, origen y destinatarios. Los eventos `40106` que no cumplan esas condiciones mantienen el comportamiento nativo.
