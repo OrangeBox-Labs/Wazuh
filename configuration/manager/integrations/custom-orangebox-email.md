@@ -38,11 +38,11 @@ Esto evita una falla de diseño donde una regla crítica nueva, aunque tuviera n
 
 Las reglas `100316`, `100318`, `100319` y `10613` utilizan esta marca funcional. Las reglas experimentales `10615`-`10618` fueron retiradas del ruleset base porque podían reemplazar la identidad de las alertas base de autenticación (especialmente `10001`) antes de llegar a esta integración.
 
-Las reglas `10025`, `10026`, `10453`, `10454` y `10455` permanecen gobernadas por la política de firewall-drop/no-email.
+La política se aplica por función, no solo por familia de regla: `10453` detecta port scan y queda bajo el umbral de correo; `10456` es el disparador de `firewall-drop` para ese scan; `10454` detecta SYN flood y tiene respuesta configurada; `10455` se excluye explícitamente mediante `NO_EMAIL_RULES`. Las reglas `10025` y `10026` mantienen su supresión individual según `FIREWALL_DROP_RULES`.
 
 ## Fuerza bruta de correo
 
-Las reglas OrangeBox `10700` y `10701` representan correlaciones de múltiples fallos de autenticación en servicios de correo. Ambas se envían de inmediato y no pasan por la ventana de agrupación.
+Las reglas OrangeBox `10700` y `10701` representan correlaciones de múltiples fallos de autenticación en servicios de correo. Ambas permanecen registradas en Wazuh y ejecutan `firewall-drop`; la integración suprime el correo individual para evitar una tormenta de avisos. No se envían de inmediato.
 
 La integración usa el mismo mecanismo de entrega resiliente mediante `/usr/sbin/sendmail -t -i`.
 
@@ -139,7 +139,7 @@ Además mantiene algunos campos individuales por compatibilidad:
 
 Esto se hizo porque una versión anterior guardaba solamente algunos campos y podía perder información entregada por Wazuh.
 
-Para seguridad esto importa bastante: cuando estamos investigando un cambio de archivo, queremos ver la evidencia que Wazuh realmente recibió, no una versión recortada porque al script le dio flojera guardarla. 😎
+Para seguridad esto importa bastante: cuando estamos investigando un cambio de archivo, queremos ver la evidencia que Wazuh realmente recibió, no una versión recortada por una normalización incompleta del evento. 😎
 
 También se conserva el JSON completo de la alerta dentro del evento. Eso permite recuperar información adicional en el futuro sin rediseñar nuevamente el buffer.
 
@@ -160,6 +160,14 @@ El correo se genera directamente en HTML y contiene:
 - enlace directo al Dashboard de Wazuh.
 
 Los datos variables pasan por `html.escape()` antes de insertarse en el HTML. Esto evita que contenido proveniente del log o del diff termine interpretándose como HTML.
+
+### Logs extensos y clientes móviles
+
+`format_log_for_html()` es una transformación exclusiva de presentación: escapa el contenido y divide las líneas visuales cada 72 caracteres para que cadenas HTTP sin espacios no fuercen un ancho excesivo en Gmail para Android. No modifica el JSON original ni el contenido de `full_log` guardado en el evento. La tabla de detalles usa ancho fluido, `table-layout: fixed`, columna de valores más ancha y alineación a la izquierda para evitar que las dos columnas queden visualmente partidas por la mitad.
+
+### Estado de Active Response
+
+El integrador inspecciona el `ossec.conf` efectivo y muestra la acción y el timeout configurados para la regla. Este dato confirma la configuración asociada, **no demuestra por sí solo que el bloqueo se ejecutó con éxito**. Para verificar la ejecución real se debe revisar el evento de Active Response de Wazuh (regla `651` y correlación OrangeBox `10458`, cuando corresponda).
 
 ## Niveles visuales
 
