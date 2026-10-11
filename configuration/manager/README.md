@@ -24,6 +24,7 @@ La organización es deliberadamente simple:
 - `orangebox-backuppc` — actualiza la whitelist dinámica de BackupPC.
 - `orangebox-geoip` — actualiza las bases/listas Geo-IP.
 - `orangebox-ioc` — actualiza las listas IOC.
+- `orangebox-log-rotation` — comprime y elimina los logs internos de Wazuh y firewall, conservando los últimos 7 días.
 - `orangebox-reports-<cliente>` — contiene los reportes diarios, semanales y mensuales de cada cliente.
 - `orangebox-reports-orangebox` — contiene los reportes consolidados enviados a soporte@example.com.
 
@@ -35,7 +36,7 @@ Al agregar una nueva tarea programada del Manager, debe crearse un archivo indep
 
 ## Active Response: port scan
 
-La regla OrangeBox `10453` puede activar `firewall-drop` localmente en el agente que origina la alerta. El bloqueo utiliza la funcionalidad Active Response de Wazuh y tiene un timeout de 3600 segundos.
+La regla `10453` correlaciona el posible escaneo de puertos; la regla hija `10456` es la que activa `firewall-drop` en el agente que origina la alerta. El bloqueo dura 3600 segundos. La regla `10454` activa `firewall-drop` directamente ante un SYN flood que alcanza el umbral definido.
 
 La configuración se define en el `ossec.conf` del manager. Wazuh incluye `firewall-drop` como script de Active Response para Linux/Unix y utiliza la IP `srcip` del evento para aplicar el bloqueo.
 
