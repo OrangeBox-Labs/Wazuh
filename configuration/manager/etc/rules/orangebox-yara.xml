@@ -102,7 +102,7 @@
         <mitre>
             <id>T1505.003</id>
         </mitre>
-        <group>yara,webshell,orangebox_yara,orangebox_webshell,</group>
+        <group>yara,webshell,orangebox_yara,orangebox_webshell,orangebox_immediate,</group>
     </rule>
 
     <!--
@@ -154,7 +154,7 @@
         <mitre>
             <id>T1505.003</id>
         </mitre>
-        <group>yara,webshell,orangebox_yara,orangebox_webshell,</group>
+        <group>yara,webshell,orangebox_yara,orangebox_webshell,orangebox_immediate,</group>
     </rule>
 
     <!--
@@ -169,7 +169,7 @@
         <same_field>yara_scanned_file</same_field>
         <different_field>yara_correlation_rule</different_field>
         <description>ALERTA: "$(yara_scanned_file)" genero multiples firmas YARA logicamente distintas.</description>
-        <group>yara,malware,orangebox_yara,orangebox_malware,</group>
+        <group>yara,malware,orangebox_yara,orangebox_malware,orangebox_immediate,</group>
     </rule>
 
 </group>
