@@ -9,6 +9,12 @@ Las CDB se dividen en dos tipos:
 
 ## CDB estáticas
 
+### `orangebox-private-networks`
+
+Esta CDB de ejemplo está declarada en `ossec.conf`, pero **no está referenciada por ninguna regla del ruleset actual**. Por eso no excluye IPs internas de `firewall-drop` y no debe interpretarse como una whitelist efectiva.
+
+Se conserva como referencia pendiente. No agregar una consulta desde las reglas de contención sin validar la política de seguridad: bloquear una IP interna que realmente ejecuta un ataque puede ser una decisión deliberada de operación.
+
 ### `orangebox-network-recon-programs`
 
 Define los comandos que cuentan como reconocimiento de red para las correlaciones `10612` y `10614`.
