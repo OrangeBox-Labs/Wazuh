@@ -207,13 +207,11 @@ No se confía en User-Agent para permitir crawlers. Se puede falsificar demasiad
 
 La regla OrangeBox `10453` detecta una secuencia corta de reconocimiento: 4 intentos TCP SYN en 5 segundos desde la misma IP, hacia el mismo destino, manteniendo el mismo puerto origen y buscando diversidad de puertos destino.
 
-El bloqueo inicial es de:
+La detección `10453` no activa directamente la respuesta: la regla hija `10456` es el disparador de `firewall-drop`. La respuesta recibe `srcip` y aplica el bloqueo local en el agente que generó el evento durante:
 
 ```text
 3600 segundos = 1 hora
 ```
-
-El Active Response recibe `srcip` y aplica el bloqueo local en el agente donde se generó la alerta.
 
 El umbral se redujo de forma deliberada para detectar rápidamente un escaneo básico. No buscamos esperar a un barrido grande: varios puertos consultados en pocos segundos ya son una señal útil de reconocimiento.
 
