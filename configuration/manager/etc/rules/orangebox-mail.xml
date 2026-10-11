@@ -33,3 +33,21 @@
     </rule>
 
 </group>
+
+
+<!--
+    Regla nativa 40106 busca una secuencia de arrobas y la describe como
+    posible desbordamiento de yppasswd. SpamAssassin también puede registrar
+    secuencias de ese tipo cuando falla la conversión de un nombre IDN.
+    Se baja únicamente ese caso a nivel 5: el evento permanece en alerts.json
+    para revisar el correo y no se clasifica como desbordamiento confirmado.
+-->
+<group name="orangebox,mail,spam,">
+    <rule id="20056" level="5">
+        <if_sid>40106</if_sid>
+        <program_name>spamd</program_name>
+        <match type="pcre2">util:\s*idn_to_ascii:\s*conversion to ACE failed:.*@{25,}</match>
+        <description>ANOMALIA: SpamAssassin encontro un nombre IDN malformado con una secuencia extensa de arrobas; revisar el correo.</description>
+        <group>mail,spam,orangebox_mail,orangebox_review,</group>
+    </rule>
+</group>
