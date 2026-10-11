@@ -106,6 +106,24 @@ Consulta `agent_groups -l -g zimbra` y genera hostname FQDN y hostname corto.
 
 Las reglas de autenticación usan esta CDB para reconocer el contexto Zimbra/Carbonio, pero el grupo por sí solo nunca autoriza `sudo -> root`: la regla también exige el comando operacional validado.
 
+### `orangebox-dns-agents`
+
+Representa el grupo Wazuh `dns` y se utiliza para restringir excepciones FIM de DNSOnly.
+
+El sincronizador es:
+
+```text
+configuration/manager/bin/update-orangebox-dns-agents.sh
+```
+
+y su cron:
+
+```text
+configuration/manager/etc/cron.d/orangebox-dns-agents
+```
+
+Consulta `agent_groups -l -g dns`, genera hostname FQDN y hostname corto con el valor `dns`, y actualiza la CDB solo cuando cambia. Si el comando falla o no devuelve agentes reconocibles, conserva la CDB actual para evitar una lista vacía accidental. Para un despliegue controlado, `ORANGEBOX_NO_RESTART=1` permite regenerar la CDB sin reiniciar; después se puede validar `wazuh-analysisd -t` y reiniciar manualmente. El cron no define esa variable y mantiene el reinicio automático cuando cambia la lista.
+
 Las CDB dinámicas no deben editarse manualmente.
 
 ## Declaración en `ossec.conf`
