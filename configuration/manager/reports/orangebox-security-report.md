@@ -68,9 +68,9 @@ No se usa active-responses.log como fuente histórica principal.
 
 ## Cache y rendimiento
 
-El primer procesamiento de un día cerrado construye un cache comprimido por servidor. Las ejecuciones siguientes reutilizan ese cache y no vuelven a parsear todo el histórico.
+El primer procesamiento de un día cerrado construye un cache comprimido por servidor. Las ejecuciones posteriores reutilizan ese cache para evitar volver a parsear todo el histórico.
 
-La estructura es:
+La estructura lógica es:
 
 ~~~~text
 /var/ossec/reports/cache-proto-v3/
@@ -82,53 +82,17 @@ La estructura es:
 
 ### Día actual
 
-Se conserva inode y offset de alerts.json.
-
-Si el archivo no cambió, la siguiente ejecución continúa desde el último punto procesado. Si cambió el inode, disminuyó de tamaño o falta la estructura esperada, el día se reconstruye.
+Se conserva el inode y offset de `alerts.json`. Si el archivo permanece estable, la siguiente ejecución continúa desde el último punto procesado. Si cambia el inode, disminuye el tamaño o falta el estado esperado, el día se reconstruye.
 
 ### Días cerrados
 
-Cada día se procesa una vez y se guarda en shards por servidor.
-
-Las reconstrucciones usan directorio temporal y reemplazo atómico. Un proceso interrumpido no convierte un cache incompleto en cache válido.
+Cada día se procesa una vez y se guarda en shards por servidor. Las reconstrucciones utilizan un directorio temporal y reemplazo atómico, de modo que una ejecución interrumpida no convierta un cache incompleto en cache válido.
 
 ### Lectura selectiva
 
-El reporte resuelve primero los agentes de los grupos pedidos y después lee solo los shards necesarios.
+El reporte resuelve primero los agentes de los grupos solicitados y lee únicamente los shards necesarios. Así, un informe de cliente no necesita descomprimir los datos de todos los servidores.
 
-Esto permite que un informe de cliente no tenga que descomprimir los datos de todos los servidores.
-
-### Prueba validada
-
-En una prueba con:
-
-~~~~text
-56 servidores
-4.233.850 eventos
-9.760 alertas de alta severidad
-9 alertas críticas
-10.839 detecciones de ataque
-~~~~
-
-el resultado con cache construido fue:
-
-~~~~text
-Cache/update:     0,004 s
-Lectura cache:    28,098 s
-Agregación/CVE:    1,790 s
-Render HTML:       0,908 s
-Archivo:           0,013 s
-Tiempo total:     40,058 s
-~~~~
-
-El baseline anterior fue 42,410 s con los mismos conteos.
-
-La primera construcción histórica del cache fue mucho más lenta porque incluyó el procesamiento inicial de los logs. Eso es un costo de calentamiento, no el tiempo normal de ejecución.
-
-En la misma prueba, el cache pasó de aproximadamente 188 MB a 49 MB.
-
-La lectura de los shards sigue siendo la etapa dominante porque el informe todavía debe descomprimir y recorrer millones de eventos seleccionados.
-
+El coste depende del volumen de eventos seleccionado, el rendimiento de almacenamiento y el estado del cache. Para comparar cambios de rendimiento, ejecutar pruebas reproducibles con datos de laboratorio o datos anonimizados y registrar localmente el volumen procesado, el hardware, el estado frío/caliente del cache y los tiempos por etapa. No publicar métricas de clientes o de producción sin una revisión explícita de sanitización.
 ## Períodos
 
 | Opción | Período |
@@ -206,7 +170,7 @@ La correlación mantiene juntos ID de regla y descripción. Esto evita cruzar un
 
 Los intentos detectados son alertas Wazuh asociadas a las IPs que fueron bloqueadas. No equivalen necesariamente a la cantidad bruta de conexiones o solicitudes originales.
 
-Las IP individuales no se listan en el reporte ejecutivo para mantener el informe legible. El detalle queda en las alertas JSON y en el informe detallado.
+En el informe detallado hay una única sección tabular de **IPs bloqueadas automáticamente**, sin una tabla redundante de IPs de origen. Cada IP ocupa una fila con cinco columnas: IP, país con bandera, tiempo de baneo, cantidad de bloqueos y reglas/motivos. Cada regla o motivo se muestra en una línea dentro de su celda; las que activaron Active Response llevan la etiqueta **ACTIVÓ EL BLOQUEO** y las demás **DETECTADA**. Las filas ajustan su altura según la cantidad de reglas asociadas. El conteo de detecciones no duplica los eventos `10458` de Active Response.
 
 ## GeoIP
 
@@ -258,6 +222,10 @@ wazuh-states-inventory-system-*
 
 Cuando un servidor es identificado como CloudLinux, el informe lo indica expresamente. Un resultado vacío de Vulnerability Detection para CloudLinux no debe interpretarse como ausencia de CVE.
 
+En el dashboard de cada servidor, la tarjeta **CVE críticos** cuenta los identificadores CVE únicos de severidad crítica en el inventario actual. La tabla del servidor también presenta una sola fila por CVE y agrupa dentro de esa fila todos los paquetes/versiones afectados; así, el número de filas coincide con el contador de CVE únicos.
+
+Si la evaluación del inventario terminó correctamente y no se encontraron CVE críticos, el contador muestra `0`. Si el sistema no está evaluado por Wazuh (por ejemplo, CloudLinux sin evaluación nativa), muestra `N/E` (no evaluado). Si falla la consulta al Indexer, muestra `ERR`; no se convierte un error o una evaluación ausente en un cero engañoso.
+
 Las credenciales de lectura del Indexer se toman de variables de entorno o de:
 
 ~~~~text
@@ -292,6 +260,12 @@ Los asuntos actuales siguen este formato:
 No se usan iconos en el asunto.
 
 El idioma por defecto es español y --lang es|en permite cambiar títulos y etiquetas del reporte.
+
+## Navegación del reporte detallado
+
+El HTML del informe usa una paleta corporativa de gris grafito, naranja y grises neutros. El índice superior tiene cuatro botones uniformes en una sola fila: Resumen, Servidores, IPs bloqueadas y Top países. El resumen general contiene ocho tarjetas del mismo tamaño en dos filas de cuatro; la cantidad de servidores queda en el encabezado, no como tarjeta adicional. El selector plegable de servidores aparece después de los paneles Top países y Top 10 de IPs bloqueadas, justo antes del detalle por servidor; el botón Servidores apunta directamente al selector. Cada agente tiene un ancla individual y un enlace para volver al índice.
+
+Los enlaces usan anclas HTML (`#...`). El soporte de enlaces internos depende del cliente de correo. Para navegar con más consistencia, abrir el HTML adjunto desde el ZIP en un navegador.
 
 ## HTML y archivo
 
