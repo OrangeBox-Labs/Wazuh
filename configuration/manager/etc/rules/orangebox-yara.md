@@ -42,10 +42,12 @@ El runtime de YARA mantiene un límite de tamaño de archivo para evitar escaneo
 
 `10420` y `10421` son señales auxiliares. Pueden mantenerse en nivel 3 porque sirven para activar YARA aunque no se persistan con `log_alert_level=5`.
 
-Una coincidencia real de YARA llega a `10501`, nivel 14, y queda persistida en `alerts.json`.
+Una coincidencia real llega a `10501` (nivel 3), que clasifica el resultado sin elevar por sí sola la severidad. La categoría y la correlación determinan la prioridad final: `10502` webshell (nivel 14), `10503` malware (nivel 10), `10504` correo (nivel 5), `10505` documento sospechoso (nivel 8), `10510` múltiples firmas webshell distintas (nivel 15) y `10511` múltiples firmas malware distintas (nivel 13).
 
 ## Motivo del cambio
 
 La versión anterior asociaba la selección a extensiones de script/webshell. La nueva política da prioridad a las zonas delicadas: cualquier archivo nuevo o modificado allí se analiza, independientemente de sus permisos.
 
 YARA sigue siendo solo detección. No elimina ni mueve archivos.
+
+Las reglas `10502`, `10510` y `10511` incluyen el grupo `orangebox_immediate`, por lo que sus correos no esperan la ventana de agrupación de 10 minutos. La regla base `10501` y las demás categorías conservan el tratamiento definido por sus niveles y grupos.
