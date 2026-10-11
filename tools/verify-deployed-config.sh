@@ -24,7 +24,7 @@ OSSEC_HOME="${OSSEC_HOME:-/var/ossec}"
 #   2) Manager etc/rules: XML
 #   3) Lists: CDB estatica + CDB dinamicas derivadas de grupos Wazuh
 #   4) Integrations: custom-orangebox-email.py
-#   5) Agent groups: default/cpanel/zimbra
+#   5) Agent groups: default/cpanel/zimbra/DNS
 #   6) Agent artifacts: validacion LOCAL del source versionado que luego
 #      se copia al agente; no se espera que exista bajo /var/ossec
 #
@@ -207,6 +207,7 @@ check_rule_cdb_references() {
                         :
                     elif [[ "$ref" == etc/lists/orangebox-cpanel-agents ||
                             "$ref" == etc/lists/orangebox-zimbra-agents ||
+                            "$ref" == etc/lists/orangebox-dns-agents ||
                             "$ref" == etc/lists/malicious-ioc/* ]]; then
                         :
                     else
@@ -345,6 +346,7 @@ compare_file     "configuration/manager/etc/lists/orangebox-network-recon-progra
 # CDB dinamicas: la fuente de verdad es el grupo Wazuh, no el repo.
 compare_generated_cdb "cpanel" "cpanel" "${OSSEC_HOME}/etc/lists/orangebox-cpanel-agents"
 compare_generated_cdb "zimbra" "zimbra" "${OSSEC_HOME}/etc/lists/orangebox-zimbra-agents"
+compare_generated_cdb "DNS" "DNS" "${OSSEC_HOME}/etc/lists/orangebox-dns-agents"
 
 # La CDB antigua queda obsoleta. No bloqueamos la verificacion por ella,
 # pero avisamos para que pueda limpiarse del Manager.
