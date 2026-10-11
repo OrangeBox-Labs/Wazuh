@@ -124,7 +124,7 @@ Ejemplo:
 
 ```text
 srv27:cpanel
-srv27.cloudlatam.cl:cpanel
+srv27.example.invalid:cpanel
 ```
 
 `20031` contiene comandos directos conocidos de WP Toolkit/cPanel.
@@ -161,10 +161,10 @@ Los árboles reconocidos son:
 Hosts actualmente registrados en la CDB:
 
 ```text
-mail.orangebox.cl:zimbra
-zimbra10.orangebox.cl:zimbra
-mail2.jhg.cl:zimbra
-mail.appnexit.cl:zimbra
+mail.example.invalid:zimbra
+zimbra10.example.invalid:zimbra
+mail2.example.invalid:zimbra
+mail3.example.invalid:zimbra
 ```
 
 ### 110100 — Comandos Zimbra/Carbonio autorizados
