@@ -114,5 +114,6 @@ La regla 10039 es hija de la regla nativa 31115 (URL excesivamente larga) y exig
 - MITRE ATT&CK: T1190 (explotación de aplicación expuesta) y T1552.005 (credenciales de servicios cloud).
 - Active Response: `firewall-drop` durante 24 horas, asociado explícitamente a la regla 10039 en `ossec.conf`.
 - Alcance: no bloquea por una URL larga aislada; requiere la señal concreta del endpoint IAM.
+- Notificación: el grupo `orangebox_immediate` hace que el correo se envíe sin esperar el buffer de 10 minutos.
 
 La coincidencia indica un intento sospechoso, no demuestra por sí sola que la aplicación haya accedido al servicio de metadatos ni que se hayan obtenido credenciales. Validar el cuerpo HTTP y los registros de la aplicación si el evento ocurrió en producción.
