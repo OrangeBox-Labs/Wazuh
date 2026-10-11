@@ -53,6 +53,8 @@ El decoder nativo de Wazuh para named extrae la IP de origen de los eventos de c
 
 Wazuh permite correlacionar por srcip, dstip y dstport, incluyendo same_srcip, different_srcip, same_dstip y same_dstport, para reglas basadas en frecuencia.
 
+La regla `10810` incluye `orangebox_immediate`: si `named` termina por un error fatal, el aviso de caída no espera la ventana de agrupación de correo.
+
 ## Umbrales
 
 Los umbrales de flood son una politica inicial y deben validarse con trafico real.
@@ -77,4 +79,4 @@ La deteccion de DNS amplification/reflection no se infiere solamente a partir de
 
 ### 10808 — Consultas de caché denegadas
 
-La regla nativa `12149` identifica una ráfaga de consultas de caché denegadas por BIND. OrangeBox la conserva como observación de nivel 8: queda registrada en Wazuh para investigación y reportes, pero está por debajo del umbral 12 de `HOST_DE_EJEMPLO`, por lo que no genera correo. No se configura `firewall-drop` para esta regla. Que BIND las rechace no demuestra acceso exitoso a la caché.
+La regla nativa `12149` identifica una ráfaga de consultas de caché denegadas por BIND. OrangeBox la conserva como observación de nivel 8: queda registrada en Wazuh para investigación y reportes, pero está por debajo del umbral 12 de `custom-orangebox-email.py`, por lo que no genera correo. No se configura `firewall-drop` para esta regla. Que BIND las rechace no demuestra acceso exitoso a la caché.
