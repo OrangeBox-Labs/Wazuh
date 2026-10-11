@@ -7,6 +7,8 @@ Configuración global del Wazuh Manager.
 - **`ossec.conf`** — configuración principal del Manager, incluyendo alertas, correo, módulos, syscheck, indexer, autenticación de agentes e integraciones.
 - **`ossec.md`** — documentación técnica del archivo y de las decisiones de configuración.
 - **`etc/cron.d/`** — tareas programadas del Manager, separadas por función y cliente.
+- **`etc/local_internal_options.conf`** — opciones internas locales del Manager; no es configuración distribuida a los agentes.
+- **`bin/orangebox-log-rotation`** — comprime logs internos antiguos y conserva 7 días únicamente bajo `/var/ossec/logs/wazuh` y `/var/ossec/logs/firewall`; no elimina alertas, logs de Active Response ni `ossec.log`.
 
 ## Criterio
 
