@@ -69,7 +69,7 @@ sudo -> root
    |      comando autorizado
    |          |
    |          v
-   |       20110 / level 0
+   |       110100 / level 0
    |
    +-- cualquier otra combinacion
            |
@@ -103,7 +103,7 @@ Para un servidor Carbonio, registrar el hostname observado en los eventos y util
 <hostname>:zimbra
 ```
 
-Esto permite reutilizar la misma regla `110100 sin duplicar una segunda familia de reglas.
+Esto permite reutilizar la misma regla `110100` sin duplicar una segunda familia de reglas.
 
 ## Validacion
 
