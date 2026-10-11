@@ -104,6 +104,53 @@ ok() { echo "OK: $*"; }
 warn() { echo "AVISO: $*" >&2; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
+# Reemplaza un archivo administrado solo cuando su contenido o metadatos
+# difieren del estado deseado. Devuelve 0 si hizo cambios y 1 si no hizo nada.
+sync_managed_file() {
+    local source_file="$1"
+    local target_file="$2"
+    local mode="$3"
+    local owner="$4"
+    local group="$5"
+    local changed=0
+
+    if [ -f "$target_file" ] && cmp -s "$source_file" "$target_file"; then
+        local current_mode current_owner current_group
+        current_mode="$(stat -c '%a' "$target_file" 2>/dev/null || true)"
+        current_owner="$(stat -c '%U' "$target_file" 2>/dev/null || true)"
+        current_group="$(stat -c '%G' "$target_file" 2>/dev/null || true)"
+
+        if [ "$current_mode" != "$mode" ]; then
+            chmod "$mode" "$target_file" || fail "No se pudo corregir permisos de $target_file."
+            changed=1
+        fi
+
+        if [ "$current_owner" != "$owner" ]; then
+            chown "$owner" "$target_file" || fail "No se pudo corregir propietario de $target_file."
+            changed=1
+        fi
+
+        if [ "$current_group" != "$group" ]; then
+            chgrp "$group" "$target_file" || fail "No se pudo corregir grupo de $target_file."
+            changed=1
+        fi
+
+        rm -f "$source_file"
+        return "$([ "$changed" -eq 1 ] && echo 0 || echo 1)"
+    fi
+
+    if [ -e "$target_file" ] || [ -L "$target_file" ]; then
+        cp -p "$target_file" "$target_file.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
+            || fail "No se pudo respaldar $target_file."
+    fi
+
+    install -m "$mode" -o "$owner" -g "$group" "$source_file" "$target_file" \
+        || fail "No se pudo instalar $target_file."
+    rm -f "$source_file"
+    return 0
+}
+
+
 ensure_epel6() {
     [ "$EL_MAJOR" = "6" ] || return 0
     has yum || fail "EL6 requiere yum para habilitar EPEL6."
@@ -121,7 +168,9 @@ ensure_epel6() {
     rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-6 >/dev/null 2>&1 || \
         fail "No se pudo importar la llave GPG de EPEL6."
 
-    cat > "$EPEL6_REPO_FILE" <<'EPEL6_REPO'
+    local epel_repo_tmp
+    epel_repo_tmp="$(mktemp)" || fail "No se pudo crear temporal para el repositorio EPEL6."
+    cat > "$epel_repo_tmp" <<'EPEL6_REPO'
 [orangebox-epel6]
 name=OrangeBox EPEL 6 archive
 baseurl=@@EPEL6_ARCHIVE_BASEURL@@
@@ -129,9 +178,14 @@ enabled=0
 gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-6
 EPEL6_REPO
+    sed -i "s|@@EPEL6_ARCHIVE_BASEURL@@|$EPEL6_ARCHIVE_BASEURL|g" "$epel_repo_tmp" ||
+        fail "No se pudo preparar el repositorio OrangeBox EPEL6."
 
-    sed -i "s|@@EPEL6_ARCHIVE_BASEURL@@|$EPEL6_ARCHIVE_BASEURL|g" "$EPEL6_REPO_FILE" || \
-        fail "No se pudo configurar el repositorio OrangeBox EPEL6."
+    if sync_managed_file "$epel_repo_tmp" "$EPEL6_REPO_FILE" 644 root root; then
+        ok "Repositorio OrangeBox EPEL6 actualizado."
+    else
+        ok "Repositorio OrangeBox EPEL6 ya coincide; no se modifica."
+    fi
 
     # El epel.repo original apunta a mirrorlist ya retirado. Si nosotros
     # acabamos de instalar epel-release, lo dejamos deshabilitado y usamos
@@ -285,37 +339,14 @@ ossec_mount_ready() {
     return 0
 }
 
-agent_usable() {
-    agent_installed || return 1
-    ossec_mount_ready || return 1
-    [ -s "$WAZUH_HOME/etc/client.keys" ] || return 1
-    [ -x "$WAZUH_HOME/bin/wazuh-control" ] || return 1
-}
-
-ensure_lvm() {
-    if has vgs && has lvs && has lvcreate; then
-        return 0
-    fi
-
-    echo "==> Instalando lvm2..."
-    if has yum; then
-        yum install -y lvm2 >/dev/null 2>&1 \
-            || fail "No se pudo instalar lvm2."
-    elif has dnf; then
-        dnf install -y lvm2 >/dev/null 2>&1 \
-            || fail "No se pudo instalar lvm2."
-    else
-        fail "No existe yum ni dnf para instalar lvm2."
-    fi
-
-    has vgs && has lvs && has lvcreate \
-        || fail "Las herramientas LVM no quedaron disponibles."
-}
-
 find_ossec_vg() {
     if [ -n "$WAZUH_OSSEC_VG" ]; then
-        vgs "$WAZUH_OSSEC_VG" >/dev/null 2>&1 \
-            || fail "El Volume Group $WAZUH_OSSEC_VG no existe."
+        vgs "$WAZUH_OSSEC_VG" >/dev/null 2>&1 || return 1
+        local configured_vg_free
+        configured_vg_free="$(vgs --noheadings --units m --nosuffix -o vg_free "$WAZUH_OSSEC_VG" 2>/dev/null |
+            awk 'NR==1 {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1}')"
+        [ -n "$configured_vg_free" ] && [ "$(printf '%.0f\n' "$configured_vg_free")" -ge 1024 ] 2>/dev/null ||
+            return 1
         echo "$WAZUH_OSSEC_VG"
         return 0
     fi
@@ -332,8 +363,7 @@ find_ossec_vg() {
                 }
             }')"
 
-    [ -n "$vg" ] \
-        || fail "No se encontró un Volume Group con al menos 1 GiB libres para /var/ossec."
+    [ -n "$vg" ] || return 1
 
     echo "$vg"
 }
@@ -385,12 +415,12 @@ write_ossec_fstab() {
 
 prepare_ossec_storage() {
     [ "$IS_CPANEL" = "yes" ] && return 0
-    has mountpoint || fail "mountpoint no está disponible."
-    has mount || fail "mount no está disponible."
-    has blkid || fail "blkid no está disponible."
-    has mkfs.ext4 || fail "mkfs.ext4 no está disponible."
 
     if mountpoint -q /var/ossec 2>/dev/null; then
+        has mountpoint || fail "mountpoint no está disponible."
+        has mount || fail "mount no está disponible."
+        has blkid || fail "blkid no está disponible."
+
         if ossec_mount_ready; then
             ok "/var/ossec ya está montado con exec,nosuid,nodev."
             return 0
@@ -398,21 +428,14 @@ prepare_ossec_storage() {
 
         local source uuid fstype
         source="$(ossec_mount_source)"
-        [ -n "$source" ] \
-            || fail "/var/ossec está montado pero no se pudo determinar el dispositivo."
-
+        [ -n "$source" ] || fail "/var/ossec está montado pero no se pudo determinar el dispositivo."
         uuid="$(blkid -s UUID -o value "$source" 2>/dev/null || true)"
         fstype="$(blkid -s TYPE -o value "$source" 2>/dev/null || true)"
-        [ -n "$uuid" ] && [ -n "$fstype" ] \
-            || fail "No se pudo determinar UUID/filesystem de $source."
+        [ -n "$uuid" ] && [ -n "$fstype" ] || fail "No se pudo determinar UUID/filesystem de $source."
 
-        echo "==> Corrigiendo opciones de montaje de /var/ossec..."
-        mount -o remount,exec,nosuid,nodev /var/ossec \
-            || fail "No se pudo remontar /var/ossec con exec,nosuid,nodev."
-
-        ossec_mount_ready \
-            || fail "/var/ossec no quedó con exec,nosuid,nodev."
-
+        mount -o remount,exec,nosuid,nodev /var/ossec ||
+            fail "No se pudo remontar /var/ossec con exec,nosuid,nodev."
+        ossec_mount_ready || fail "/var/ossec no quedó con exec,nosuid,nodev."
         write_ossec_fstab "$uuid" "$fstype"
         ok "/var/ossec corregido: exec,nosuid,nodev."
         return 0
@@ -422,67 +445,135 @@ prepare_ossec_storage() {
         fail "/var/ossec es un enlace simbólico. No se modificará."
     fi
 
-    ensure_lvm
+    # LVM es una optimización, no un requisito.
+    if ! has vgs || ! has lvs || ! has lvcreate || ! has blkid || ! has mkfs.ext4 || ! has mount; then
+        warn "LVM o sus herramientas auxiliares no están disponibles; se omitirá el volumen separado para /var/ossec."
+        mkdir -p /var/ossec || fail "No se pudo crear /var/ossec."
+        ok "Se continuará usando el filesystem existente para /var/ossec."
+        return 0
+    fi
+
+    local vg
+    vg="$(find_ossec_vg || true)"
+    if [ -z "$vg" ]; then
+        warn "No hay un Volume Group con al menos 1 GiB libre; se omitirá el volumen separado para /var/ossec."
+        mkdir -p /var/ossec || fail "No se pudo crear /var/ossec."
+        ok "Se continuará usando el filesystem existente para /var/ossec."
+        return 0
+    fi
+
+    local lv_device="/dev/$vg/$WAZUH_OSSEC_LV"
+    local lv_created=0
+    local fstype=""
+
+    if lvs --noheadings --options lv_name "$vg" 2>/dev/null |
+        awk -v target="$WAZUH_OSSEC_LV" '$1 == target { found=1 } END { exit !found }'; then
+        ok "LV $WAZUH_OSSEC_LV ya existe en VG $vg; se reutilizará."
+    else
+        echo "==> Creando LV $WAZUH_OSSEC_LV de $WAZUH_OSSEC_SIZE en $vg..."
+        if ! lvcreate -n "$WAZUH_OSSEC_LV" -L "$WAZUH_OSSEC_SIZE" "$vg"; then
+            warn "No se pudo crear el LV $WAZUH_OSSEC_LV; se continuará sin volumen separado para /var/ossec."
+            mkdir -p /var/ossec || fail "No se pudo crear /var/ossec."
+            return 0
+        fi
+        lv_created=1
+    fi
+
+    [ -b "$lv_device" ] || {
+        [ "$lv_created" -eq 1 ] && lvremove -fy "$lv_device" >/dev/null 2>&1 || true
+        warn "El LV $lv_device no quedó disponible; se continuará con el filesystem existente."
+        mkdir -p /var/ossec || fail "No se pudo crear /var/ossec."
+        return 0
+    }
+
+    fstype="$(blkid -s TYPE -o value "$lv_device" 2>/dev/null || true)"
+    if [ -z "$fstype" ]; then
+        echo "==> Creando filesystem ext4 en $lv_device..."
+        if ! mkfs.ext4 -F "$lv_device" >/dev/null 2>&1; then
+            [ "$lv_created" -eq 1 ] && lvremove -fy "$lv_device" >/dev/null 2>&1 || true
+            warn "No se pudo crear el filesystem de $lv_device; se continuará sin volumen separado."
+            mkdir -p /var/ossec || fail "No se pudo crear /var/ossec."
+            return 0
+        fi
+        fstype="ext4"
+    fi
+
+    local uuid
+    uuid="$(blkid -s UUID -o value "$lv_device" 2>/dev/null || true)"
+    if [ -z "$uuid" ]; then
+        [ "$lv_created" -eq 1 ] && lvremove -fy "$lv_device" >/dev/null 2>&1 || true
+        warn "No se pudo obtener UUID de $lv_device; se continuará sin volumen separado."
+        mkdir -p /var/ossec || fail "No se pudo crear /var/ossec."
+        return 0
+    fi
 
     local backup_dir=""
+    local fstab_backup="/etc/fstab.orangebox-transaction.$(date +%Y%m%d%H%M%S)"
+    cp -p /etc/fstab "$fstab_backup" || {
+        [ "$lv_created" -eq 1 ] && lvremove -fy "$lv_device" >/dev/null 2>&1 || true
+        fail "No se pudo respaldar /etc/fstab."
+    }
+
     if [ -d /var/ossec ] && [ "$(ls -A /var/ossec 2>/dev/null)" ]; then
         backup_dir="/var/ossec.pre-lvm.$(date +%Y%m%d%H%M%S)"
-        mv /var/ossec "$backup_dir" \
-            || fail "No se pudo preservar el contenido existente de /var/ossec."
-        ok "Contenido existente preservado en $backup_dir."
+        mv /var/ossec "$backup_dir" || {
+            [ "$lv_created" -eq 1 ] && lvremove -fy "$lv_device" >/dev/null 2>&1 || true
+            rm -f "$fstab_backup"
+            fail "No se pudo preservar el contenido existente de /var/ossec."
+        }
     elif [ -d /var/ossec ]; then
         rmdir /var/ossec 2>/dev/null || true
     fi
 
     mkdir -p /var/ossec || fail "No se pudo crear /var/ossec."
 
-    local vg lv_device uuid fstype
-    vg="$(find_ossec_vg)"
+    write_ossec_fstab "$uuid" "$fstype" || {
+        cp -p "$fstab_backup" /etc/fstab
+        rm -f "$fstab_backup"
+        rm -rf /var/ossec 2>/dev/null || true
+        [ -n "$backup_dir" ] && mv "$backup_dir" /var/ossec 2>/dev/null || true
+        [ "$lv_created" -eq 1 ] && lvremove -fy "$lv_device" >/dev/null 2>&1 || true
+        warn "No se pudo preparar /var/ossec en LVM; se restauró el estado anterior."
+        return 0
+    }
 
-    if lvs --noheadings --options lv_name "$vg" 2>/dev/null |
-        awk -v target="$WAZUH_OSSEC_LV" '$1 == target { found=1 } END { exit !found }'
-    then
-        ok "LV $WAZUH_OSSEC_LV ya existe en VG $vg; se reutilizará."
-    else
-        echo "==> Creando LV $WAZUH_OSSEC_LV de $WAZUH_OSSEC_SIZE en $vg..."
-        lvcreate -n "$WAZUH_OSSEC_LV" -L "$WAZUH_OSSEC_SIZE" "$vg" \
-            || fail "No se pudo crear el LV $WAZUH_OSSEC_LV."
+    if ! mount /var/ossec; then
+        cp -p "$fstab_backup" /etc/fstab
+        rm -rf /var/ossec 2>/dev/null || true
+        [ -n "$backup_dir" ] && mv "$backup_dir" /var/ossec 2>/dev/null || true
+        [ "$lv_created" -eq 1 ] && lvremove -fy "$lv_device" >/dev/null 2>&1 || true
+        warn "No se pudo montar $lv_device; se restauró el estado anterior y se continuará sin LVM."
+        return 0
     fi
 
-    lv_device="/dev/$vg/$WAZUH_OSSEC_LV"
-    [ -b "$lv_device" ] || fail "El dispositivo $lv_device no existe."
-
-    fstype="$(blkid -s TYPE -o value "$lv_device" 2>/dev/null || true)"
-    if [ -z "$fstype" ]; then
-        echo "==> Creando filesystem ext4 en $lv_device..."
-        mkfs.ext4 -F "$lv_device" >/dev/null 2>&1 \
-            || fail "No se pudo crear el filesystem ext4 en $lv_device."
-        fstype="ext4"
+    if ! ossec_mount_ready; then
+        umount /var/ossec >/dev/null 2>&1 || true
+        cp -p "$fstab_backup" /etc/fstab
+        rm -rf /var/ossec 2>/dev/null || true
+        [ -n "$backup_dir" ] && mv "$backup_dir" /var/ossec 2>/dev/null || true
+        [ "$lv_created" -eq 1 ] && lvremove -fy "$lv_device" >/dev/null 2>&1 || true
+        warn "/var/ossec no quedó con las opciones deseadas; se restauró el estado anterior y se continuará sin LVM."
+        return 0
     fi
-
-    uuid="$(blkid -s UUID -o value "$lv_device" 2>/dev/null || true)"
-    [ -n "$uuid" ] || fail "No se pudo obtener UUID de $lv_device."
-
-    write_ossec_fstab "$uuid" "$fstype"
-
-    mount /var/ossec \
-        || fail "No se pudo montar /var/ossec."
-
-    ossec_mount_ready \
-        || fail "/var/ossec no quedó montado con exec,nosuid,nodev."
 
     chmod 0755 /var/ossec
 
     if [ -n "$backup_dir" ]; then
         echo "==> Restaurando contenido previo de /var/ossec..."
-        cp -a "$backup_dir"/. /var/ossec/ \
-            || fail "No se pudo restaurar el contenido previo de /var/ossec."
-        ok "Contenido previo restaurado desde $backup_dir."
+        cp -a "$backup_dir"/. /var/ossec/ || {
+            umount /var/ossec >/dev/null 2>&1 || true
+            cp -p "$fstab_backup" /etc/fstab
+            rm -rf /var/ossec 2>/dev/null || true
+            mv "$backup_dir" /var/ossec 2>/dev/null || true
+            [ "$lv_created" -eq 1 ] && lvremove -fy "$lv_device" >/dev/null 2>&1 || true
+            warn "No se pudo restaurar el contenido previo; se restauró el estado anterior."
+            return 0
+        }
     fi
 
+    rm -f "$fstab_backup"
     ok "/var/ossec montado en $lv_device con exec,nosuid,nodev."
 }
-
 detect_wazuh_agent_name() {
     # Respetar siempre un nombre explicitamente configurado.
     if [ -n "$WAZUH_AGENT_NAME" ]; then
@@ -530,6 +621,79 @@ detect_wazuh_agent_name() {
     esac
 
     [ -n "$short_hostname" ] && printf '%s\n' "$short_hostname"
+}
+
+agent_current_version() {
+    rpm -q --qf '%{VERSION}\n' wazuh-agent 2>/dev/null || true
+}
+
+reconcile_agent() {
+    local changed=0
+    local current=""
+
+    if ! agent_installed; then
+        warn "Wazuh Agent no está instalado; se ejecutará la instalación inicial."
+        install_agent
+        return 0
+    fi
+
+    current="$(agent_current_version)"
+
+    if [ "$current" = "$WAZUH_VERSION" ]; then
+        ok "Wazuh Agent ya coincide con la versión deseada: $WAZUH_VERSION."
+    elif [ -n "$current" ] && command -v sort >/dev/null 2>&1 &&
+         [ "$(printf '%s\n' "$WAZUH_VERSION" "$current" | sort -V | tail -n1)" = "$current" ]; then
+        warn "Wazuh Agent instalado ($current) es más nuevo que el deseado ($WAZUH_VERSION); no se hace downgrade."
+    else
+        echo "==> Actualizando Wazuh Agent: $current -> $WAZUH_VERSION..."
+        if [ "$IS_CPANEL" = "yes" ]; then
+            local rpm_file="$SCRIPT_DIR/wazuh-agent_$WAZUH_VERSION-0_x86_64_OPT.rpm"
+            [ -n "$WAZUH_AGENT_RPM" ] && rpm_file="$WAZUH_AGENT_RPM"
+            [ -f "$rpm_file" ] || fail "No existe el RPM OPT: $rpm_file"
+            rpm -Uvh "$rpm_file" || fail "No se pudo actualizar Wazuh Agent OPT."
+        else
+            local rpm_file="/tmp/wazuh-agent-$WAZUH_VERSION-1.x86_64.rpm"
+            local url="https://packages.wazuh.com/4.x/yum/wazuh-agent-$WAZUH_VERSION-1.x86_64.rpm"
+            has curl || fail "curl no está instalado."
+            curl -fL -o "$rpm_file" "$url" || fail "Falló la descarga de Wazuh Agent."
+            rpm -Uvh "$rpm_file" || fail "No se pudo actualizar wazuh-agent."
+            rm -f "$rpm_file"
+        fi
+        changed=1
+        ok "Wazuh Agent actualizado a $WAZUH_VERSION."
+    fi
+
+    agent_installed || fail "Wazuh Agent no quedó instalado."
+    [ -f "$WAZUH_HOME/etc/ossec.conf" ] || fail "No existe $WAZUH_HOME/etc/ossec.conf."
+
+    if has systemctl; then
+        if systemctl is-enabled wazuh-agent >/dev/null 2>&1; then
+            ok "wazuh-agent ya está habilitado."
+        else
+            systemctl enable wazuh-agent >/dev/null 2>&1 || fail "No se pudo habilitar wazuh-agent."
+            changed=1
+            ok "wazuh-agent habilitado."
+        fi
+
+        if systemctl is-active --quiet wazuh-agent; then
+            ok "wazuh-agent ya está activo."
+        else
+            warn "wazuh-agent no está activo; se programará su activación al final del instalador."
+            changed=1
+        fi
+    elif has service; then
+        if service wazuh-agent status >/dev/null 2>&1; then
+            ok "wazuh-agent ya está activo."
+        else
+            warn "wazuh-agent no está activo; se programará su activación al final del instalador."
+            changed=1
+        fi
+    fi
+
+    if [ "$changed" -eq 1 ]; then
+        request_agent_action
+    fi
+    return 0
 }
 
 install_agent() {
@@ -600,7 +764,12 @@ activate_agent_final() {
     agent_installed || fail "No se puede activar Wazuh: el agente no está instalado."
 
     if has systemctl; then
-        systemctl enable wazuh-agent >/dev/null 2>&1 || fail "No se pudo habilitar wazuh-agent."
+        if systemctl is-enabled wazuh-agent >/dev/null 2>&1; then
+            ok "wazuh-agent ya está habilitado."
+        else
+            systemctl enable wazuh-agent >/dev/null 2>&1 || fail "No se pudo habilitar wazuh-agent."
+            ok "wazuh-agent habilitado."
+        fi
 
         if [ "$AGENT_ACTION_REQUIRED" -eq 1 ]; then
             if systemctl is-active --quiet wazuh-agent; then
@@ -608,8 +777,12 @@ activate_agent_final() {
             else
                 systemctl start wazuh-agent || fail "No se pudo iniciar wazuh-agent."
             fi
+            ok "wazuh-agent aplicado una sola vez al final."
         elif ! systemctl is-active --quiet wazuh-agent; then
             systemctl start wazuh-agent || fail "wazuh-agent no está activo."
+            ok "wazuh-agent iniciado porque estaba detenido."
+        else
+            ok "wazuh-agent activo; no se reinicia."
         fi
 
         systemctl is-active --quiet wazuh-agent || fail "wazuh-agent no está activo."
@@ -622,7 +795,9 @@ activate_agent_final() {
                 fail "orangebox-iptables.service no está activo."
         fi
     else
-        chkconfig wazuh-agent on >/dev/null 2>&1 || true
+        if command -v chkconfig >/dev/null 2>&1; then
+            chkconfig wazuh-agent on >/dev/null 2>&1 || true
+        fi
 
         if [ "$AGENT_ACTION_REQUIRED" -eq 1 ]; then
             if service wazuh-agent status >/dev/null 2>&1; then
@@ -630,20 +805,20 @@ activate_agent_final() {
             else
                 service wazuh-agent start || fail "No se pudo iniciar wazuh-agent."
             fi
+            ok "wazuh-agent aplicado una sola vez al final."
         elif ! service wazuh-agent status >/dev/null 2>&1; then
             service wazuh-agent start || fail "No se pudo iniciar wazuh-agent."
+            ok "wazuh-agent iniciado porque estaba detenido."
+        else
+            ok "wazuh-agent activo; no se reinicia."
         fi
 
-        service wazuh-agent status >/dev/null 2>&1 ||
-            fail "No se pudo validar wazuh-agent."
+        service wazuh-agent status >/dev/null 2>&1 || fail "wazuh-agent no está activo."
     fi
 
-    if [ "$AGENT_ACTION_REQUIRED" -eq 1 ]; then
-        ok "wazuh-agent activado/reiniciado una sola vez al final."
-    else
-        ok "wazuh-agent ya estaba activo; no fue reiniciado."
-    fi
+    ok "Activación final del agente completada."
 }
+
 
 # ---------------------------------------------------------------------------
 # 2. Firewall: Shorewall > firewalld > iptables
@@ -656,6 +831,7 @@ shorewall_installed() {
 configure_shorewall() {
     local rules_file="/etc/shorewall/rules"
     local started_file="/etc/shorewall/started"
+    local desired_tmp current_tmp rules_tmp
     local changed=0
 
     has shorewall || fail "Shorewall está instalado pero el comando shorewall no existe."
@@ -663,25 +839,8 @@ configure_shorewall() {
 
     detect_orangebox_ips
 
-    # Shorewall 5.2.x permite cargar reglas propias después de crear la
-    # infraestructura del firewall mediante /etc/shorewall/started.
-    # Mantenemos ORANGEBOX-FW como una cadena iptables real y no usamos
-    # Actions, para no depender de la sintaxis de Actions de cada versión.
-    if [ -f "$started_file" ] &&
-       grep -Fq "# BEGIN ORANGEBOX WAZUH FIREWALL" "$started_file"; then
-        ok "Bloque ORANGEBOX-FW ya existe en $started_file; no se duplica."
-    else
-        if [ -f "$started_file" ]; then
-            cp -p "$started_file" \
-                "$started_file.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
-                || fail "No se pudo respaldar $started_file."
-        else
-            mkdir -p "$(dirname "$started_file")" || fail "No se pudo crear el directorio de Shorewall."
-            : > "$started_file" || fail "No se pudo crear $started_file."
-        fi
-
-        cat >> "$started_file" <<'ORANGEBOX_START'
-
+    desired_tmp="$(mktemp)" || fail "No se pudo crear temporal para Shorewall."
+    cat > "$desired_tmp" <<'ORANGEBOX_START'
 # BEGIN ORANGEBOX WAZUH FIREWALL
 # OrangeBox - Wazuh firewall logging
 # Se ejecuta después de que Shorewall haya creado el firewall.
@@ -694,236 +853,184 @@ if [ -n "$IPTABLES" ]; then
         awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1);exit}}')"
     ORANGEBOX_PUBLIC_IP="$(curl -4 -fsS --max-time 5 https://ifconfig.me 2>/dev/null || true)"
 
+    while "$IPTABLES" -C INPUT -p tcp --tcp-flags SYN SYN \
+        ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1; do
+        "$IPTABLES" -D INPUT -p tcp --tcp-flags SYN SYN \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW || break
+    done
+
+    while "$IPTABLES" -C INPUT -p udp \
+        ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1; do
+        "$IPTABLES" -D INPUT -p udp \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW || break
+    done
+
     if [ -n "$ORANGEBOX_PUBLIC_IP" ] && [ -n "$ORANGEBOX_PRIVATE_IP" ]; then
-        "$IPTABLES" -A ORANGEBOX-FW ! -i lo -p tcp --syn \
+        while "$IPTABLES" -C INPUT -p tcp --tcp-flags SYN SYN \
+            -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1; do
+            "$IPTABLES" -D INPUT -p tcp --tcp-flags SYN SYN \
+                -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN || break
+        done
+        while "$IPTABLES" -C INPUT -p udp \
+            -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1; do
+            "$IPTABLES" -D INPUT -p udp \
+                -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN || break
+        done
+
+        "$IPTABLES" -I INPUT 1 -p tcp --tcp-flags SYN SYN \
+            -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN || true
+        "$IPTABLES" -I INPUT 2 -p udp \
             -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN || true
     fi
 
-    "$IPTABLES" -A ORANGEBOX-FW ! -i lo -p tcp --syn \
+    "$IPTABLES" -A ORANGEBOX-FW \
         -m limit --limit 20/second --limit-burst 40 \
         -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 || true
     "$IPTABLES" -A ORANGEBOX-FW -j RETURN || true
 
-    if ! "$IPTABLES" -L INPUT -n 2>/dev/null |
-        awk '$2=="ORANGEBOX-FW"{found=1} END{exit !found}'; then
-        "$IPTABLES" -I INPUT 1 \
-            -p tcp --tcp-flags SYN SYN \
-            ! -s 127.0.0.0/8 \
-            -j ORANGEBOX-FW || true
+    if [ -n "$ORANGEBOX_PUBLIC_IP" ] && [ -n "$ORANGEBOX_PRIVATE_IP" ]; then
+        "$IPTABLES" -I INPUT 3 -p tcp --tcp-flags SYN SYN \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW || true
+        "$IPTABLES" -I INPUT 4 -p udp \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW || true
+    else
+        "$IPTABLES" -I INPUT 1 -p tcp --tcp-flags SYN SYN \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW || true
+        "$IPTABLES" -I INPUT 2 -p udp \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW || true
     fi
 fi
 # END ORANGEBOX WAZUH FIREWALL
 ORANGEBOX_START
-        chmod 755 "$started_file" || fail "No se pudieron establecer permisos en $started_file."
-        changed=1
-        ok "Bloque ORANGEBOX-FW agregado a $started_file."
-    fi
 
-    # Migrar la regla OrangeBox anterior de /etc/shorewall/rules. La cadena
-    # ahora vive en started; no dejamos dos mecanismos de logging activos.
-    local tmp_rules="${rules_file}.orangebox.tmp"
+    if [ -f "$started_file" ] && grep -Fq "# BEGIN ORANGEBOX WAZUH FIREWALL" "$started_file"; then
+        current_tmp="$(mktemp)" || {
+            rm -f "$desired_tmp"
+            fail "No se pudo crear temporal para comparar Shorewall."
+        }
+        sed -n '/^# BEGIN ORANGEBOX WAZUH FIREWALL$/,/^# END ORANGEBOX WAZUH FIREWALL$/p' "$started_file" > "$current_tmp"
+
+        if cmp -s "$current_tmp" "$desired_tmp"; then
+            ok "Bloque OrangeBox de Shorewall ya coincide; no se modifica."
+        else
+            cp -p "$started_file" "$started_file.orangebox-backup.$(date +%Y%m%d%H%M%S)" ||
+                fail "No se pudo respaldar $started_file."
+
+            awk -v desired_file="$desired_tmp" '
+                $0 == "# BEGIN ORANGEBOX WAZUH FIREWALL" {
+                    while ((getline line < desired_file) > 0) print line
+                    close(desired_file)
+                    inside=1
+                    next
+                }
+                $0 == "# END ORANGEBOX WAZUH FIREWALL" && inside {
+                    inside=0
+                    next
+                }
+                !inside { print }
+            ' "$started_file" > "$started_file.orangebox.tmp" ||
+                fail "No se pudo preparar la actualización de $started_file."
+
+            mv "$started_file.orangebox.tmp" "$started_file" ||
+                fail "No se pudo actualizar $started_file."
+            chmod 755 "$started_file"
+            changed=1
+            ok "Bloque OrangeBox de Shorewall actualizado."
+        fi
+        rm -f "$current_tmp"
+    else
+        if [ -f "$started_file" ]; then
+            cp -p "$started_file" "$started_file.orangebox-backup.$(date +%Y%m%d%H%M%S)" ||
+                fail "No se pudo respaldar $started_file."
+        else
+            mkdir -p "$(dirname "$started_file")" || fail "No se pudo crear el directorio de Shorewall."
+            : > "$started_file" || fail "No se pudo crear $started_file."
+        fi
+        cat "$desired_tmp" >> "$started_file" ||
+            fail "No se pudo agregar el bloque OrangeBox a $started_file."
+        chmod 755 "$started_file"
+        changed=1
+        ok "Bloque OrangeBox de Shorewall agregado."
+    fi
+    rm -f "$desired_tmp"
+
+    rules_tmp="$rules_file.orangebox.tmp"
     awk '
         /^[[:space:]]*LOG:info:ORANGEBOX-FW[[:space:]]+all-[[:space:]]+\$FW[[:space:]]+tcp[[:space:]]/ { next }
         { print }
-    ' "$rules_file" > "$tmp_rules" || fail "No se pudo preparar $rules_file."
+    ' "$rules_file" > "$rules_tmp" || fail "No se pudo preparar $rules_file."
 
-    if ! cmp -s "$tmp_rules" "$rules_file"; then
-        cp -p "$rules_file" \
-            "$rules_file.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
-            || fail "No se pudo respaldar $rules_file."
-        mv "$tmp_rules" "$rules_file" || fail "No se pudo actualizar $rules_file."
+    if ! cmp -s "$rules_tmp" "$rules_file"; then
+        cp -p "$rules_file" "$rules_file.orangebox-backup.$(date +%Y%m%d%H%M%S)" ||
+            fail "No se pudo respaldar $rules_file."
+        mv "$rules_tmp" "$rules_file" || fail "No se pudo actualizar $rules_file."
         changed=1
-        ok "Regla OrangeBox antigua retirada de $rules_file."
+        ok "Regla OrangeBox legacy retirada de $rules_file."
     else
-        rm -f "$tmp_rules"
+        rm -f "$rules_tmp"
     fi
 
-    shorewall check >/dev/null 2>&1 \
-        || fail "Shorewall rechazó la configuración OrangeBox."
+    shorewall check >/dev/null 2>&1 || fail "Shorewall rechazó la configuración OrangeBox."
 
-    if [ "$changed" -eq 1 ]; then
-        if has service && service shorewall status >/dev/null 2>&1; then
-            shorewall restart >/dev/null 2>&1 \
-                || fail "Se actualizó Shorewall, pero no se pudo reiniciar."
-        elif has systemctl && systemctl is-active --quiet shorewall 2>/dev/null; then
-            shorewall restart >/dev/null 2>&1 \
-                || fail "Se actualizó Shorewall, pero no se pudo reiniciar."
+    local runtime_ok=1
+    iptables_chain_exists || runtime_ok=0
+
+    if [ "$runtime_ok" -eq 1 ]; then
+        local chain_rules expected_chain
+        chain_rules="$(iptables -S ORANGEBOX-FW 2>/dev/null | sed '/^$/d')"
+        expected_chain="$(printf '%s\n%s\n' \
+            '-A ORANGEBOX-FW -m limit --limit 20/sec --limit-burst 40 -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7' \
+            '-A ORANGEBOX-FW -j RETURN')"
+        [ "$chain_rules" = "$expected_chain" ] || runtime_ok=0
+    fi
+
+    if [ "$runtime_ok" -eq 1 ] && [ -n "$ORANGEBOX_PUBLIC_IP" ] && [ -n "$ORANGEBOX_PRIVATE_IP" ]; then
+        iptables -C INPUT -p tcp --tcp-flags SYN SYN \
+            -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1 || runtime_ok=0
+        iptables -C INPUT -p udp \
+            -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1 || runtime_ok=0
+    fi
+
+    if [ "$runtime_ok" -eq 1 ]; then
+        iptables -C INPUT -p tcp --tcp-flags SYN SYN \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 || runtime_ok=0
+        iptables -C INPUT -p udp \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 || runtime_ok=0
+    fi
+
+    local active=0
+    if has systemctl && systemctl is-active --quiet shorewall 2>/dev/null; then
+        active=1
+    elif has service && service shorewall status >/dev/null 2>&1; then
+        active=1
+    fi
+
+    if [ "$changed" -eq 1 ] || [ "$runtime_ok" -eq 0 ]; then
+        if [ "$active" -eq 1 ]; then
+            shorewall restart >/dev/null 2>&1 || fail "Shorewall debía actualizarse/repararse, pero no se pudo reiniciar."
         else
-            warn "Shorewall está instalado pero no activo; la configuración quedó persistente."
+            warn "Shorewall está inactivo; la configuración persistente quedó actualizada."
         fi
+    else
+        ok "Runtime Shorewall/ORANGEBOX-FW ya coincide; no se reinicia."
     fi
 
-    if [ "$changed" -eq 1 ]; then
-        if ! iptables -L ORANGEBOX-FW -n >/dev/null 2>&1; then
-            fail "Shorewall se reinició, pero la cadena ORANGEBOX-FW no quedó creada."
-        fi
-        if ! iptables -L ORANGEBOX-FW -n 2>/dev/null | grep -Fq "ORANGEBOX-FW"; then
-            fail "La cadena ORANGEBOX-FW no contiene la regla LOG esperada."
-        fi
-        if ! iptables -L INPUT -n 2>/dev/null | grep -Fq "ORANGEBOX-FW"; then
-            fail "INPUT no quedó conectado a ORANGEBOX-FW."
-        fi
-    fi
+    iptables_chain_exists || fail "La cadena ORANGEBOX-FW no quedó creada."
+    iptables -C INPUT -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 ||
+        fail "INPUT no quedó conectado a ORANGEBOX-FW para TCP."
+    iptables -C INPUT -p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 ||
+        fail "INPUT no quedó conectado a ORANGEBOX-FW para UDP."
 
-    ok "Shorewall OrangeBox configurado mediante /etc/shorewall/started: public=${ORANGEBOX_PUBLIC_IP:-desconocida}, private=${ORANGEBOX_PRIVATE_IP:-desconocida}."
+    ok "Shorewall OrangeBox reconciliado: public=$ORANGEBOX_PUBLIC_IP, private=$ORANGEBOX_PRIVATE_IP."
 }
 # iptables -C no es suficientemente portable para todas las versiones antiguas
 # soportadas (especialmente EL6). La detección se hace sobre iptables -L.
-iptables_input_rule_exists() {
-    iptables -L INPUT -n 2>/dev/null |
-        grep -F 'ORANGEBOX-FW' >/dev/null 2>&1
-}
-
 iptables_chain_exists() {
     iptables -L ORANGEBOX-FW -n >/dev/null 2>&1
 }
 
 # LOG de firewall en severidad debug (7): se conserva en journald/rsyslog
 # para Wazuh, pero no llega a la consola con el console_loglevel normal.
-iptables_log_rule_exists() {
-    iptables -L ORANGEBOX-FW -n 2>/dev/null |
-        grep -F 'LOG' |
-        grep -F 'ORANGEBOX-FW' >/dev/null 2>&1
-}
-
-iptables_return_rule_exists() {
-    iptables -L ORANGEBOX-FW -n 2>/dev/null |
-        grep -F 'RETURN' >/dev/null 2>&1
-}
-
-configure_wazuh_agent_firewall_service() {
-    if ! has systemctl; then
-        warn "systemctl no está disponible; no se instalará orangebox-iptables.service."
-        return 1
-    fi
-
-    # Retirar el antiguo drop-in de ExecStartPre creado por versiones anteriores.
-    # Solo se elimina si contiene exactamente nuestro hook anterior.
-    local legacy_dropin="/etc/systemd/system/wazuh-agent.service.d/20-orangebox-firewall.conf"
-    if [ -f "$legacy_dropin" ] && grep -Fxq 'ExecStartPre=-/var/ossec/bin/orangebox-iptables' "$legacy_dropin" 2>/dev/null; then
-        rm -f "$legacy_dropin" || {
-            step_error "No se pudo retirar el antiguo drop-in OrangeBox de wazuh-agent."
-            return 1
-        }
-        rmdir "$(dirname "$legacy_dropin")" 2>/dev/null || true
-        ok "Antiguo hook ExecStartPre OrangeBox retirado."
-    fi
-
-    systemctl cat wazuh-agent.service >/dev/null 2>&1 || {
-        step_error "El servicio wazuh-agent.service no existe; no se pudo crear la dependencia del firewall."
-        return 1
-    }
-
-
-    # -----------------------------------------------------------------------
-    # Eliminar helpers antiguos de firewall de versiones previas.
-    # El servicio actual ejecuta iptables directamente; estos wrappers ya no
-    # forman parte de la implementación y no deben quedar instalados.
-    # -----------------------------------------------------------------------
-    local legacy_start_helper="/var/ossec/bin/orangebox-iptables"
-    local legacy_stop_helper="/var/ossec/bin/orangebox-iptables-stop"
-
-    if [ -e "$legacy_start_helper" ]; then
-        rm -f "$legacy_start_helper" || {
-            step_error "No se pudo retirar el helper antiguo $legacy_start_helper."
-            return 1
-        }
-        ok "Helper antiguo OrangeBox retirado: $legacy_start_helper."
-    fi
-
-    if [ -e "$legacy_stop_helper" ]; then
-        rm -f "$legacy_stop_helper" || {
-            step_error "No se pudo retirar el helper antiguo $legacy_stop_helper."
-            return 1
-        }
-        ok "Helper antiguo OrangeBox retirado: $legacy_stop_helper."
-    fi
-
-    local iptables_bin="/usr/sbin/iptables"
-    local iptables_save="/usr/sbin/iptables-save"
-    local public_ip="$ORANGEBOX_PUBLIC_IP"
-    local private_ip="$ORANGEBOX_PRIVATE_IP"
-
-    [ -x "$iptables_bin" ] || iptables_bin="$(command -v iptables 2>/dev/null || true)"
-    [ -x "$iptables_save" ] || iptables_save="$(command -v iptables-save 2>/dev/null || true)"
-
-    [ -n "$iptables_bin" ] || {
-        step_error "No se encontró el ejecutable iptables."
-        return 1
-    }
-
-    [ -n "$iptables_save" ] || {
-        step_error "No se encontró iptables-save."
-        return 1
-    }
-
-    # systemd ejecutará cada operación como un comando independiente.
-    # Esto evita problemas de quoting de /bin/bash -c y mantiene compatibilidad
-    # con las versiones de systemd presentes en EL7/8/9/10.
-    cat > "$WAZUH_FIREWALL_SERVICE" <<EOF
-[Unit]
-Description=OrangeBox iptables rules for Wazuh Agent
-Requires=wazuh-agent.service
-After=wazuh-agent.service
-PartOf=wazuh-agent.service
-BindsTo=wazuh-agent.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=-$iptables_bin -N ORANGEBOX-FW
-ExecStart=$iptables_bin -F ORANGEBOX-FW
-EOF
-
-    if [ -n "$public_ip" ] && [ -n "$private_ip" ]; then
-        cat >> "$WAZUH_FIREWALL_SERVICE" <<EOF
-ExecStart=$iptables_bin -A ORANGEBOX-FW ! -i lo -p tcp --syn -s $public_ip -d $private_ip -j RETURN
-EOF
-    fi
-
-    cat >> "$WAZUH_FIREWALL_SERVICE" <<EOF
-ExecStart=$iptables_bin -A ORANGEBOX-FW -m limit --limit 20/second --limit-burst 40 -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7
-ExecStart=$iptables_bin -A ORANGEBOX-FW -j RETURN
-ExecStart=/bin/bash -c '$iptables_bin -D INPUT -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 || true; $iptables_bin -I INPUT 1 -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW'
-ExecStart=/bin/bash -c '$iptables_save > /etc/sysconfig/iptables'
-
-[Install]
-WantedBy=wazuh-agent.service
-EOF
-
-    chmod 644 "$WAZUH_FIREWALL_SERVICE" || {
-        step_error "No se pudieron establecer permisos en $WAZUH_FIREWALL_SERVICE."
-        return 1
-    }
-
-    systemd-analyze verify "$WAZUH_FIREWALL_SERVICE" >/dev/null 2>&1 || {
-        step_error "La unidad $WAZUH_FIREWALL_SERVICE no pasó la validación de systemd."
-        return 1
-    }
-
-    systemctl daemon-reload || {
-        step_error "systemctl daemon-reload falló al instalar orangebox-iptables.service."
-        return 1
-    }
-
-    systemctl enable orangebox-iptables.service >/dev/null 2>&1 || {
-        step_error "No se pudo habilitar orangebox-iptables.service como dependencia de wazuh-agent."
-        return 1
-    }
-
-    systemctl restart orangebox-iptables.service >/dev/null 2>&1 || {
-        step_error "No se pudo iniciar/reiniciar orangebox-iptables.service."
-        return 1
-    }
-
-    systemctl is-active --quiet orangebox-iptables.service || {
-        step_error "orangebox-iptables.service no quedó activo."
-        return 1
-    }
-
-    ok "orangebox-iptables.service configurado: reglas agregadas al vuelo y guardadas con iptables-save."
-    return 0
-}
 detect_orangebox_ips() {
     local detected_private=""
     local detected_public=""
@@ -948,193 +1055,492 @@ configure_iptables() {
         return 1
     fi
 
-    local failed=0
     detect_orangebox_ips
 
-    if iptables_chain_exists; then
-        ok "Cadena ORANGEBOX-FW ya existe; no se crea otra."
-    else
-        echo "==> Creando cadena ORANGEBOX-FW..."
-        if iptables -N ORANGEBOX-FW; then
-            ok "Cadena ORANGEBOX-FW creada."
-        else
+    local changed=0
+    local actual_chain expected_chain runtime_ok=1
+    local service_changed=0
+    local iptables_bin="/usr/sbin/iptables"
+    local iptables_save="/usr/sbin/iptables-save"
+
+    [ -x "$iptables_bin" ] || iptables_bin="$(command -v iptables 2>/dev/null || true)"
+    [ -x "$iptables_save" ] || iptables_save="$(command -v iptables-save 2>/dev/null || true)"
+    [ -n "$iptables_bin" ] || {
+        step_error "No se encontró el ejecutable iptables."
+        return 1
+    }
+    [ -n "$iptables_save" ] || {
+        step_error "No se encontró iptables-save."
+        return 1
+    }
+
+    if ! "$iptables_bin" -L ORANGEBOX-FW -n >/dev/null 2>&1; then
+        "$iptables_bin" -N ORANGEBOX-FW || {
             step_error "No se pudo crear la cadena ORANGEBOX-FW."
             return 1
-        fi
+        }
+        changed=1
+        ok "Cadena ORANGEBOX-FW creada."
     fi
 
-    if iptables_chain_exists; then
-        ok "Validación: cadena ORANGEBOX-FW existe."
+    actual_chain="$("$iptables_bin" -S ORANGEBOX-FW 2>/dev/null | sed '/^$/d')"
+    expected_chain="$(printf '%s\n%s\n' \
+        '-A ORANGEBOX-FW -m limit --limit 20/sec --limit-burst 40 -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7' \
+        '-A ORANGEBOX-FW -j RETURN')"
+
+    if [ "$actual_chain" = "$expected_chain" ]; then
+        ok "Cadena ORANGEBOX-FW ya coincide con el estado deseado."
     else
-        step_error "Validación fallida: la cadena ORANGEBOX-FW no existe."
-        return 1
+        "$iptables_bin" -F ORANGEBOX-FW || {
+            step_error "No se pudo normalizar la cadena ORANGEBOX-FW."
+            return 1
+        }
+        "$iptables_bin" -A ORANGEBOX-FW -m limit --limit 20/second --limit-burst 40 \
+            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 || {
+            step_error "No se pudo configurar LOG en ORANGEBOX-FW."
+            return 1
+        }
+        "$iptables_bin" -A ORANGEBOX-FW -j RETURN || {
+            step_error "No se pudo configurar RETURN en ORANGEBOX-FW."
+            return 1
+        }
+        changed=1
+        ok "Cadena ORANGEBOX-FW actualizada al estado deseado."
+    fi
+
+    local managed_ok=1
+    local tcp_hook_count udp_hook_count tcp_exception_count udp_exception_count
+
+    tcp_hook_count="$("$iptables_bin" -S INPUT 2>/dev/null | grep -F -- "-p tcp -m tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW" | wc -l)"
+    udp_hook_count="$("$iptables_bin" -S INPUT 2>/dev/null | grep -F -- "-p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW" | wc -l)"
+
+    if [ "$tcp_hook_count" -ne 1 ] || [ "$udp_hook_count" -ne 1 ]; then
+        managed_ok=0
     fi
 
     if [ -n "$ORANGEBOX_PUBLIC_IP" ] && [ -n "$ORANGEBOX_PRIVATE_IP" ]; then
-        if iptables -L ORANGEBOX-FW -n 2>/dev/null | grep -Fq "$ORANGEBOX_PUBLIC_IP" &&            iptables -L ORANGEBOX-FW -n 2>/dev/null | grep -Fq "$ORANGEBOX_PRIVATE_IP"; then
-            ok "Exclusión de la IP pública propia ($ORANGEBOX_PUBLIC_IP -> $ORANGEBOX_PRIVATE_IP) ya existe."
-        elif iptables -I ORANGEBOX-FW 1 ! -i lo -p tcp --syn -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN; then
-            ok "Exclusión de la IP pública propia ($ORANGEBOX_PUBLIC_IP -> $ORANGEBOX_PRIVATE_IP) configurada."
-        else
-            step_error "No se pudo configurar la exclusión de la IP pública propia."
-            failed=1
+        tcp_exception_count="$("$iptables_bin" -S INPUT 2>/dev/null |
+            grep -F -- "-s $ORANGEBOX_PUBLIC_IP/32 -d $ORANGEBOX_PRIVATE_IP/32 -p tcp" |
+            grep -F -- "-j RETURN" | wc -l)"
+        udp_exception_count="$("$iptables_bin" -S INPUT 2>/dev/null |
+            grep -F -- "-s $ORANGEBOX_PUBLIC_IP/32 -d $ORANGEBOX_PRIVATE_IP/32 -p udp" |
+            grep -F -- "-j RETURN" | wc -l)"
+
+        [ "$tcp_exception_count" -eq 1 ] || managed_ok=0
+        [ "$udp_exception_count" -eq 1 ] || managed_ok=0
+
+        "$iptables_bin" -S INPUT | grep -E '^-A INPUT ' | sed -n '1p' |
+            grep -F -- "-s $ORANGEBOX_PUBLIC_IP/32 -d $ORANGEBOX_PRIVATE_IP/32 -p tcp" |
+            grep -F -- "-j RETURN" >/dev/null 2>&1 || managed_ok=0
+        "$iptables_bin" -S INPUT | grep -E '^-A INPUT ' | sed -n '2p' |
+            grep -F -- "-s $ORANGEBOX_PUBLIC_IP/32 -d $ORANGEBOX_PRIVATE_IP/32 -p udp" |
+            grep -F -- "-j RETURN" >/dev/null 2>&1 || managed_ok=0
+
+        "$iptables_bin" -S INPUT | grep -E '^-A INPUT ' | sed -n '3p' |
+            grep -F -- "-p tcp -m tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW" >/dev/null 2>&1 || managed_ok=0
+        "$iptables_bin" -S INPUT | grep -E '^-A INPUT ' | sed -n '4p' |
+            grep -F -- "-p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW" >/dev/null 2>&1 || managed_ok=0
+    else
+        "$iptables_bin" -S INPUT | grep -E '^-A INPUT ' | sed -n '1p' |
+            grep -F -- "-p tcp -m tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW" >/dev/null 2>&1 || managed_ok=0
+        "$iptables_bin" -S INPUT | grep -E '^-A INPUT ' | sed -n '2p' |
+            grep -F -- "-p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW" >/dev/null 2>&1 || managed_ok=0
+    fi
+
+    if [ "$managed_ok" -eq 1 ]; then
+        "$iptables_bin" -S INPUT | grep -E '^-A INPUT ' | sed -n '3p' |
+            grep -F -- "! -s 127.0.0.0/8 -p tcp" |
+            grep -F -- "-j ORANGEBOX-FW" >/dev/null 2>&1 || managed_ok=0
+        "$iptables_bin" -S INPUT | grep -E '^-A INPUT ' | sed -n '4p' |
+            grep -F -- "! -s 127.0.0.0/8 -p udp" |
+            grep -F -- "-j ORANGEBOX-FW" >/dev/null 2>&1 || managed_ok=0
+    fi
+
+    if [ "$managed_ok" -eq 1 ]; then
+        ok "Reglas INPUT TCP/UDP y excepciones ya coinciden; no se modifican."
+    else
+        # Retirar únicamente los hooks OrangeBox conocidos. No se toca ninguna
+        # regla de otros componentes.
+        while "$iptables_bin" -C INPUT -p tcp --tcp-flags SYN SYN \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1; do
+            "$iptables_bin" -D INPUT -p tcp --tcp-flags SYN SYN \
+                ! -s 127.0.0.0/8 -j ORANGEBOX-FW || break
+        done
+
+        while "$iptables_bin" -C INPUT -p udp \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1; do
+            "$iptables_bin" -D INPUT -p udp \
+                ! -s 127.0.0.0/8 -j ORANGEBOX-FW || break
+        done
+
+        if [ -n "$ORANGEBOX_PUBLIC_IP" ] && [ -n "$ORANGEBOX_PRIVATE_IP" ]; then
+            while "$iptables_bin" -C INPUT -p tcp --tcp-flags SYN SYN \
+                -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1; do
+                "$iptables_bin" -D INPUT -p tcp --tcp-flags SYN SYN \
+                    -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN || break
+            done
+
+            while "$iptables_bin" -C INPUT -p udp \
+                -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1; do
+                "$iptables_bin" -D INPUT -p udp \
+                    -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN || break
+            done
+
+            "$iptables_bin" -I INPUT 1 -p tcp --tcp-flags SYN SYN \
+                -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN || {
+                step_error "No se pudo instalar la excepción TCP de la IP pública propia."
+                return 1
+            }
+            "$iptables_bin" -I INPUT 2 -p udp \
+                -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN || {
+                step_error "No se pudo instalar la excepción UDP de la IP pública propia."
+                return 1
+            }
         fi
-    fi
 
-    if iptables_log_rule_exists; then
-        ok "Regla LOG ORANGEBOX-FW ya existe; no se agrega otra."
-    else
-        echo "==> Agregando LOG a ORANGEBOX-FW..."
-        if iptables -A ORANGEBOX-FW \
-            -m limit --limit 20/second --limit-burst 40 \
-            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7; then
-            if iptables_log_rule_exists; then
-                ok "Validación: regla LOG ORANGEBOX-FW instalada."
-            else
-                step_error "La regla LOG fue agregada pero no pudo validarse."
-                failed=1
-            fi
+        if [ -n "$ORANGEBOX_PUBLIC_IP" ] && [ -n "$ORANGEBOX_PRIVATE_IP" ]; then
+            "$iptables_bin" -I INPUT 3 -p tcp --tcp-flags SYN SYN \
+                ! -s 127.0.0.0/8 -j ORANGEBOX-FW || {
+                step_error "No se pudo instalar el hook TCP de ORANGEBOX-FW."
+                return 1
+            }
+            "$iptables_bin" -I INPUT 4 -p udp \
+                ! -s 127.0.0.0/8 -j ORANGEBOX-FW || {
+                step_error "No se pudo instalar el hook UDP de ORANGEBOX-FW."
+                return 1
+            }
         else
-            step_error "No se pudo agregar la regla LOG ORANGEBOX-FW."
-            failed=1
+            "$iptables_bin" -I INPUT 1 -p tcp --tcp-flags SYN SYN \
+                ! -s 127.0.0.0/8 -j ORANGEBOX-FW || {
+                step_error "No se pudo instalar el hook TCP de ORANGEBOX-FW."
+                return 1
+            }
+            "$iptables_bin" -I INPUT 2 -p udp \
+                ! -s 127.0.0.0/8 -j ORANGEBOX-FW || {
+                step_error "No se pudo instalar el hook UDP de ORANGEBOX-FW."
+                return 1
+            }
         fi
+
+        changed=1
+        ok "Reglas INPUT TCP/UDP reconciliadas al estado deseado."
     fi
 
-    if iptables_return_rule_exists; then
-        ok "RETURN de ORANGEBOX-FW ya existe; no se agrega otro."
-    else
-        echo "==> Agregando RETURN a ORANGEBOX-FW..."
-        if iptables -A ORANGEBOX-FW -j RETURN; then
-            if iptables_return_rule_exists; then
-                ok "Validación: RETURN de ORANGEBOX-FW instalado."
-            else
-                step_error "La regla RETURN fue agregada pero no pudo validarse."
-                failed=1
-            fi
+    if [ -f /etc/sysconfig/iptables ]; then
+        local current_rules_tmp
+        current_rules_tmp="$(mktemp)" || {
+            step_error "No se pudo crear temporal para comparar persistencia iptables."
+            return 1
+        }
+        "$iptables_save" > "$current_rules_tmp" || {
+            rm -f "$current_rules_tmp"
+            step_error "No se pudo obtener el estado actual de iptables-save."
+            return 1
+        }
+
+        if cmp -s "$current_rules_tmp" /etc/sysconfig/iptables; then
+            ok "Persistencia iptables ya coincide con el estado runtime."
         else
-            step_error "No se pudo agregar RETURN a ORANGEBOX-FW."
-            failed=1
+            cat "$current_rules_tmp" > /etc/sysconfig/iptables ||
+                fail "No se pudo actualizar /etc/sysconfig/iptables."
+            changed=1
+            ok "Persistencia iptables actualizada."
         fi
+        rm -f "$current_rules_tmp"
+    else
+        "$iptables_save" > /etc/sysconfig/iptables ||
+            fail "No se pudo crear /etc/sysconfig/iptables."
+        changed=1
+        ok "Persistencia iptables creada."
     fi
 
-    if iptables_input_rule_exists; then
-        ok "Regla INPUT -> ORANGEBOX-FW ya existe; no se agrega otra."
-    else
-        echo "==> Conectando INPUT con ORANGEBOX-FW..."
-        if iptables -I INPUT 1 \
-            -p tcp --tcp-flags SYN SYN \
-            ! -s 127.0.0.0/8 \
-            -j ORANGEBOX-FW; then
-            if iptables_input_rule_exists; then
-                ok "Validación: regla INPUT -> ORANGEBOX-FW instalada."
-            else
-                step_error "La regla INPUT -> ORANGEBOX-FW fue agregada pero no pudo validarse."
-                failed=1
-            fi
+    # La unidad persistente también se reconcilia: si es idéntica, no se escribe.
+    if has systemctl && systemctl cat wazuh-agent.service >/dev/null 2>&1; then
+        local service_tmp
+        service_tmp="$(mktemp)" || fail "No se pudo crear temporal para orangebox-iptables.service."
+
+        cat > "$service_tmp" <<EOF
+[Unit]
+Description=OrangeBox iptables rules for Wazuh Agent
+Requires=wazuh-agent.service
+After=wazuh-agent.service
+PartOf=wazuh-agent.service
+BindsTo=wazuh-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-$iptables_bin -N ORANGEBOX-FW
+ExecStart=$iptables_bin -F ORANGEBOX-FW
+ExecStart=$iptables_bin -A ORANGEBOX-FW -m limit --limit 20/second --limit-burst 40 -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7
+ExecStart=$iptables_bin -A ORANGEBOX-FW -j RETURN
+EOF
+
+        if [ -n "$ORANGEBOX_PUBLIC_IP" ] && [ -n "$ORANGEBOX_PRIVATE_IP" ]; then
+            cat >> "$service_tmp" <<EOF
+ExecStart=/bin/bash -c '$iptables_bin -D INPUT -p tcp --tcp-flags SYN SYN -s $ORANGEBOX_PUBLIC_IP -d $ORANGEBOX_PRIVATE_IP -j RETURN >/dev/null 2>&1 || true; $iptables_bin -I INPUT 1 -p tcp --tcp-flags SYN SYN -s $ORANGEBOX_PUBLIC_IP -d $ORANGEBOX_PRIVATE_IP -j RETURN'
+ExecStart=/bin/bash -c '$iptables_bin -D INPUT -p udp -s $ORANGEBOX_PUBLIC_IP -d $ORANGEBOX_PRIVATE_IP -j RETURN >/dev/null 2>&1 || true; $iptables_bin -I INPUT 2 -p udp -s $ORANGEBOX_PUBLIC_IP -d $ORANGEBOX_PRIVATE_IP -j RETURN'
+ExecStart=/bin/bash -c '$iptables_bin -D INPUT -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 || true; $iptables_bin -I INPUT 3 -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW'
+ExecStart=/bin/bash -c '$iptables_bin -D INPUT -p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 || true; $iptables_bin -I INPUT 4 -p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW'
+EOF
         else
-            step_error "No se pudo conectar INPUT con ORANGEBOX-FW."
-            failed=1
+            cat >> "$service_tmp" <<EOF
+ExecStart=/bin/bash -c '$iptables_bin -D INPUT -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 || true; $iptables_bin -I INPUT 1 -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW'
+ExecStart=/bin/bash -c '$iptables_bin -D INPUT -p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 || true; $iptables_bin -I INPUT 2 -p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW'
+EOF
         fi
-    fi
 
-    if iptables_chain_exists; then
-        ok "Validación final: cadena ORANGEBOX-FW presente."
-    else
-        step_error "Validación final fallida: cadena ORANGEBOX-FW ausente."
-        failed=1
-    fi
+        cat >> "$service_tmp" <<EOF
+ExecStart=/bin/bash -c '$iptables_save > /etc/sysconfig/iptables'
 
-    if iptables_log_rule_exists; then
-        ok "Validación final: regla LOG presente."
-    else
-        step_error "Validación final fallida: regla LOG ausente."
-        failed=1
-    fi
+[Install]
+WantedBy=wazuh-agent.service
+EOF
 
-    if iptables_return_rule_exists; then
-        ok "Validación final: regla RETURN presente."
-    else
-        step_error "Validación final fallida: regla RETURN ausente."
-        failed=1
-    fi
-
-    if iptables_input_rule_exists; then
-        ok "Validación final: regla INPUT presente."
-    else
-        step_error "Validación final fallida: regla INPUT -> ORANGEBOX-FW ausente."
-        failed=1
-    fi
-
-    if [ "$EL_MAJOR" -ge 7 ] 2>/dev/null; then
-        if configure_wazuh_agent_firewall_service; then
-            ok "Persistencia del firewall mediante orangebox-iptables.service configurada."
+        if sync_managed_file "$service_tmp" "$WAZUH_FIREWALL_SERVICE" 644 root root; then
+            service_changed=1
+            ok "orangebox-iptables.service actualizado."
         else
-            failed=1
+            ok "orangebox-iptables.service ya coincide; no se modifica."
         fi
-    elif [ -f /etc/sysconfig/iptables ]; then
-        if has service && service iptables save >/dev/null 2>&1; then
-            ok "Configuración iptables persistida para EL6."
-        elif iptables-save > /etc/sysconfig/iptables; then
-            ok "Configuración iptables persistida mediante iptables-save."
+
+        systemd-analyze verify "$WAZUH_FIREWALL_SERVICE" >/dev/null 2>&1 ||
+            fail "La unidad orangebox-iptables.service no pasó la validación de systemd."
+
+        systemctl daemon-reload || fail "systemctl daemon-reload falló."
+
+        if ! systemctl is-enabled orangebox-iptables.service >/dev/null 2>&1; then
+            systemctl enable orangebox-iptables.service >/dev/null 2>&1 ||
+                fail "No se pudo habilitar orangebox-iptables.service."
+            changed=1
+            ok "orangebox-iptables.service habilitado."
+        fi
+
+        if [ "$service_changed" -eq 1 ] || [ "$changed" -eq 1 ]; then
+            systemctl restart orangebox-iptables.service >/dev/null 2>&1 ||
+                fail "No se pudo aplicar orangebox-iptables.service."
+            ok "orangebox-iptables.service aplicado."
+        elif ! systemctl is-active --quiet orangebox-iptables.service; then
+            systemctl start orangebox-iptables.service >/dev/null 2>&1 ||
+                fail "No se pudo iniciar orangebox-iptables.service."
+            ok "orangebox-iptables.service iniciado."
         else
-            step_error "No se pudo persistir la configuración iptables en /etc/sysconfig/iptables."
-            failed=1
+            ok "orangebox-iptables.service activo; no se reinicia."
         fi
     else
-        warn "No existe /etc/sysconfig/iptables en EL6; no se fuerza persistencia."
+        warn "wazuh-agent.service todavía no existe; no se crea la unidad persistente del firewall."
     fi
 
-    if [ "$failed" -eq 0 ]; then
-        ok "Configuración ORANGEBOX-FW de iptables validada."
-        return 0
+    # Verificación final exacta.
+    "$iptables_bin" -C ORANGEBOX-FW -m limit --limit 20/second --limit-burst 40 \
+        -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 >/dev/null 2>&1 ||
+        fail "Falta la regla LOG deseada en ORANGEBOX-FW."
+
+    "$iptables_bin" -C ORANGEBOX-FW -j RETURN >/dev/null 2>&1 ||
+        fail "Falta RETURN en ORANGEBOX-FW."
+
+    "$iptables_bin" -C INPUT -p tcp --tcp-flags SYN SYN \
+        ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 ||
+        fail "Falta el hook TCP de ORANGEBOX-FW."
+
+    "$iptables_bin" -C INPUT -p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 ||
+        fail "Falta el hook UDP de ORANGEBOX-FW."
+
+    ok "Configuración ORANGEBOX-FW de iptables reconciliada y validada."
+    return 0
+}
+
+disable_orangebox_iptables_service() {
+    has systemctl || return 0
+    local service_file="$WAZUH_FIREWALL_SERVICE"
+    if [ -f "$service_file" ] && grep -Fq "Description=OrangeBox iptables rules for Wazuh Agent" "$service_file"; then
+        systemctl disable --now orangebox-iptables.service >/dev/null 2>&1 || true
+        rm -f "$service_file" || fail "No se pudo retirar $service_file al usar firewalld."
+        systemctl daemon-reload || fail "No se pudo recargar systemd después de retirar orangebox-iptables.service."
+        ok "orangebox-iptables.service deshabilitado porque firewalld es el backend activo."
+    fi
+}
+
+cleanup_legacy_orangebox_firewalld() {
+    local direct_file="/etc/firewalld/direct.xml"
+    local backup_file=""
+    local check_cmd=""
+    [ -f "$direct_file" ] || return 0
+
+    if has firewall-offline-cmd; then
+        check_cmd="firewall-offline-cmd"
+    elif has firewall-cmd; then
+        check_cmd="firewall-cmd"
     fi
 
-    step_error "Configuración ORANGEBOX-FW de iptables terminó con uno o más errores; se continuará con los demás pasos."
-    return 1
+    if grep -Fq "ORANGEBOX-FW" "$direct_file" &&        { grep -Eq "'-p tcp|--log-level 4" "$direct_file" ||          { [ -n "$check_cmd" ] && ! "$check_cmd" --check-config >/dev/null 2>&1; }; }; then
+        backup_file="$direct_file.orangebox-backup.$(date +%Y%m%d%H%M%S)"
+        cp -p "$direct_file" "$backup_file" || fail "No se pudo respaldar $direct_file."
+        awk '!/ORANGEBOX-FW/' "$direct_file" > /etc/firewalld/direct.xml.orangebox.tmp ||             fail "No se pudo preparar la limpieza de reglas OrangeBox antiguas."
+        mv /etc/firewalld/direct.xml.orangebox.tmp "$direct_file" ||             fail "No se pudo actualizar $direct_file."
+        if [ -n "$check_cmd" ] && ! "$check_cmd" --check-config >/dev/null 2>&1; then
+            cp -p "$backup_file" "$direct_file" || true
+            fail "La limpieza de reglas OrangeBox dejó inválida la configuración de firewalld; se restauró el respaldo."
+        fi
+        ok "Reglas OrangeBox antiguas de firewalld retiradas; respaldo: $backup_file."
+    fi
 }
 
 configure_firewalld() {
     has firewall-cmd || fail "firewalld está activo pero firewall-cmd no existe."
+
+    disable_orangebox_iptables_service
+    cleanup_legacy_orangebox_firewalld
     detect_orangebox_ips
+
+    local changed=0
+
+    # Estado deseado:
+    # INPUT priority 0: excepción TCP propia
+    # INPUT priority 1: excepción UDP propia
+    # INPUT priority 2: TCP SYN -> ORANGEBOX-FW
+    # INPUT priority 3: UDP -> ORANGEBOX-FW
+    # ORANGEBOX-FW priority 0: LOG
+    # ORANGEBOX-FW priority 1: RETURN
+
     if [ -n "$ORANGEBOX_PUBLIC_IP" ] && [ -n "$ORANGEBOX_PRIVATE_IP" ]; then
-        if ! firewall-cmd --direct --query-rule ipv4 filter INPUT 0 -p tcp --tcp-flags SYN SYN -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1; then
-            firewall-cmd --permanent --direct --add-rule ipv4 filter INPUT 0 -p tcp --tcp-flags SYN SYN -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN || fail "No se pudo agregar la exclusión de la IP pública propia a firewalld."
+        if ! firewall-cmd --permanent --direct --query-rule ipv4 filter INPUT 0 \
+            -p tcp --tcp-flags SYN SYN -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1 ||
+           ! firewall-cmd --permanent --direct --query-rule ipv4 filter INPUT 1 \
+            -p udp -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1 ||
+           ! firewall-cmd --permanent --direct --query-rule ipv4 filter INPUT 2 \
+            -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 ||
+           ! firewall-cmd --permanent --direct --query-rule ipv4 filter INPUT 3 \
+            -p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 ||
+           ! firewall-cmd --permanent --direct --query-rule ipv4 filter ORANGEBOX-FW 0 \
+            -m limit --limit 20/second --limit-burst 40 \
+            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 >/dev/null 2>&1 ||
+           ! firewall-cmd --permanent --direct --query-rule ipv4 filter ORANGEBOX-FW 1 \
+            -j RETURN >/dev/null 2>&1; then
+            changed=1
+        fi
+    else
+        warn "No se pudieron determinar ambas IP; se configurará firewalld sin excepciones de IP propia."
+        if ! firewall-cmd --permanent --direct --query-rule ipv4 filter INPUT 0 \
+            -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 ||
+           ! firewall-cmd --permanent --direct --query-rule ipv4 filter INPUT 1 \
+            -p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1; then
+            changed=1
         fi
     fi
 
-    # firewall-cmd --direct --add-rule recibe los argumentos de iptables
-    # como argumentos separados. No se debe pasar toda la regla como una
-    # única cadena entre comillas: firewalld terminará entregándola a
-    # iptables-restore como un solo argumento y la regla será inválida.
-    # Se pasan directamente como argumentos para mantener compatibilidad
-    # incluso cuando el instalador se invoque mediante "sh script.sh".
-    if firewall-cmd --direct --query-rule ipv4 filter INPUT 0 \
-        -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 \
-        -m limit --limit 20/second --limit-burst 40 \
-        -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 >/dev/null 2>&1; then
-        ok "Regla ORANGEBOX-FW ya existe en firewalld."
-    else
-        echo "==> Agregando regla ORANGEBOX-FW a firewalld..."
-        firewall-cmd --permanent --direct --add-rule ipv4 filter INPUT 0 \
-            -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 \
-            -m limit --limit 20/second --limit-burst 40 \
-            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 \
-            || fail "No se pudo agregar la regla a firewalld."
-        firewall-cmd --reload || fail "No se pudo recargar firewalld."
-        firewall-cmd --direct --query-rule ipv4 filter INPUT 0 \
-            -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 \
-            -m limit --limit 20/second --limit-burst 40 \
-            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 >/dev/null 2>&1 \
-            || fail "No se pudo validar la regla firewalld."
-        ok "Regla ORANGEBOX-FW instalada en firewalld."
+    if ! firewall-cmd --permanent --direct --get-chains ipv4 filter 2>/dev/null |
+        grep -Fxq "ORANGEBOX-FW"; then
+        changed=1
     fi
-}
 
+    if [ "$changed" -eq 1 ]; then
+        firewall-cmd --permanent --direct --add-chain ipv4 filter ORANGEBOX-FW >/dev/null 2>&1 || true
+
+        # Retirar variantes conocidas de la configuración OrangeBox anterior.
+        if [ -n "$ORANGEBOX_PUBLIC_IP" ] && [ -n "$ORANGEBOX_PRIVATE_IP" ]; then
+            firewall-cmd --permanent --direct --remove-rule ipv4 filter INPUT 0 \
+                -p tcp --tcp-flags SYN SYN -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1 || true
+            firewall-cmd --permanent --direct --remove-rule ipv4 filter INPUT 0 \
+                -p udp -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1 || true
+            firewall-cmd --permanent --direct --remove-rule ipv4 filter INPUT 1 \
+                -p udp -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1 || true
+            firewall-cmd --permanent --direct --remove-rule ipv4 filter INPUT 0 \
+                -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 || true
+            firewall-cmd --permanent --direct --remove-rule ipv4 filter INPUT 2 \
+                -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 || true
+        else
+            firewall-cmd --permanent --direct --remove-rule ipv4 filter INPUT 0 \
+                -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 || true
+            firewall-cmd --permanent --direct --remove-rule ipv4 filter INPUT 1 \
+                -p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 || true
+        fi
+
+        firewall-cmd --permanent --direct --remove-rule ipv4 filter ORANGEBOX-FW 0 \
+            -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 \
+            -m limit --limit 20/second --limit-burst 40 \
+            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 >/dev/null 2>&1 || true
+        firewall-cmd --permanent --direct --remove-rule ipv4 filter ORANGEBOX-FW 0 \
+            -m limit --limit 20/second --limit-burst 40 \
+            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 >/dev/null 2>&1 || true
+        firewall-cmd --permanent --direct --remove-rule ipv4 filter ORANGEBOX-FW 1 -j RETURN >/dev/null 2>&1 || true
+
+        if [ -n "$ORANGEBOX_PUBLIC_IP" ] && [ -n "$ORANGEBOX_PRIVATE_IP" ]; then
+            firewall-cmd --permanent --direct --add-rule ipv4 filter INPUT 0 \
+                -p tcp --tcp-flags SYN SYN -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN ||
+                fail "No se pudo configurar la excepción TCP en firewalld."
+            firewall-cmd --permanent --direct --add-rule ipv4 filter INPUT 1 \
+                -p udp -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN ||
+                fail "No se pudo configurar la excepción UDP en firewalld."
+            firewall-cmd --permanent --direct --add-rule ipv4 filter INPUT 2 \
+                -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW ||
+                fail "No se pudo configurar el hook TCP en firewalld."
+            firewall-cmd --permanent --direct --add-rule ipv4 filter INPUT 3 \
+                -p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW ||
+                fail "No se pudo configurar el hook UDP en firewalld."
+        else
+            firewall-cmd --permanent --direct --add-rule ipv4 filter INPUT 0 \
+                -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW ||
+                fail "No se pudo configurar el hook TCP en firewalld."
+            firewall-cmd --permanent --direct --add-rule ipv4 filter INPUT 1 \
+                -p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW ||
+                fail "No se pudo configurar el hook UDP en firewalld."
+        fi
+
+        firewall-cmd --permanent --direct --add-rule ipv4 filter ORANGEBOX-FW 0 \
+            -m limit --limit 20/second --limit-burst 40 \
+            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 ||
+            fail "No se pudo configurar LOG en ORANGEBOX-FW."
+        firewall-cmd --permanent --direct --add-rule ipv4 filter ORANGEBOX-FW 1 -j RETURN ||
+            fail "No se pudo configurar RETURN en ORANGEBOX-FW."
+
+        firewall-cmd --reload || fail "No se pudo recargar firewalld."
+        ok "Firewalld OrangeBox actualizado."
+    else
+        ok "Firewalld OrangeBox ya coincide con el estado deseado; no se modifica ni recarga."
+    fi
+
+    firewall-cmd --direct --get-chains ipv4 filter 2>/dev/null |
+        grep -Fxq "ORANGEBOX-FW" ||
+        fail "La cadena runtime ORANGEBOX-FW no quedó activa."
+
+    firewall-cmd --direct --query-rule ipv4 filter ORANGEBOX-FW 0 \
+        -m limit --limit 20/second --limit-burst 40 \
+        -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7 >/dev/null 2>&1 ||
+        fail "La regla LOG runtime no quedó activa."
+
+    firewall-cmd --direct --query-rule ipv4 filter ORANGEBOX-FW 1 -j RETURN >/dev/null 2>&1 ||
+        fail "El RETURN runtime no quedó activo."
+
+    if [ -n "$ORANGEBOX_PUBLIC_IP" ] && [ -n "$ORANGEBOX_PRIVATE_IP" ]; then
+        firewall-cmd --direct --query-rule ipv4 filter INPUT 0 \
+            -p tcp --tcp-flags SYN SYN -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1 ||
+            fail "La excepción TCP runtime no quedó activa."
+        firewall-cmd --direct --query-rule ipv4 filter INPUT 1 \
+            -p udp -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1 ||
+            fail "La excepción UDP runtime no quedó activa."
+        firewall-cmd --direct --query-rule ipv4 filter INPUT 2 \
+            -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 ||
+            fail "El hook TCP runtime no quedó activo."
+        firewall-cmd --direct --query-rule ipv4 filter INPUT 3 \
+            -p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 ||
+            fail "El hook UDP runtime no quedó activo."
+    else
+        firewall-cmd --direct --query-rule ipv4 filter INPUT 0 \
+            -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 ||
+            fail "El hook TCP runtime no quedó activo."
+        firewall-cmd --direct --query-rule ipv4 filter INPUT 1 \
+            -p udp ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 ||
+            fail "El hook UDP runtime no quedó activo."
+    fi
+
+    ok "Firewalld OrangeBox reconciliado: INPUT -> excepciones -> ORANGEBOX-FW -> LOG -> RETURN."
+}
 configure_cpanel_firewall() {
     local csf_conf="/etc/csf/csf.conf"
     local csf_post="/usr/local/csf/bin/csfpost.sh"
 
-    # cPanel no implica necesariamente CSF. Preferir CSF si está realmente
+    # cPanel no implica necesariamente CSF. Preferir CSF si realmente está
     # instalado y operativo; de lo contrario usar firewalld o iptables.
     if [ -f "$csf_conf" ] && [ -f "$csf_post" ] && has csf; then
         echo "==> cPanel detectado: usando CSF."
@@ -1148,29 +1554,45 @@ configure_cpanel_firewall() {
             local port="$1"
             awk -v p="$port" '
                 /^[[:space:]]*TCP_OUT[[:space:]]*=/ {
-                    line=$0; sub(/#.*/, "", line)
-                    if (line ~ "(^|[,[:space:]\"])" p "([,:\"]|$)") found=1
+                    line=$0
+                    sub(/#.*/, "", line)
+                    sub(/^[^=]*=/, "", line)
+                    gsub(/[[:space:]"]/ , "", line)
+                    n=split(line, ports, ",")
+                    for (i=1; i<=n; i++) {
+                        if (ports[i] == p) {
+                            found=1
+                            break
+                        }
+                    }
                 }
                 END { exit !found }
             ' "$csf_conf"
         }
+        local changed=0
 
         if csf_tcp_out_has_port 1514 && csf_tcp_out_has_port 1515; then
             ok "CSF TCP_OUT ya contiene 1514 y 1515."
         else
-            cp -p "$csf_conf" "$csf_conf.orangebox-backup.$(date +%Y%m%d%H%M%S)" || fail "No se pudo respaldar $csf_conf."
+            cp -p "$csf_conf" "$csf_conf.orangebox-backup.$(date +%Y%m%d%H%M%S)" ||
+                fail "No se pudo respaldar $csf_conf."
+
             awk '
                 /^[[:space:]]*TCP_OUT[[:space:]]*=/ && $0 !~ /^[[:space:]]*#/ {
                     line=$0
-                    if (line !~ /1514([,:\"]|$)/) sub(/"$/, ",1514\"", line)
-                    if (line !~ /1515([,:\"]|$)/) sub(/"$/, ",1515\"", line)
-                    print line; next
+                    if (line !~ /1514([,:"]|$)/) sub(/"$/, ",1514\"", line)
+                    if (line !~ /1515([,:"]|$)/) sub(/"$/, ",1515\"", line)
+                    print line
+                    next
                 }
                 { print }
-            ' "$csf_conf" > "$csf_conf.orangebox.tmp" || fail "No se pudo preparar $csf_conf."
-            mv "$csf_conf.orangebox.tmp" "$csf_conf" || fail "No se pudo actualizar $csf_conf."
-            csf_tcp_out_has_port 1514 || fail "No se pudo validar TCP_OUT=1514."
-            csf_tcp_out_has_port 1515 || fail "No se pudo validar TCP_OUT=1515."
+            ' "$csf_conf" > "$csf_conf.orangebox.tmp" ||
+                fail "No se pudo preparar $csf_conf."
+
+            mv "$csf_conf.orangebox.tmp" "$csf_conf" ||
+                fail "No se pudo actualizar $csf_conf."
+
+            changed=1
             ok "CSF TCP_OUT actualizado con 1514,1515."
         fi
 
@@ -1179,55 +1601,169 @@ configure_cpanel_firewall() {
         local private_ip="$ORANGEBOX_PRIVATE_IP"
 
         local firewall="/usr/local/sbin/orangebox-firewall"
-        cat > "$firewall" <<EOF
+        local firewall_tmp
+        firewall_tmp="$(mktemp)" || fail "No se pudo crear temporal para $firewall."
+
+        cat > "$firewall_tmp" <<EOF
 #!/bin/bash
 set -u
+
 IPTABLES=/usr/sbin/iptables
 PUBLIC_IP="$public_ip"
 PRIVATE_IP="$private_ip"
-\$IPTABLES -N ORANGEBOX-FW 2>/dev/null || true
-\$IPTABLES -F ORANGEBOX-FW
-if [ -n "\$PUBLIC_IP" ] && [ -n "\$PRIVATE_IP" ]; then
-    \$IPTABLES -A ORANGEBOX-FW ! -i lo -p tcp --syn -s "\$PUBLIC_IP" -d "\$PRIVATE_IP" -j RETURN
-fi
-\$IPTABLES -A ORANGEBOX-FW ! -i lo -p tcp --syn -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7
-\$IPTABLES -A ORANGEBOX-FW -j RETURN
-if ! \$IPTABLES -L INPUT -n 2>/dev/null | awk '\$2 == "ORANGEBOX-FW" { found=1 } END { exit !found }'; then
-    \$IPTABLES -I INPUT 1 \
-        -p tcp --tcp-flags SYN SYN \
-        ! -s 127.0.0.0/8 \
-        -j ORANGEBOX-FW || exit 1
-fi
+
+chain_ok() {
+    [ -x "\$IPTABLES" ] || return 1
+    local actual expected
+    actual="\$(\$IPTABLES -S ORANGEBOX-FW 2>/dev/null | sed '/^$/d')"
+    expected="\$(printf '%s\\n%s\\n' \
+        '-A ORANGEBOX-FW -m limit --limit 20/sec --limit-burst 40 -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7' \
+        '-A ORANGEBOX-FW -j RETURN')"
+    [ "\$actual" = "\$expected" ]
+}
+
+runtime_ok() {
+    chain_ok || return 1
+
+    if [ -n "\$PUBLIC_IP" ] && [ -n "\$PRIVATE_IP" ]; then
+        \$IPTABLES -S INPUT | grep -E '^-A INPUT ' | sed -n '1p' |
+            grep -F -- "-s \$PUBLIC_IP/32 -d \$PRIVATE_IP/32 -p tcp" |
+            grep -F -- "-j RETURN" >/dev/null 2>&1 || return 1
+        \$IPTABLES -S INPUT | grep -E '^-A INPUT ' | sed -n '2p' |
+            grep -F -- "-s \$PUBLIC_IP/32 -d \$PRIVATE_IP/32 -p udp" |
+            grep -F -- "-j RETURN" >/dev/null 2>&1 || return 1
+
+        \$IPTABLES -S INPUT | grep -E '^-A INPUT ' | sed -n '3p' |
+            grep -F -- "! -s 127.0.0.0/8 -p tcp" |
+            grep -F -- "-j ORANGEBOX-FW" >/dev/null 2>&1 || return 1
+        \$IPTABLES -S INPUT | grep -E '^-A INPUT ' | sed -n '4p' |
+            grep -F -- "! -s 127.0.0.0/8 -p udp" |
+            grep -F -- "-j ORANGEBOX-FW" >/dev/null 2>&1 || return 1
+    else
+        \$IPTABLES -S INPUT | grep -E '^-A INPUT ' | sed -n '1p' |
+            grep -F -- "! -s 127.0.0.0/8 -p tcp" |
+            grep -F -- "-j ORANGEBOX-FW" >/dev/null 2>&1 || return 1
+        \$IPTABLES -S INPUT | grep -E '^-A INPUT ' | sed -n '2p' |
+            grep -F -- "! -s 127.0.0.0/8 -p udp" |
+            grep -F -- "-j ORANGEBOX-FW" >/dev/null 2>&1 || return 1
+    fi
+
+    return 0
+}
+
+sync_firewall() {
+    "\$IPTABLES" -N ORANGEBOX-FW 2>/dev/null || true
+
+    if runtime_ok; then
+        exit 0
+    fi
+
+    "\$IPTABLES" -F ORANGEBOX-FW
+
+    while "\$IPTABLES" -C INPUT -p tcp --tcp-flags SYN SYN \
+        ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1; do
+        "\$IPTABLES" -D INPUT -p tcp --tcp-flags SYN SYN \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW || break
+    done
+
+    while "\$IPTABLES" -C INPUT -p udp \
+        ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1; do
+        "\$IPTABLES" -D INPUT -p udp \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW || break
+    done
+
+    if [ -n "\$PUBLIC_IP" ] && [ -n "\$PRIVATE_IP" ]; then
+        while "\$IPTABLES" -C INPUT -p tcp --tcp-flags SYN SYN \
+            -s "\$PUBLIC_IP" -d "\$PRIVATE_IP" -j RETURN >/dev/null 2>&1; do
+            "\$IPTABLES" -D INPUT -p tcp --tcp-flags SYN SYN \
+                -s "\$PUBLIC_IP" -d "\$PRIVATE_IP" -j RETURN || break
+        done
+
+        while "\$IPTABLES" -C INPUT -p udp \
+            -s "\$PUBLIC_IP" -d "\$PRIVATE_IP" -j RETURN >/dev/null 2>&1; do
+            "\$IPTABLES" -D INPUT -p udp \
+                -s "\$PUBLIC_IP" -d "\$PRIVATE_IP" -j RETURN || break
+        done
+
+        "\$IPTABLES" -I INPUT 1 -p tcp --tcp-flags SYN SYN \
+            -s "\$PUBLIC_IP" -d "\$PRIVATE_IP" -j RETURN
+        "\$IPTABLES" -I INPUT 2 -p udp \
+            -s "\$PUBLIC_IP" -d "\$PRIVATE_IP" -j RETURN
+        "\$IPTABLES" -I INPUT 3 -p tcp --tcp-flags SYN SYN \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW
+        "\$IPTABLES" -I INPUT 4 -p udp \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW
+    else
+        "\$IPTABLES" -I INPUT 1 -p tcp --tcp-flags SYN SYN \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW
+        "\$IPTABLES" -I INPUT 2 -p udp \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW
+    fi
+
+    "\$IPTABLES" -A ORANGEBOX-FW \
+        -m limit --limit 20/second --limit-burst 40 \
+        -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 7
+    "\$IPTABLES" -A ORANGEBOX-FW -j RETURN
+}
+
+sync_firewall
 EOF
-        chmod 700 "$firewall" || fail "No se pudieron establecer permisos en $firewall."
-        if ! grep -Fqx "$firewall" "$csf_post" 2>/dev/null; then
-            cp -p "$csf_post" "$csf_post.orangebox-backup.$(date +%Y%m%d%H%M%S)" || fail "No se pudo respaldar $csf_post."
-            { cat "$csf_post"; echo; echo "# OrangeBox - Wazuh firewall logging"; echo "$firewall"; } > "$csf_post.orangebox.tmp" || fail "No se pudo preparar $csf_post."
+
+        if sync_managed_file "$firewall_tmp" "$firewall" 700 root root; then
+            changed=1
+            ok "Helper OrangeBox de CSF actualizado."
+        else
+            ok "Helper OrangeBox de CSF ya coincide; no se modifica."
+        fi
+
+        if ! grep -Fxq "$firewall" "$csf_post" 2>/dev/null; then
+            cp -p "$csf_post" "$csf_post.orangebox-backup.$(date +%Y%m%d%H%M%S)" ||
+                fail "No se pudo respaldar $csf_post."
+
+            { cat "$csf_post"; echo; echo "# OrangeBox - Wazuh firewall logging"; echo "$firewall"; } \
+                > "$csf_post.orangebox.tmp" ||
+                fail "No se pudo preparar $csf_post."
+
             chmod --reference="$csf_post" "$csf_post.orangebox.tmp" 2>/dev/null || chmod 700 "$csf_post.orangebox.tmp"
             chown --reference="$csf_post" "$csf_post.orangebox.tmp" 2>/dev/null || true
-            mv "$csf_post.orangebox.tmp" "$csf_post" || fail "No se pudo actualizar $csf_post."
-            ok "Hook ORANGEBOX-FW agregado a $csf_post."
+            mv "$csf_post.orangebox.tmp" "$csf_post" ||
+                fail "No se pudo actualizar $csf_post."
+
+            changed=1
+            ok "Hook OrangeBox agregado a $csf_post."
         else
-            ok "Hook ORANGEBOX-FW ya existe en $csf_post."
+            ok "Hook OrangeBox ya existe en $csf_post."
         fi
 
-        local csf_reload_log="/tmp/orangebox-csf-reload.log"
-        if csf -r >"$csf_reload_log" 2>&1; then
-            :
-        else
-            echo "ERROR: CSF rechazó la configuración. Última salida de csf -r:" >&2
-            tail -n 40 "$csf_reload_log" >&2 2>/dev/null || cat "$csf_reload_log" >&2
+        if [ "$changed" -eq 1 ]; then
+            local csf_reload_log="/tmp/orangebox-csf-reload.log"
+            if ! csf -r >"$csf_reload_log" 2>&1; then
+                echo "ERROR: CSF rechazó la configuración. Última salida:" >&2
+                tail -n 40 "$csf_reload_log" >&2 2>/dev/null || cat "$csf_reload_log" >&2
+                rm -f "$csf_reload_log"
+                return 1
+            fi
             rm -f "$csf_reload_log"
-            return 1
+            ok "CSF recargado porque la configuración cambió."
         fi
-        rm -f "$csf_reload_log"
 
-        "$firewall" || fail "No se pudieron cargar las reglas ORANGEBOX-FW."
-        iptables -L ORANGEBOX-FW -n >/dev/null 2>&1 || fail "No existe ORANGEBOX-FW."
-        iptables -L INPUT -n 2>/dev/null | grep -Fq "ORANGEBOX-FW" || fail "INPUT no quedó conectado a ORANGEBOX-FW."
+        "$firewall" || fail "No se pudieron reconciliar las reglas ORANGEBOX-FW."
+
+        iptables -L ORANGEBOX-FW -n >/dev/null 2>&1 ||
+            fail "No existe ORANGEBOX-FW."
+
+        iptables -C INPUT -p tcp --tcp-flags SYN SYN \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 ||
+            fail "INPUT no quedó conectado a ORANGEBOX-FW para TCP."
+
+        iptables -C INPUT -p udp \
+            ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1 ||
+            fail "INPUT no quedó conectado a ORANGEBOX-FW para UDP."
+
         csf_tcp_out_has_port 1514 || fail "TCP_OUT no contiene 1514."
         csf_tcp_out_has_port 1515 || fail "TCP_OUT no contiene 1515."
-        ok "CSF recargado y ORANGEBOX-FW validado."
+
+        ok "CSF/OrangeBox reconciliado."
         return 0
     fi
 
@@ -1285,14 +1821,17 @@ configure_firewall() {
             echo "ERROR: el paso Shorewall falló; se continuará con logging." >&2
             failed=1
         fi
-    elif has firewall-cmd && firewall-cmd --state >/dev/null 2>&1; then
-        ok "firewalld activo."
+    elif has firewall-cmd && has systemctl && \
+        systemctl is-active --quiet firewalld 2>/dev/null && \
+        ! systemctl is-enabled firewalld 2>/dev/null | grep -qx "masked" && \
+        firewall-cmd --state 2>/dev/null | grep -qx "running"; then
+        ok "firewalld activo y en ejecución; usando firewalld."
         if ! (configure_firewalld); then
-            echo "ERROR: el paso firewalld falló; se continuará con logging." >&2
+            echo "ERROR: el paso firewalld falló; no se iniciará el servicio OrangeBox de iptables." >&2
             failed=1
         fi
     else
-        ok "Shorewall no instalado y firewalld no activo; usando iptables."
+        ok "Shorewall no instalado y firewalld no está activo; usando iptables."
         if ! configure_iptables; then
             echo "ERROR: el paso iptables falló; se continuará con logging." >&2
             failed=1
@@ -1348,38 +1887,46 @@ configure_rsyslog() {
     has rsyslogd || fail "rsyslogd no está instalado."
     has logger || fail "logger no está instalado."
 
-    if [ -f "$FIREWALL_LOG" ]; then
-        chmod 640 "$FIREWALL_LOG"
-        chown root:root "$FIREWALL_LOG"
-    else
-        touch "$FIREWALL_LOG"
-        chmod 640 "$FIREWALL_LOG"
-        chown root:root "$FIREWALL_LOG"
-    fi
-
     local rsyslog_changed=0
 
-    if remove_legacy_rsyslog_rule; then
-        rsyslog_changed=1
-    fi
-
     if [ -f "$RSYSLOG_FILE" ]; then
-        if rsyslog_rule_exists; then
-            ok "Configuración rsyslog OrangeBox ya existe; no se modifica."
+        if grep -Fqx ':msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log' "$RSYSLOG_FILE" &&
+           grep -Fqx ':msg, contains, "ORANGEBOX-FW" ~' "$RSYSLOG_FILE" &&
+           grep -Fqx ':msg, contains, "LOG:ORANGEB" -/var/log/orangebox-firewall.log' "$RSYSLOG_FILE" &&
+           grep -Fqx ':msg, contains, "LOG:ORANGEB" ~' "$RSYSLOG_FILE"; then
+            ok "Configuración rsyslog OrangeBox ya coincide; no se modifica."
         else
-            fail "$RSYSLOG_FILE existe pero no contiene la configuración OrangeBox esperada. No se sobrescribe."
-        fi
-    else
-        cat > "$RSYSLOG_FILE" <<'EOF'
+            local desired_tmp
+            desired_tmp="$(mktemp)" || fail "No se pudo crear temporal para rsyslog."
+            cat > "$desired_tmp" <<'EOF'
 # OrangeBox - Wazuh firewall logging
 :msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log
 :msg, contains, "ORANGEBOX-FW" ~
 :msg, contains, "LOG:ORANGEB" -/var/log/orangebox-firewall.log
 :msg, contains, "LOG:ORANGEB" ~
 EOF
-        chmod 644 "$RSYSLOG_FILE"
+            sync_managed_file "$desired_tmp" "$RSYSLOG_FILE" 644 root root >/dev/null
+            rsyslog_changed=1
+            ok "Configuración rsyslog OrangeBox actualizada."
+        fi
+    else
+        local desired_tmp
+        desired_tmp="$(mktemp)" || fail "No se pudo crear temporal para rsyslog."
+        cat > "$desired_tmp" <<'EOF'
+# OrangeBox - Wazuh firewall logging
+:msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log
+:msg, contains, "ORANGEBOX-FW" ~
+:msg, contains, "LOG:ORANGEB" -/var/log/orangebox-firewall.log
+:msg, contains, "LOG:ORANGEB" ~
+EOF
+        sync_managed_file "$desired_tmp" "$RSYSLOG_FILE" 644 root root >/dev/null
         rsyslog_changed=1
-        ok "Configuración rsyslog OrangeBox creada en /etc/rsyslog.d/."
+        ok "Configuración rsyslog OrangeBox creada."
+    fi
+
+    # Migración puntual de una regla OrangeBox antigua en /etc/rsyslog.conf.
+    if remove_legacy_rsyslog_rule; then
+        rsyslog_changed=1
     fi
 
     rsyslog_rule_exists || fail "No se pudo validar la configuración rsyslog OrangeBox."
@@ -1391,14 +1938,23 @@ EOF
         else
             service rsyslog restart || fail "No se pudo reiniciar rsyslog."
         fi
+    else
+        ok "rsyslog no requiere reinicio."
     fi
 
-    local marker="ORANGEBOX-RSYSLOG-TEST-$(date +%s)"
-    logger -p kern.info "$marker ORANGEBOX-FW: test"
-    sleep 1
-
-    grep -Fq "$marker" "$FIREWALL_LOG" || fail "El test rsyslog no llegó al log dedicado."
-    grep -Fq "$marker" /var/log/messages && fail "El test rsyslog también llegó a messages."
+    if [ -f "$FIREWALL_LOG" ]; then
+        local current_mode current_owner current_group
+        current_mode="$(stat -c '%a' "$FIREWALL_LOG" 2>/dev/null || true)"
+        current_owner="$(stat -c '%U' "$FIREWALL_LOG" 2>/dev/null || true)"
+        current_group="$(stat -c '%G' "$FIREWALL_LOG" 2>/dev/null || true)"
+        if [ "$current_mode" != "640" ]; then chmod 640 "$FIREWALL_LOG"; fi
+        if [ "$current_owner" != "root" ]; then chown root "$FIREWALL_LOG"; fi
+        if [ "$current_group" != "root" ]; then chgrp root "$FIREWALL_LOG"; fi
+    else
+        touch "$FIREWALL_LOG" || fail "No se pudo crear $FIREWALL_LOG."
+        chmod 640 "$FIREWALL_LOG"
+        chown root:root "$FIREWALL_LOG"
+    fi
 
     ok "rsyslog validado para EL6."
 }
@@ -1411,17 +1967,13 @@ configure_journald() {
     has journalctl || fail "journalctl no está disponible; no se puede usar journald."
     has logger || fail "logger no está disponible para validar journald."
 
-    journalctl -n 1 --no-pager >/dev/null 2>&1 \
-        || fail "No se pudo consultar journald."
+    journalctl -n 1 --no-pager >/dev/null 2>&1 ||
+        fail "No se pudo consultar journald."
 
-    local marker="ORANGEBOX-JOURNALD-TEST-$(date +%s)"
-    logger -p kern.info -t kernel "$marker ORANGEBOX-FW: test"
-    sleep 1
-
-    journalctl --no-pager -n 100 2>/dev/null | grep -Fq "$marker" \
-        || fail "El test journald no quedó registrado en el journal."
-
-    ok "journald validado para EL${EL_MAJOR}+."
+    # En EL7+ OrangeBox no necesita modificar journald: solo verifica que el
+    # backend requerido esté disponible. No genera eventos de prueba ni cambia
+    # archivos cuando el estado ya es correcto.
+    ok "journald disponible y en el estado esperado; no se modifica."
 }
 
 # ---------------------------------------------------------------------------
@@ -1431,10 +1983,10 @@ configure_journald() {
 configure_logrotate() {
     has logrotate || fail "logrotate no está instalado."
 
-    if [ -f "$LOGROTATE_FILE" ]; then
-        ok "Configuración logrotate OrangeBox ya existe; no se modifica."
-    else
-        cat > "$LOGROTATE_FILE" <<'EOF'
+    local desired_tmp
+    desired_tmp="$(mktemp)" || fail "No se pudo crear temporal para logrotate."
+
+    cat > "$desired_tmp" <<'EOF'
 /var/log/orangebox-firewall.log {
     daily
     rotate 0
@@ -1443,55 +1995,43 @@ configure_logrotate() {
     copytruncate
 }
 EOF
-        chmod 644 "$LOGROTATE_FILE"
-        ok "Configuración logrotate OrangeBox creada."
+
+    if [ -f "$LOGROTATE_FILE" ] && cmp -s "$desired_tmp" "$LOGROTATE_FILE"; then
+        ok "Configuración logrotate OrangeBox ya coincide; no se modifica."
+        rm -f "$desired_tmp"
+    else
+        sync_managed_file "$desired_tmp" "$LOGROTATE_FILE" 644 root root >/dev/null
+        ok "Configuración logrotate OrangeBox actualizada."
     fi
 
-    logrotate -d "$LOGROTATE_FILE" >/dev/null 2>&1 || fail "logrotate rechazó la configuración."
+    logrotate -d "$LOGROTATE_FILE" >/dev/null 2>&1 ||
+        fail "logrotate rechazó la configuración."
 
-    grep -Fq 'daily' "$LOGROTATE_FILE" || fail "Falta daily."
-    grep -Fq 'rotate 0' "$LOGROTATE_FILE" || fail "Falta rotate 0."
-    grep -Fq 'copytruncate' "$LOGROTATE_FILE" || fail "Falta copytruncate."
+    grep -Fqx '    daily' "$LOGROTATE_FILE" || fail "Falta daily."
+    grep -Fqx '    rotate 0' "$LOGROTATE_FILE" || fail "Falta rotate 0."
+    grep -Fqx '    copytruncate' "$LOGROTATE_FILE" || fail "Falta copytruncate."
 
     ok "logrotate validado para EL6."
-}
-
-configure_logging() {
-    local failed=0
-
-    case "$LOGGING_BACKEND" in
-        rsyslog)
-            echo "==> Configurando rsyslog para EL6..."
-            if ! (configure_rsyslog); then
-                echo "ERROR: el paso rsyslog falló; se continuará con logrotate." >&2
-                failed=1
-            fi
-
-            echo "==> Configurando logrotate para EL6..."
-            if ! (configure_logrotate); then
-                echo "ERROR: el paso logrotate falló; se continuará con el resto de la instalación." >&2
-                failed=1
-            fi
-            ;;
-        journald)
-            echo "==> Configurando journald para EL${EL_MAJOR}+..."
-            if ! (configure_journald); then
-                echo "ERROR: el paso journald falló; se continuará con el resto de la instalación." >&2
-                failed=1
-            fi
-            ;;
-        *)
-            echo "ERROR: Backend de logging no definido: ${LOGGING_BACKEND}." >&2
-            failed=1
-            ;;
-    esac
-
-    return "$failed"
 }
 
 # ---------------------------------------------------------------------------
 # 6. Ejecución
 # ---------------------------------------------------------------------------
+
+configure_logging() {
+    case "$LOGGING_BACKEND" in
+        rsyslog)
+            configure_rsyslog || return 1
+            configure_logrotate || return 1
+            ;;
+        journald)
+            configure_journald || return 1
+            ;;
+        *)
+            fail "Backend de logging no definido o no soportado: ${LOGGING_BACKEND:-vacío}."
+            ;;
+    esac
+}
 
 echo
 echo "============================================================"
@@ -1523,13 +2063,7 @@ else
     echo "ERROR: no se pudo determinar la plataforma; se continuará con las etapas restantes." >&2
 fi
 
-if agent_installed; then
-    ok "Wazuh Agent ya instalado: $(agent_version)"
-    record_step_ok "Wazuh Agent"
-else
-    warn "Wazuh Agent no está instalado."
-    run_step "Wazuh Agent" install_agent
-fi
+run_step "Wazuh Agent" reconcile_agent
 
 run_step "Firewall" configure_firewall
 run_step "Logging" configure_logging
@@ -1541,19 +2075,20 @@ run_step "Logging" configure_logging
 configure_exec_audit() {
     local RULE_FILE="/etc/audit/rules.d/70-orangebox-wazuh.rules"
     local KEY_TEMP="orangebox_exec"
-    local KEY_BEHAVIOR="audit-wazuh-c"
+    local WAZUH_CONF="$WAZUH_HOME/etc/ossec.conf"
+    local rules_changed=0
+    local ossec_changed=0
+    local packages_changed=0
 
-    if [[ $EUID -ne 0 ]]; then
+    [[ $EUID -eq 0 ]] || {
         echo "ERROR: ejecutar como root." >&2
         return 1
-    fi
+    }
 
     ensure_python3 || return 1
 
     echo "==> Verificando paquetes audit..."
 
-    # EL10 separa auditctl/augenrules en audit-rules.
-    # EL6-EL9 entregan estas herramientas mediante el paquete audit.
     if ! rpm -q audit >/dev/null 2>&1; then
         echo "==> Instalando audit..."
         if has dnf; then
@@ -1563,58 +2098,36 @@ configure_exec_audit() {
         else
             fail "No existe dnf/yum para instalar auditd."
         fi
+        packages_changed=1
     fi
 
-    if [[ "$EL_MAJOR" -ge 10 ]] 2>/dev/null; then
-        if ! rpm -q audit-rules >/dev/null 2>&1; then
-            echo "==> Instalando audit-rules para Enterprise Linux ${EL_MAJOR}..."
-            if has dnf; then
-                dnf install -y audit-rules || fail "No se pudo instalar audit-rules."
-            elif has yum; then
-                yum install -y audit-rules || fail "No se pudo instalar audit-rules."
-            else
-                fail "No existe dnf ni yum para instalar audit-rules."
-            fi
+    if [[ "$EL_MAJOR" -ge 10 ]] 2>/dev/null && ! rpm -q audit-rules >/dev/null 2>&1; then
+        echo "==> Instalando audit-rules para Enterprise Linux $EL_MAJOR..."
+        if has dnf; then
+            dnf install -y audit-rules || fail "No se pudo instalar audit-rules."
+        elif has yum; then
+            yum install -y audit-rules || fail "No se pudo instalar audit-rules."
+        else
+            fail "No existe dnf/yum para instalar audit-rules."
         fi
+        packages_changed=1
     fi
 
-    # Wazuh genera y utiliza su propio plugin:
-    #   /etc/audit/plugins.d/af_wazuh.conf
-    # El paquete audispd-plugins solo aporta el binario que ese plugin ejecuta:
-    #   /sbin/audisp-af_unix
-    # No se debe buscar, activar ni modificar el af_unix.conf genérico.
-    AUDISPD_PLUGINS_INSTALLED=0
     if ! rpm -q audispd-plugins >/dev/null 2>&1; then
-        echo "==> Instalando audispd-plugins para Whodata..."
+        echo "==> Instalando audispd-plugins..."
         if has dnf; then
             dnf install -y audispd-plugins || fail "No se pudo instalar audispd-plugins."
         elif has yum; then
             yum install -y audispd-plugins || fail "No se pudo instalar audispd-plugins."
         else
-            fail "No existe dnf ni yum para instalar audispd-plugins."
+            fail "No existe dnf/yum para instalar audispd-plugins."
         fi
-        AUDISPD_PLUGINS_INSTALLED=1
+        packages_changed=1
     fi
 
-    rpm -q audispd-plugins >/dev/null 2>&1 ||
-        fail "audispd-plugins no quedó instalado."
-
-    # En Audit 3.1.1+ Wazuh usa el ejecutable audisp-af_unix del paquete
-    # audispd-plugins. Validamos el binario, no el af_unix.conf genérico.
-    AUDISP_AF_UNIX_BIN=""
-    for audisp_af_unix_path in /sbin/audisp-af_unix /usr/sbin/audisp-af_unix; do
-        if [ -x "$audisp_af_unix_path" ]; then
-            AUDISP_AF_UNIX_BIN="$audisp_af_unix_path"
-            break
-        fi
-    done
-
-    [ -n "$AUDISP_AF_UNIX_BIN" ] ||
-        fail "audispd-plugins está instalado, pero no existe audisp-af_unix en /sbin o /usr/sbin."
-
-    ok "audisp-af_unix disponible: $AUDISP_AF_UNIX_BIN."
-
-    # Resolver auditctl/augenrules aunque /usr/sbin no esté en PATH.
+    # OrangeBox procesa los eventos de ejecución directamente desde audit.log
+    # mediante la integración nativa de Wazuh. No dependemos de audisp-af_unix.
+    # En EL7 (audit 2.x) ese ejecutable no existe y no es necesario.
     for audit_tool in auditctl augenrules; do
         if ! has "$audit_tool"; then
             for audit_tool_path in "/usr/sbin/$audit_tool" "/sbin/$audit_tool"; do
@@ -1628,95 +2141,31 @@ configure_exec_audit() {
 
     has auditctl || fail "auditctl no quedó disponible después de instalar audit."
     has augenrules || fail "augenrules no quedó disponible después de instalar audit."
-
     mkdir -p "$(dirname "$RULE_FILE")"
 
-    WAZUH_CONF="$WAZUH_HOME/etc/ossec.conf"
-
-    if [[ -f "$WAZUH_CONF" ]] && ! grep -q '<log_format>audit</log_format>' "$WAZUH_CONF"; then
-        cp -a "$WAZUH_CONF" "${WAZUH_CONF}.before-orangebox-exec"
-        "$PYTHON3_BIN" - "$WAZUH_CONF" <<'PY'
-import pathlib
-import sys
-
-p = pathlib.Path(sys.argv[1])
-s = p.read_text()
-block = """  <!-- OrangeBox: auditd execution events -->
-  <localfile>
-    <log_format>audit</log_format>
-    <location>/var/log/audit/audit.log</location>
-  </localfile>
-"""
-idx = s.rfind("</ossec_config>")
-if idx < 0:
-    raise SystemExit("ERROR: no se encontro </ossec_config>.")
-p.write_text(s[:idx] + block + s[idx:])
-PY
-        echo "OK: Wazuh agent configurado para leer /var/log/audit/audit.log."
-    fi
-
-    # Garantizar que auditd quede habilitado y activo.
-    # En EL7+ systemd bloquea el restart manual de auditd (RefuseManualStop/Start).
-    # Red Hat indica usar service auditd restart para este demonio; systemctl
-    # queda reservado para enable/status. En EL6 también usamos service.
-    if has systemctl && systemctl list-unit-files 2>/dev/null | grep -q "^auditd\.service"; then
-        systemctl enable auditd >/dev/null 2>&1 || warn "No se pudo habilitar auditd con systemctl."
-    fi
-
-    if has service; then
-        if service auditd status >/dev/null 2>&1; then
-            # Solo reiniciar si audispd-plugins acaba de instalarse o si
-            # necesitamos que auditd vuelva a cargar sus plugins/configuracion.
-            if [ "${AUDISPD_PLUGINS_INSTALLED:-0}" -eq 1 ]; then
-                service auditd restart || fail "No se pudo reiniciar auditd después de instalar audispd-plugins."
-            fi
-        else
-            service auditd start || fail "No se pudo iniciar auditd."
-        fi
-    elif has systemctl; then
-        systemctl is-active --quiet auditd ||
-            systemctl start auditd || fail "No se pudo iniciar auditd."
-    fi
-
-    # Migración idempotente de implementaciones OrangeBox antiguas.
-    # El archivo canónico usa prefijo 70 para quedar ANTES de 99-finalize.rules
-    # en instalaciones que fijan Audit en modo inmutable (-e 2).
+    # Migrar solo archivos legacy todavía existentes.
     local legacy_audit_file="/etc/audit/rules.d/99-orangebox-exec.rules"
-    if [ -f "$legacy_audit_file" ] &&
-       grep -Eq '(orangebox_exec|audit-wazuh-c)' "$legacy_audit_file"; then
-        cp -p "$legacy_audit_file" \
-            "$legacy_audit_file.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
-            || fail "No se pudo respaldar la regla auditd antigua $legacy_audit_file."
-        rm -f "$legacy_audit_file" \
-            || fail "No se pudo retirar la regla auditd antigua $legacy_audit_file."
-        ok "Regla auditd OrangeBox antigua migrada desde $legacy_audit_file."
+    if [ -f "$legacy_audit_file" ] && grep -Eq '(orangebox_exec|audit-wazuh-c)' "$legacy_audit_file"; then
+        cp -p "$legacy_audit_file" "$legacy_audit_file.orangebox-backup.$(date +%Y%m%d%H%M%S)" ||
+            fail "No se pudo respaldar $legacy_audit_file."
+        rm -f "$legacy_audit_file" || fail "No se pudo retirar $legacy_audit_file."
+        rules_changed=1
+        ok "Regla auditd legacy retirada."
     fi
 
     local old_orangebox_audit="/etc/audit/rules.d/orangebox-wazuh.rules"
     if [ -f "$old_orangebox_audit" ]; then
-        cp -p "$old_orangebox_audit" \
-            "$old_orangebox_audit.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
-            || fail "No se pudo respaldar $old_orangebox_audit."
-        rm -f "$old_orangebox_audit" \
-            || fail "No se pudo retirar $old_orangebox_audit."
-        ok "Regla auditd OrangeBox antigua renombrada a 70-orangebox-wazuh.rules."
+        cp -p "$old_orangebox_audit" "$old_orangebox_audit.orangebox-backup.$(date +%Y%m%d%H%M%S)" ||
+            fail "No se pudo respaldar $old_orangebox_audit."
+        rm -f "$old_orangebox_audit" || fail "No se pudo retirar $old_orangebox_audit."
+        rules_changed=1
+        ok "Regla auditd legacy retirada."
     fi
 
-    SCANNER_COMMANDS=(
-        nmap nmap6 masscan rustscan zmap naabu unicornscan arp-scan netdiscover
-        fping hping hping2 hping3 nc ncat netcat socat telnet nping zgrab zgrab2
-        nikto gobuster ffuf feroxbuster dirb dirsearch wfuzz whatweb wafw00f
-        dnsrecon dnsenum amass subfinder massdns
-    )
+    local desired_rules_tmp
+    desired_rules_tmp="$(mktemp)" || fail "No se pudo crear temporal para reglas auditd."
 
-    RECON_COMMANDS=(
-        hostname hostnamectl uname ip ss netstat lsof ps pstree who w last lastlog
-        find locate id groups getent route arp ifconfig nmcli
-    )
-
-    # Reemplazamos solamente nuestro archivo: no tocamos reglas de otros paquetes.
-    # Los directorios /tmp, /var/tmp y /dev/shm existen en todos los EL soportados.
-    cat > "$RULE_FILE" <<'EOF'
+    cat > "$desired_rules_tmp" <<'EOF'
 # OrangeBox: detect execution from high-risk temporary directories.
 # Consumed by OrangeBox/Wazuh rules.
 -a always,exit -F arch=b64 -S execve -F dir=/tmp -F auid>=0 -F auid!=4294967295 -k orangebox_exec
@@ -1731,81 +2180,161 @@ EOF
         local command="$1"
         local path
         path="$(command -v "$command" 2>/dev/null || true)"
-
         [[ -n "$path" && -f "$path" && -x "$path" ]] || return 0
         [[ "$path" = /* ]] || return 0
 
-        for arch in b64 b32; do
-            if [ "$EL_MAJOR" = "6" ]; then
-                # Audit 2.4.x de EL6 no soporta -F exe=. Usar watch -p x.
-                local rule="-w ${path} -p x -k audit-wazuh-c"
-                if ! grep -Fqx -- "$rule" "$RULE_FILE" 2>/dev/null; then
-                    printf '%s\n' "$rule" >> "$RULE_FILE"
-                fi
-            else
-                local rule="-a always,exit -F arch=${arch} -S execve -F exe=${path} -F auid>=0 -F auid!=4294967295 -k audit-wazuh-c"
-                if ! grep -Fqx -- "$rule" "$RULE_FILE" 2>/dev/null; then
-                    printf '%s\n' "$rule" >> "$RULE_FILE"
-                fi
-            fi
-        done
+        if [ "$EL_MAJOR" = "6" ]; then
+            local rule="-w $path -p x -k audit-wazuh-c"
+            grep -Fqx -- "$rule" "$desired_rules_tmp" || printf '%s\n' "$rule" >> "$desired_rules_tmp"
+        else
+            for arch in b64 b32; do
+                local rule="-a always,exit -F arch=$arch -S execve -F exe=$path -F auid>=0 -F auid!=4294967295 -k audit-wazuh-c"
+                grep -Fqx -- "$rule" "$desired_rules_tmp" ||
+                    printf '%s\n' "$rule" >> "$desired_rules_tmp"
+            done
+        fi
     }
+
+    SCANNER_COMMANDS=(
+        nmap nmap6 masscan rustscan zmap naabu unicornscan arp-scan netdiscover
+        fping hping hping2 hping3 nc ncat netcat socat telnet nping zgrab zgrab2
+        nikto gobuster ffuf feroxbuster dirb dirsearch wfuzz whatweb wafw00f
+        dnsrecon dnsenum amass subfinder massdns
+    )
+    RECON_COMMANDS=(
+        hostname hostnamectl uname ip ss netstat lsof ps pstree who w last lastlog
+        find locate id groups getent route arp ifconfig nmcli
+    )
 
     for command in "${SCANNER_COMMANDS[@]}" "${RECON_COMMANDS[@]}"; do
         add_behavior_rule "$command"
     done
 
-    # Detectar Audit inmutable antes de intentar cargar reglas en caliente.
-    #
-    # enabled=2 significa que Audit está en modo inmutable (-e 2). En este
-    # estado las reglas ya cargadas no pueden modificarse hasta el siguiente
-    # arranque. Las reglas OrangeBox se dejan persistentes en 70-*.rules para
-    # que se procesen ANTES de un eventual 99-finalize.rules.
+    if [ ! -f "$RULE_FILE" ] || ! cmp -s "$desired_rules_tmp" "$RULE_FILE"; then
+        if [ -f "$RULE_FILE" ]; then
+            cp -p "$RULE_FILE" "$RULE_FILE.orangebox-backup.$(date +%Y%m%d%H%M%S)" ||
+                fail "No se pudo respaldar $RULE_FILE."
+        fi
+        install -m 640 -o root -g root "$desired_rules_tmp" "$RULE_FILE" ||
+            fail "No se pudo actualizar $RULE_FILE."
+        rules_changed=1
+        ok "Reglas auditd OrangeBox actualizadas."
+    else
+        rm -f "$desired_rules_tmp"
+        ok "Reglas auditd OrangeBox ya coinciden; no se modifica."
+    fi
+
+    if [ -f "$WAZUH_CONF" ]; then
+        if grep -Fq '<log_format>audit</log_format>' "$WAZUH_CONF" &&
+           grep -Fq '<location>/var/log/audit/audit.log</location>' "$WAZUH_CONF"; then
+            ok "Wazuh ya lee audit.log; no se modifica ossec.conf."
+        else
+            cp -p "$WAZUH_CONF" "$WAZUH_CONF.before-orangebox-exec.$(date +%Y%m%d%H%M%S)" ||
+                fail "No se pudo respaldar $WAZUH_CONF."
+            "$PYTHON3_BIN" - "$WAZUH_CONF" <<'PY'
+import pathlib
+import sys
+
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+block = """  <!-- OrangeBox: auditd execution events -->
+  <localfile>
+    <log_format>audit</log_format>
+    <location>/var/log/audit/audit.log</location>
+  </localfile>
+"""
+if block not in s:
+    idx = s.rfind("</ossec_config>")
+    if idx < 0:
+        raise SystemExit("ERROR: no se encontró </ossec_config>.")
+    p.write_text(s[:idx] + block + s[idx:])
+PY
+            ossec_changed=1
+            ok "Wazuh configurado para leer audit.log."
+        fi
+    fi
+
+    if has systemctl && systemctl list-unit-files 2>/dev/null | grep -q '^auditd\.service'; then
+        if systemctl is-enabled auditd >/dev/null 2>&1; then
+            ok "auditd ya está habilitado; no se modifica."
+        else
+            systemctl enable auditd >/dev/null 2>&1 ||
+                warn "No se pudo habilitar auditd con systemctl."
+            packages_changed=1
+        fi
+    fi
+
+    if has service && service auditd status >/dev/null 2>&1; then
+        if [ "$packages_changed" -eq 1 ]; then
+            service auditd restart || fail "No se pudo reiniciar auditd."
+        else
+            ok "auditd ya está activo; no se reinicia."
+        fi
+    elif has service; then
+        service auditd start || fail "No se pudo iniciar auditd."
+        packages_changed=1
+    elif has systemctl && ! systemctl is-active --quiet auditd; then
+        systemctl start auditd || fail "No se pudo iniciar auditd."
+        packages_changed=1
+    fi
+
     local audit_enabled
     audit_enabled="$(auditctl -s 2>/dev/null | awk '$1=="enabled" {print $2; exit}')"
+    local audit_runtime_ok=1
+    local desired_rule normalized_rule
+
+    audit_rule_loaded() {
+        desired_rule="$1"
+        normalized_rule="$desired_rule"
+
+        if auditctl -l 2>/dev/null | grep -Fqx -- "$desired_rule"; then
+            return 0
+        fi
+
+        normalized_rule="$(printf '%s\n' "$desired_rule" |
+            sed -e 's/-k /-F key=/' -e 's/auid!=4294967295/auid!=-1/g')"
+        auditctl -l 2>/dev/null | grep -Fqx -- "$normalized_rule"
+    }
+
+    while IFS= read -r desired_rule; do
+        [[ -z "$desired_rule" || "$desired_rule" =~ ^[[:space:]]*# ]] && continue
+        if ! audit_rule_loaded "$desired_rule"; then
+            audit_runtime_ok=0
+            break
+        fi
+    done < "$RULE_FILE"
 
     echo "=== OrangeBox audit execution monitoring ==="
 
     if [ "$audit_enabled" = "2" ]; then
-        if auditctl -l | grep -F -- "-k ${KEY_TEMP}" >/dev/null 2>&1 ||
-           auditctl -l | grep -F -- "-F key=${KEY_TEMP}" >/dev/null 2>&1; then
-            ok "Audit está en modo inmutable y las reglas OrangeBox ya están cargadas."
+        if [ "$audit_runtime_ok" -eq 1 ]; then
+            ok "Audit inmutable: reglas OrangeBox ya están activas."
         else
-            warn "Audit está en modo inmutable (-e 2): las reglas OrangeBox quedaron persistentes en ${RULE_FILE}, pero requieren un reinicio para quedar activas."
-            return 0
+            warn "Audit inmutable (-e 2): las reglas persistentes requieren reinicio."
         fi
+    elif [ "$rules_changed" -eq 1 ] || [ "$audit_runtime_ok" -eq 0 ]; then
+        augenrules --load || fail "augenrules no pudo cargar las reglas OrangeBox."
+        audit_runtime_ok=1
+        ok "Reglas auditd OrangeBox cargadas."
     else
-        # EL6+ soportado: augenrules procesa /etc/audit/rules.d/*.rules.
-        # Si una instalación antigua no trae augenrules, auditctl -R deja las
-        # reglas activas para esta sesión; audit.rules queda gestionado por el sistema.
-        if has augenrules; then
-            augenrules --load || fail "augenrules no pudo cargar las reglas OrangeBox."
-        else
-            auditctl -R "${RULE_FILE}" || fail "auditctl no pudo cargar las reglas OrangeBox."
-        fi
-
-        if ! auditctl -l | grep -F -- "-k ${KEY_TEMP}" >/dev/null 2>&1 &&
-           ! auditctl -l | grep -F -- "-F key=${KEY_TEMP}" >/dev/null 2>&1; then
-            echo "ERROR: las reglas base ${KEY_TEMP} no quedaron cargadas." >&2
-            return 1
-        fi
-        ok "Reglas de ejecución en /tmp, /var/tmp y /dev/shm cargadas."
+        ok "Reglas auditd ya están cargadas; no se recargan."
     fi
 
     if auditctl -l | grep -E -- '(-k[[:space:]]+|-F[[:space:]]+key=)audit-wazuh-c' >/dev/null 2>&1; then
         ok "Reglas de scanners/reconocimiento cargadas."
     else
-        ok "No se detectaron ejecutables scanner/recon adicionales; no se agregaron reglas ${KEY_BEHAVIOR}."
+        ok "No se detectaron ejecutables scanner/recon adicionales."
     fi
 
-    request_agent_action
-
-    if [ "$audit_enabled" = "2" ] &&
-       ! auditctl -l | grep -E -- '(-k[[:space:]]+|-F[[:space:]]+key=)orangebox_exec' >/dev/null 2>&1; then
-        warn "auditd tiene reglas OrangeBox pendientes de activar tras el próximo reinicio."
-    else
-        ok "auditd monitoriza ejecuciones en zonas temporales, scanners y herramientas de reconocimiento."
+    if [ "$rules_changed" -eq 1 ] || [ "$ossec_changed" -eq 1 ] || [ "$packages_changed" -eq 1 ]; then
+        request_agent_action
     fi
+
+    if [ "$audit_enabled" = "2" ] && [ "$audit_runtime_ok" -eq 0 ]; then
+        warn "auditd tiene cambios OrangeBox pendientes de activar tras reinicio."
+    fi
+
+    ok "auditd reconciliado: persistencia y runtime comparados."
 }
 
 configure_yara() {
@@ -1950,7 +2479,9 @@ PY
 
     # El instalador es autosuficiente: genera directamente el runtime del agente.
     # Este instalador es el unico source of truth del runtime desplegado.
-    cat > "$SCRIPT_SRC" <<'ORANGEBOX_YARA_RUNTIME'
+    local SCRIPT_TMP
+    SCRIPT_TMP="$(mktemp)" || fail "No se pudo crear temporal para orangebox-yara.sh."
+    cat > "$SCRIPT_TMP" <<'ORANGEBOX_YARA_RUNTIME'
 #!/usr/bin/env bash
 set -u
 set -o pipefail
@@ -2158,9 +2689,11 @@ ORANGEBOX_YARA_RUNTIME
     local WAZUH_GROUP
     WAZUH_GROUP="$(stat -c '%G' "$WAZUH_HOME/active-response/bin" 2>/dev/null || echo wazuh)"
     [[ -n "$WAZUH_GROUP" && "$WAZUH_GROUP" != "UNKNOWN" ]] || WAZUH_GROUP="wazuh"
-    chown root:"$WAZUH_GROUP" "$SCRIPT_SRC" || fail "No se pudo asignar propietario a $SCRIPT_SRC"
-    chmod 750 "$SCRIPT_SRC" || fail "No se pudieron establecer permisos en $SCRIPT_SRC"
-
+    if sync_managed_file "$SCRIPT_TMP" "$SCRIPT_SRC" 750 root "$WAZUH_GROUP"; then
+        ok "Runtime YARA actualizado porque el estado difiere."
+    else
+        ok "Runtime YARA ya coincide; no se modifica."
+    fi
     # OrangeBox Wazuh - instalador YARA para agentes
 # ==============================================
 #
@@ -2392,7 +2925,41 @@ else
     chmod 750 "${SCRIPT_SRC}"
 fi
 
-echo "==> Descargando Yara-Rules oficial..."
+OLD_YARA_COMMIT="$(cat "$DEST_RULES/YARA-RULES-COMMIT" 2>/dev/null || true)"
+REMOTE_YARA_COMMIT="$(git ls-remote --heads "$YARA_RULES_REPO" "refs/heads/$YARA_RULES_BRANCH" 2>/dev/null | awk 'NR==1 {print $1}' || true)"
+yara_local_state_matches() {
+    [ -n "$OLD_YARA_COMMIT" ] || return 1
+    [ -n "$REMOTE_YARA_COMMIT" ] || return 1
+    [ "$OLD_YARA_COMMIT" = "$REMOTE_YARA_COMMIT" ] || return 1
+    [ -s "$RULESET_DIR/webshells_index.yar" ] || return 1
+    [ -s "$RULESET_DIR/malware_index.yar" ] || return 1
+    [ -s "$RULESET_DIR/YARA-RULE-CORRELATION" ] || return 1
+    [ -s "$DEST_RULES/YARA-RULES-MANIFEST" ] || return 1
+    [ "$(cat "$DEST_RULES/YARA-RULES-REPOSITORY" 2>/dev/null || true)" = "$YARA_RULES_REPO" ] || return 1
+    [ "$(cat "$DEST_RULES/YARA-RULES-BRANCH" 2>/dev/null || true)" = "$YARA_RULES_BRANCH" ] || return 1
+    (cd "$DEST_RULES" && sha256sum -c "YARA-RULES-MANIFEST" >/dev/null 2>&1)
+}
+
+yara_local_state_usable() {
+    [ -n "$OLD_YARA_COMMIT" ] || return 1
+    [ -s "$RULESET_DIR/webshells_index.yar" ] || return 1
+    [ -s "$RULESET_DIR/malware_index.yar" ] || return 1
+    [ -s "$RULESET_DIR/YARA-RULE-CORRELATION" ] || return 1
+    [ -s "$DEST_RULES/YARA-RULES-MANIFEST" ] || return 1
+    [ "$(cat "$DEST_RULES/YARA-RULES-REPOSITORY" 2>/dev/null || true)" = "$YARA_RULES_REPO" ] || return 1
+    [ "$(cat "$DEST_RULES/YARA-RULES-BRANCH" 2>/dev/null || true)" = "$YARA_RULES_BRANCH" ] || return 1
+    (cd "$DEST_RULES" && sha256sum -c "YARA-RULES-MANIFEST" >/dev/null 2>&1)
+}
+
+if yara_local_state_matches; then
+    RULESET_COMMIT="$OLD_YARA_COMMIT"
+    ok "Yara-Rules ya coincide con el repositorio oficial ($RULESET_COMMIT); no se descarga ni reemplaza el ruleset."
+elif [ -z "$REMOTE_YARA_COMMIT" ] && yara_local_state_usable; then
+    RULESET_COMMIT="$OLD_YARA_COMMIT"
+    YARA_RULESET_CHANGED=0
+    warn "No se pudo consultar el repositorio Yara-Rules; se conserva el ruleset local existente."
+else
+    echo "==> Descargando Yara-Rules oficial..."
 git clone --depth 1 --branch "${YARA_RULES_BRANCH}"     "${YARA_RULES_REPO}" "${TMP_DIR}/rules"
 
 RULESET_COMMIT="$(cd "${TMP_DIR}/rules" && git rev-parse HEAD)"
@@ -2431,6 +2998,11 @@ for index in webshells_index.yar malware_index.yar; do
 done
 
     build_yara_correlation "${TMP_DIR}/rules" "${TMP_DIR}/rules/YARA-RULE-CORRELATION" || return 1
+
+    # Fix OrangeBox: relaciones requeridas por las reglas Warp.
+    CORRELATION_FILE="${TMP_DIR}/rules/YARA-RULE-CORRELATION"
+    grep -qxF 'WarpStrings|Warp' "${CORRELATION_FILE}" || echo 'WarpStrings|Warp' >> "${CORRELATION_FILE}"
+    grep -qxF 'WarpCode|Warp' "${CORRELATION_FILE}" || echo 'WarpCode|Warp' >> "${CORRELATION_FILE}"
 # No conservar el .git del clon: el agente solo necesita las firmas.
 rm -rf "${TMP_DIR}/rules/.git"
 
@@ -2457,6 +3029,8 @@ mv "${RULESET_DIR}.new" "${RULESET_DIR}" || {
 rm -rf "${RULESET_DIR}.previous"
 
 printf '%s\n' "${RULESET_COMMIT}" > "${DEST_RULES}/YARA-RULES-COMMIT"
+    (cd "${DEST_RULES}" && find "yara-rules" -type f -print0 | sort -z | xargs -0 sha256sum > "YARA-RULES-MANIFEST") ||
+        return 1
 if [[ -n "${YARA_RULES_ADJUSTMENTS}" ]]; then
     printf "%s\n" "${YARA_RULES_ADJUSTMENTS}" > "${DEST_RULES}/YARA-RULES-ADJUSTMENTS"
 else
@@ -2475,12 +3049,12 @@ find "${DEST_YARA}" -type d -exec chmod 750 {} +
 find "${DEST_YARA}" -type f -exec chmod 640 {} +
 chmod 750 "${DEST_BIN}/orangebox-yara.sh"
 chmod 640     "${DEST_RULES}/YARA-RULES-COMMIT"     "${DEST_RULES}/YARA-RULES-REPOSITORY"     "${DEST_RULES}/YARA-RULES-BRANCH"
-
+fi
 # Actualizacion automatica diaria de Yara-Rules.
 YARA_UPDATE_SCRIPT="/usr/local/sbin/orangebox-yara-update"
 YARA_UPDATE_CRON="/etc/cron.d/orangebox-yara-update"
 
-cat > "${YARA_UPDATE_SCRIPT}" <<'YARA_UPDATE'
+cat > "${YARA_UPDATE_SCRIPT}.tmp" <<'YARA_UPDATE'
 #!/usr/bin/env bash
 set -u
 set -o pipefail
@@ -2509,6 +3083,31 @@ if [[ ! -x "${YARA_BIN}" ]]; then
     exit 1
 fi
 
+OLD_COMMIT="$(cat "${DEST_RULES}/YARA-RULES-COMMIT" 2>/dev/null || true)"
+REMOTE_COMMIT="$(git ls-remote --heads "${YARA_RULES_REPO}" "refs/heads/${YARA_RULES_BRANCH}" 2>/dev/null | awk 'NR==1 {print $1}' || true)"
+
+MANIFEST_OK=0
+if [ -s "${DEST_RULES}/YARA-RULES-MANIFEST" ] &&
+   (cd "${DEST_RULES}" && sha256sum -c "YARA-RULES-MANIFEST" >/dev/null 2>&1); then
+    MANIFEST_OK=1
+fi
+
+if [ -n "${OLD_COMMIT}" ] &&
+   [ -n "${REMOTE_COMMIT}" ] &&
+   [ "${OLD_COMMIT}" = "${REMOTE_COMMIT}" ] &&
+   [ -s "${RULESET_DIR}/webshells_index.yar" ] &&
+   [ -s "${RULESET_DIR}/malware_index.yar" ] &&
+   [ -s "${RULESET_DIR}/YARA-RULE-CORRELATION" ] &&
+   [ -s "${DEST_RULES}/YARA-RULES-MANIFEST" ] &&
+   [ -s "${DEST_RULES}/YARA-RULES-REPOSITORY" ] &&
+   [ -s "${DEST_RULES}/YARA-RULES-BRANCH" ] &&
+   [ "$(cat "${DEST_RULES}/YARA-RULES-REPOSITORY" 2>/dev/null)" = "${YARA_RULES_REPO}" ] &&
+   [ "$(cat "${DEST_RULES}/YARA-RULES-BRANCH" 2>/dev/null)" = "${YARA_RULES_BRANCH}" ] &&
+   [ "${MANIFEST_OK}" -eq 1 ]; then
+    echo "OK: Yara-Rules sin cambios (${OLD_COMMIT})."
+    exit 0
+fi
+
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
@@ -2516,8 +3115,6 @@ git clone --depth 1 --branch "${YARA_RULES_BRANCH}" \
     "${YARA_RULES_REPO}" "${TMP_DIR}/rules"
 
 NEW_COMMIT="$(cd "${TMP_DIR}/rules" && git rev-parse HEAD)"
-OLD_COMMIT="$(cat "${DEST_RULES}/YARA-RULES-COMMIT" 2>/dev/null || true)"
-
 build_yara_correlation() {
     local rules_dir="$1"
     local output_file="$2"
@@ -2686,6 +3283,11 @@ done
 
 build_yara_correlation "${TMP_DIR}/rules" "${TMP_DIR}/rules/YARA-RULE-CORRELATION" || exit 1
 
+# Fix OrangeBox: relaciones requeridas por las reglas Warp.
+CORRELATION_FILE="${TMP_DIR}/rules/YARA-RULE-CORRELATION"
+grep -qxF 'WarpStrings|Warp' "${CORRELATION_FILE}" || echo 'WarpStrings|Warp' >> "${CORRELATION_FILE}"
+grep -qxF 'WarpCode|Warp' "${CORRELATION_FILE}" || echo 'WarpCode|Warp' >> "${CORRELATION_FILE}"
+
 rm -rf "${TMP_DIR}/rules/.git"
 rm -rf "${RULESET_DIR}.new"
 mv "${TMP_DIR}/rules" "${RULESET_DIR}.new" || {
@@ -2711,6 +3313,7 @@ fi
 
 rm -rf "${RULESET_DIR}.previous"
 printf '%s\n' "${NEW_COMMIT}" > "${DEST_RULES}/YARA-RULES-COMMIT"
+(cd "${DEST_RULES}" && find "yara-rules" -type f -print0 | sort -z | xargs -0 sha256sum > "YARA-RULES-MANIFEST") || exit 1
 if [[ -n "${YARA_RULES_ADJUSTMENTS}" ]]; then
     printf "%s\n" "${YARA_RULES_ADJUSTMENTS}" > "${DEST_RULES}/YARA-RULES-ADJUSTMENTS"
 else
@@ -2733,19 +3336,31 @@ sed -i \
     -e "s|@@YARA_RULES_BRANCH@@|${YARA_RULES_BRANCH}|g" \
     -e "s|@@YARA_BIN@@|${YARA_BIN}|g" \
     -e "s|@@PYTHON3_BIN@@|${PYTHON3_BIN}|g" \
-    "${YARA_UPDATE_SCRIPT}"
+    "${YARA_UPDATE_SCRIPT}.tmp"
 
-bash -n "${YARA_UPDATE_SCRIPT}" || {
+bash -n "${YARA_UPDATE_SCRIPT}.tmp" || {
     echo "ERROR: el updater YARA generado tiene un error de sintaxis." >&2
-    rm -f "${YARA_UPDATE_SCRIPT}"
+    rm -f "${YARA_UPDATE_SCRIPT}.tmp"
     return 1
 }
 
-chmod 750 "${YARA_UPDATE_SCRIPT}"
-cat > "${YARA_UPDATE_CRON}" <<'YARA_CRON'
+if sync_managed_file "${YARA_UPDATE_SCRIPT}.tmp" "${YARA_UPDATE_SCRIPT}" 750 root "${WAZUH_GROUP}"; then
+    ok "Updater YARA actualizado porque el estado difiere."
+else
+    ok "Updater YARA ya coincide; no se modifica."
+fi
+
+local yara_cron_tmp
+yara_cron_tmp="$(mktemp)" || fail "No se pudo crear temporal para el cron de YARA."
+cat > "${yara_cron_tmp}" <<'YARA_CRON'
 17 3 * * * root /usr/local/sbin/orangebox-yara-update
 YARA_CRON
-chmod 644 "${YARA_UPDATE_CRON}"
+
+if sync_managed_file "${yara_cron_tmp}" "${YARA_UPDATE_CRON}" 644 root root; then
+    ok "Cron diario de YARA actualizado."
+else
+    ok "Cron diario de YARA ya coincide; no se modifica."
+fi
 
 echo "OK: actualizacion automatica diaria de Yara-Rules configurada a las 03:17."
 echo
@@ -2774,7 +3389,9 @@ configure_quarantine() {
 
     # La cuarentena también se genera desde este instalador para que un agente
     # quede completo sin depender de rsync ni de una copia posterior.
-    cat > "$SCRIPT_SRC" <<'ORANGEBOX_QUARANTINE_RUNTIME'
+    local SCRIPT_TMP
+    SCRIPT_TMP="$(mktemp)" || fail "No se pudo crear temporal para orangebox-quarantine.py."
+    cat > "$SCRIPT_TMP" <<'ORANGEBOX_QUARANTINE_RUNTIME'
 #!/usr/bin/env python3
 """
 OrangeBox Wazuh Active Response: cuarentena de archivo confirmado por la regla 99901.
@@ -2981,8 +3598,11 @@ ORANGEBOX_QUARANTINE_RUNTIME
     WAZUH_GROUP="$(stat -c '%G' "$WAZUH_HOME/active-response/bin" 2>/dev/null || echo wazuh)"
     [[ -n "$WAZUH_GROUP" && "$WAZUH_GROUP" != "UNKNOWN" ]] || WAZUH_GROUP="wazuh"
 
-    chown root:"$WAZUH_GROUP" "$SCRIPT_SRC" || fail "No se pudo asignar propietario a $SCRIPT_SRC"
-    chmod 750 "$SCRIPT_SRC" || fail "No se pudieron establecer permisos en $SCRIPT_SRC"
+    if sync_managed_file "$SCRIPT_TMP" "$SCRIPT_SRC" 750 root "$WAZUH_GROUP"; then
+        ok "Runtime de cuarentena actualizado porque el estado difiere."
+    else
+        ok "Runtime de cuarentena ya coincide; no se modifica."
+    fi
     if ! "$PYTHON3_BIN" - "$SCRIPT_SRC" <<'PY' >/dev/null 2>&1
 import sys
 path = sys.argv[1]
