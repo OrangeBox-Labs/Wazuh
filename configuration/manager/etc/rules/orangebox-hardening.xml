@@ -342,6 +342,10 @@
      Las excepciones activas documentadas en este archivo son:
          20032 = regeneracion automatica del cron cPanel cpanel_ssl_reissue
                     (requiere perfil CDB cpanel)
+         20057 = eliminacion esperada de unidades SocialBee/XOVI en DNSOnly
+                    (requiere perfil CDB dns y ruta exacta)
+         20058 = limpieza de unidades de montaje Snap por snapd
+                    (global, limitada al proceso y al patron de archivo)
 
      IMPORTANTE SOBRE FIM:
          Las reglas de modificacion 10030-10037, 10046 y 10048 solo generan
@@ -428,9 +432,29 @@
     </rule>
 </group>
 
+
+<!--
+    DNSOnly / plugins de cPanel no utilizados por el servicio DNS.
+    Solo se exceptuan las cuatro unidades concretas observadas y solo
+    en agentes incluidos en el grupo Wazuh "DNS".
+-->
+<group name="orangebox,hardening,fim,whitelist,dns,">
+    <rule id="20057" level="0">
+        <if_sid>10044</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^DNS$">etc/lists/orangebox-dns-agents</list>
+        <field name="file" type="pcre2">^/etc/systemd/system/initialize_(?:socialbee|xovi)_plugin\.(?:service|timer)$</field>
+        <description>EXCEPCION: Limpieza de plugins SocialBee/XOVI no utilizados en DNSOnly.</description>
+        <group>orangebox_exception,orangebox_whitelist,dns,systemd,</group>
+    </rule>
+</group>
+
 <!--
     WHITELIST ACTUAL:
         - cpanel_ssl_reissue, condicionada al perfil CDB cpanel
+        - limpieza de SocialBee/XOVI en DNSOnly, condicionada al grupo CDB dns
+          y limitada a los cuatro archivos exactos dentro de /etc/systemd/system/
+        - unidades de montaje Snap eliminadas por snapd, limitada al proceso
+          y al patron de nombre de unidad o archivo temporal
 
     NOTA:
         Los archivos internos generados por Imunify360 bajo
@@ -448,3 +472,21 @@
     SIDs antiguos ni mantener ejemplos de reglas no desplegadas dentro del
     ruleset de produccion.
 -->
+
+
+<!--
+    Snap crea, reemplaza y retira unidades de montaje bajo
+    /etc/systemd/system/ durante el mantenimiento de revisiones.
+    La excepcion es global: no depende del hostname ni de la distribucion.
+    Se limita a eventos de eliminacion atribuidos a snapd y a unidades
+    snap-*.mount o sus temporales de reemplazo.
+-->
+<group name="orangebox,hardening,fim,whitelist,snap,systemd,">
+    <rule id="20058" level="0">
+        <if_sid>10044</if_sid>
+        <field name="process_name" type="pcre2">^snapd$</field>
+        <field name="file" type="pcre2">^/etc/systemd/system/snap-.*\.mount(?:\.[0-9]+~)?$</field>
+        <description>EXCEPCION: snapd retira una unidad de montaje Snap o su temporal durante mantenimiento de revisiones.</description>
+        <group>orangebox_exception,orangebox_whitelist,snap,systemd,</group>
+    </rule>
+</group>
