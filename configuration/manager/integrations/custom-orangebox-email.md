@@ -36,7 +36,7 @@ Las reglas nuevas de alta prioridad deben preferir `orangebox_immediate` en luga
 
 Esto evita una falla de diseño donde una regla crítica nueva, aunque tuviera nivel alto o perteneciera a `privilege_escalation`, quedara accidentalmente en el buffer por no aparecer en una lista Python.
 
-Las reglas `100316`, `100318`, `100319` y `10613` utilizan esta marca funcional. Las reglas experimentales `10615`-`10618` fueron retiradas del ruleset base porque podían reemplazar la identidad de las alertas base de autenticación (especialmente `10001`) antes de llegar a esta integración.
+Las reglas `100316`, `100318`, `100319` y `10613` utilizan esta marca funcional. Las detecciones de alta confianza `10039` (endpoint de metadatos IAM), `10502`/`10510`/`10511` (YARA webshell/múltiples firmas) y `10810` (caída fatal de BIND) también incorporan `orangebox_immediate`; por ello no esperan la ventana de agrupación. Las reglas experimentales `10615`-`10618` fueron retiradas del ruleset base porque podían reemplazar la identidad de las alertas base de autenticación (especialmente `10001`) antes de llegar a esta integración.
 
 La política se aplica por función, no solo por familia de regla: `10453` detecta port scan y queda bajo el umbral de correo; `10456` es el disparador de `firewall-drop` para ese scan; `10454` detecta SYN flood y tiene respuesta configurada; `10455` se excluye explícitamente mediante `NO_EMAIL_RULES`. Las reglas `10025` y `10026` mantienen su supresión individual según `FIREWALL_DROP_RULES`.
 
