@@ -56,6 +56,18 @@ Si una nueva condición requiere realmente una regla adicional, utilice un ID li
 
 Los grupos específicos de la implementación privada también se anonimizaron en la versión pública. Valores como `CLIENTE_01`, `CLIENTE_02` y `CLIENTE_03` son identificadores genéricos y deben reemplazarse por los grupos que utilice cada organización.
 
+## Archivos excluidos de la réplica pública
+
+No sincronizar automáticamente todo el árbol privado. Algunos archivos son específicos de clientes o sirven solo para pruebas:
+
+- Cron individuales de reportes por cliente bajo `configuration/manager/etc/cron.d/`. En público se mantiene únicamente el ejemplo genérico.
+- Listas CDB de clientes o proveedores con IPs autorizadas, como `orangebox-sftp-authorized`. La versión pública usa una lista genérica como `orangebox-sftp-authorized` con valores de documentación.
+- Reportes temporales/de prueba, como `configuration/manager/reports/reporte-test.py`.
+- Artículos y capturas de pruebas que contengan nombres de hosts, dominios, alertas o detalles operacionales de clientes.
+- Archivos de estado, caches, logs, volcados, datos exportados o artefactos generados en producción.
+
+Antes de publicar una nueva ruta, comprobar sus referencias desde los scripts, la configuración y la documentación. La ausencia de credenciales no significa que los datos operacionales sean aptos para publicación.
+
 ## Regla de publicación
 
 Nunca agregue al repositorio público:
