@@ -94,14 +94,25 @@ Las reglas de ráfaga usan `same_srcip`. Sin eso, varios clientes legítimos pod
 
 Las rutas sensibles y las IP de reverse proxy deben revisarse cuando cambie la arquitectura web.
 
+### Excepción para sondeos locales de Zabbix
 
-## 10030 — Intento de acceso a credenciales de metadatos cloud
+Las reglas 20027, 20028 y 20029 suprimen las alertas de los chequeos de estado de Zabbix 7.4 cuando coinciden todas estas señales:
 
-La regla 10030 es hija de la regla nativa 31115 (URL excesivamente larga) y exige además que el campo URL contenga el endpoint de metadatos de AWS `169.254.169.254/latest/meta-data/iam/security-credentials`.
+- origen local 127.0.0.1 o ::1;
+- GET por HTTP/1.0 o HTTP/1.1 a un endpoint de estado cuya ruta contiene `status` (por ejemplo, `/nginx_status`, `/whm-server-status` o `/server-status.php`), o a la ruta dinámica de 24 caracteres seguida de `?auto`;
+- User-Agent Zabbix 7.4.x;
+- respuesta HTTP 4xx.
+
+20027 controla respuestas 4xx distintas de 401/403 bajo 31101; 20028 controla 401/403 bajo 10024; y 20029 suprime la correlación 31151 si se produce para el mismo patrón. No se excluye localhost en general ni se exceptúan rutas web normales como `/wp-login.php` ni clientes externos.
+
+
+## 10039 — Intento de acceso a credenciales de metadatos cloud
+
+La regla 10039 es hija de la regla nativa 31115 (URL excesivamente larga) y exige además que el campo URL contenga el endpoint de metadatos de AWS `169.254.169.254/latest/meta-data/iam/security-credentials`.
 
 - Nivel: 14.
 - MITRE ATT&CK: T1190 (explotación de aplicación expuesta) y T1552.005 (credenciales de servicios cloud).
-- Active Response: `firewall-drop` durante 24 horas, asociado explícitamente a la regla 10030 en `ossec.conf`.
+- Active Response: `firewall-drop` durante 24 horas, asociado explícitamente a la regla 10039 en `ossec.conf`.
 - Alcance: no bloquea por una URL larga aislada; requiere la señal concreta del endpoint IAM.
 
 La coincidencia indica un intento sospechoso, no demuestra por sí sola que la aplicación haya accedido al servicio de metadatos ni que se hayan obtenido credenciales. Validar el cuerpo HTTP y los registros de la aplicación si el evento ocurrió en producción.
