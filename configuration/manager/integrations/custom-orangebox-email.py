@@ -6,9 +6,9 @@ import os
 import time
 import fcntl
 import html
+import textwrap
 import hashlib
 import subprocess
-import re
 import xml.etree.ElementTree as ET
 
 from email.mime.multipart import MIMEMultipart
@@ -153,7 +153,7 @@ FIREWALL_DROP_RULES = {
     "10025",  # Web brute force -> firewall-drop
     "10026",  # Descubrimiento de archivos sensibles -> firewall-drop
     "10456",  # Port scan publico -> firewall-drop
-    "10457",  # SYN flood publico -> firewall-drop
+    "10454",  # SYN flood confirmado -> firewall-drop
     "10700",  # Mail brute force Postfix -> firewall-drop
     "10701",  # Mail brute force Exim/Dovecot -> firewall-drop
 }
@@ -211,6 +211,29 @@ def esc(value):
     return html.escape(str(value))
 
 
+
+def format_log_for_html(value, width=72):
+    """Escapa y divide lineas extensas solo para visualizacion en correo HTML.
+
+    No modifica el evento original ni los datos enviados a Wazuh.
+    Evita que cadenas sin espacios (por ejemplo, sondas HTTP enormes)
+    fuercen un ancho excesivo en Gmail para Android.
+    """
+    raw = str(value or "")
+    visual_lines = []
+
+    for line in raw.split("\n"):
+        if not line:
+            visual_lines.append("")
+            continue
+        visual_lines.extend(
+            line[offset:offset + width]
+            for offset in range(0, len(line), width)
+        )
+
+    return html.escape("\n".join(visual_lines))
+
+
 def load_json_file(path):
     """
     Carga un JSON desde disco.
@@ -232,72 +255,6 @@ def save_json_file(path, data):
 def normalize_group_name(value):
     """Normaliza grupos sin depender de mayusculas/minusculas."""
     return str(value or "").strip().upper()
-
-
-def firewall_drop_timeout_for_rule(alert_rule_id, config_path="/var/ossec/etc/ossec.conf"):
-    """Devuelve el timeout de firewall-drop para una regla, o None si no aplica."""
-    import re
-
-    try:
-        with open(config_path, "r", encoding="utf-8") as config_file:
-            config_text = config_file.read()
-    except OSError as exc:
-        try:
-            with open("/var/ossec/logs/integrations.log", "a") as logf:
-                logf.write(
-                    "WARN custom-orangebox-email: no se pudo leer "
-                    f"{config_path}: {exc}\n"
-                )
-        except OSError:
-            pass
-        return None
-
-    # Algunos archivos contienen varios elementos raíz concatenados.
-    config_text = re.sub(r"<\?xml[^?]*\?>", "", config_text, flags=re.IGNORECASE)
-    wrapped_config = "<orangebox-config-root>\n" + config_text + "\n</orangebox-config-root>"
-
-    try:
-        root = ET.fromstring(wrapped_config)
-    except ET.ParseError as exc:
-        try:
-            with open("/var/ossec/logs/integrations.log", "a") as logf:
-                logf.write(
-                    "WARN custom-orangebox-email: XML no válido en "
-                    f"{config_path}: {exc}\n"
-                )
-        except OSError:
-            pass
-        return None
-
-    for response in root.iter("active-response"):
-        disabled = (response.findtext("disabled") or "no").strip().lower()
-        command = (response.findtext("command") or "").strip()
-        if disabled == "yes" or command != "firewall-drop":
-            continue
-        configured_ids = {
-            item.strip()
-            for item in (response.findtext("rules_id") or "").split(",")
-            if item.strip()
-        }
-        if str(alert_rule_id).strip() not in configured_ids:
-            continue
-
-        timeout_text = (response.findtext("timeout") or "").strip()
-        if not timeout_text:
-            return 0
-        try:
-            return int(timeout_text)
-        except ValueError:
-            try:
-                with open("/var/ossec/logs/integrations.log", "a") as logf:
-                    logf.write(
-                        "WARN custom-orangebox-email: timeout inválido para "
-                        f"regla {alert_rule_id}: {timeout_text}\n"
-                    )
-            except OSError:
-                pass
-            return 0
-    return None
 
 
 def normalize_group_list(raw_groups):
@@ -350,9 +307,9 @@ def get_agent_groups_from_manager(agent_id):
     output = result.stdout or ""
 
     # Formato habitual:
-    #   has the group: '[u'Nexit', u'default']'
+    #   has the group: '[u'CLIENTE_04', u'default']'
     # y versiones:
-    #   belongs to groups: default, Nexit
+    #   belongs to groups: default, CLIENTE_04
     import re
 
     match = re.search(r"\[([^\]]*)\]", output)
@@ -1026,6 +983,114 @@ groups = ", ".join(
     for group in rule_groups
 )
 
+# Detecta dinamicamente si la regla disparada tiene un Active Response
+# firewall-drop habilitado en la configuracion efectiva del manager.
+# No mantener IDs de reglas duplicados en el integrador.
+OSSEC_CONF = "/var/ossec/etc/ossec.conf"
+
+
+def firewall_drop_timeout_for_rule(alert_rule_id, config_path=OSSEC_CONF):
+    """Devuelve el timeout de firewall-drop para la regla, o None si no aplica.
+
+    Algunos ossec.conf instalados contienen bloques ossec_config concatenados.
+    ElementTree no acepta varios elementos raíz, así que se envuelve el contenido
+    en una raíz temporal antes de buscar los bloques active-response.
+    """
+    import re
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as config_file:
+            config_text = config_file.read()
+    except OSError as exc:
+        config_text = None
+        error = str(exc)
+
+    if config_text is None:
+        try:
+            with open("/var/ossec/logs/integrations.log", "a") as logf:
+                logf.write(
+                    "WARN custom-orangebox-email: no se pudo leer "
+                    f"{config_path}: {error}\n"
+                )
+        except OSError:
+            pass
+        return None
+
+    # La declaración XML solo es válida al principio del documento; al envolver
+    # el archivo debe quitarse. El wrapper permite procesar varios bloques raíz.
+    config_text = re.sub(r"<\?xml[^?]*\?>", "", config_text, flags=re.IGNORECASE)
+    wrapped_config = "<orangebox-config-root>\n" + config_text + "\n</orangebox-config-root>"
+
+    try:
+        root = ET.fromstring(wrapped_config)
+    except ET.ParseError as exc:
+        try:
+            with open("/var/ossec/logs/integrations.log", "a") as logf:
+                logf.write(
+                    "WARN custom-orangebox-email: XML no válido en "
+                    f"{config_path}: {exc}\n"
+                )
+        except OSError:
+            pass
+        return None
+
+    for response in root.iter("active-response"):
+        disabled = (response.findtext("disabled") or "no").strip().lower()
+        command = (response.findtext("command") or "").strip()
+        if disabled == "yes" or command != "firewall-drop":
+            continue
+
+        configured_ids = {
+            item.strip()
+            for item in (response.findtext("rules_id") or "").split(",")
+            if item.strip()
+        }
+        if str(alert_rule_id).strip() not in configured_ids:
+            continue
+
+        timeout_text = (response.findtext("timeout") or "").strip()
+        if not timeout_text:
+            return 0
+        try:
+            return int(timeout_text)
+        except ValueError:
+            try:
+                with open("/var/ossec/logs/integrations.log", "a") as logf:
+                    logf.write(
+                        "WARN custom-orangebox-email: timeout inválido para "
+                        f"regla {alert_rule_id}: {timeout_text}\n"
+                    )
+            except OSError:
+                pass
+            return 0
+
+    return None
+
+
+firewall_drop_timeout = firewall_drop_timeout_for_rule(rule_id)
+normalized_rule_groups = {
+    normalize_group_name(group)
+    for group in rule_groups
+}
+is_blocked_alert = (
+    firewall_drop_timeout is not None
+    or bool(normalized_rule_groups & {"ACTIVE-RESPONSE", "ACTIVE_RESPONSE"})
+)
+
+source_ip = (
+    alert_json.get("data", {}).get("srcip", "")
+    or alert_json.get("data", {}).get("src_ip", "")
+)
+if not source_ip:
+    import re
+    source_match = re.search(
+        r'^\S+\s+((?:\d{1,3}\.){3}\d{1,3})\s+-\s+-\s+\[',
+        str(full_log),
+    )
+    if source_match:
+        source_ip = source_match.group(1)
+
+
 # rule.groups pertenece a la REGLA. El routing usa grupos del AGENTE.
 agent_groups = extract_agent_groups(alert_json)
 recipients = build_recipients(recipient, agent_groups)
@@ -1118,33 +1183,7 @@ alert_id = str(
     alert_json.get("id", "")
 )
 
-# IP origen: campos estructurados o formato habitual de Apache access log.
-source_ip = (
-    alert_json.get("data", {}).get("srcip", "")
-    or alert_json.get("data", {}).get("src_ip", "")
-)
-if not source_ip:
-    source_match = re.search(
-        r'^\S+\s+((?:\d{1,3}\.){3}\d{1,3})\s+-\s+-\s+\[',
-        str(full_log),
-    )
-    if source_match:
-        source_ip = source_match.group(1)
-
-firewall_drop_timeout = firewall_drop_timeout_for_rule(rule_id)
-normalized_rule_groups = {
-    normalize_group_name(group)
-    for group in rule_groups
-}
-is_blocked_alert = (
-    firewall_drop_timeout is not None
-    or bool(normalized_rule_groups & {"ACTIVE-RESPONSE", "ACTIVE_RESPONSE"})
-)
-
 current_event = {
-    "source_ip": source_ip,
-    "firewall_drop_timeout": firewall_drop_timeout,
-    "is_blocked_alert": is_blocked_alert,
     "agent_groups": agent_groups,
     "recipients": recipients,
     "alert_id": alert_id,
@@ -1507,65 +1546,6 @@ else:
     highest_level = safe_int(
         final_data.get("max_level", 0)
     )
-
-
-# ============================================================
-# ESTADO DE ACTIVE RESPONSE EN EL CORREO
-# ============================================================
-
-def format_timeout(seconds):
-    if seconds <= 0:
-        return "sin timeout definido"
-    if seconds % 86400 == 0:
-        days = seconds // 86400
-        return f"{days} día" if days == 1 else f"{days} días"
-    if seconds % 3600 == 0:
-        hours = seconds // 3600
-        return f"{hours} hora" if hours == 1 else f"{hours} horas"
-    if seconds % 60 == 0:
-        minutes = seconds // 60
-        return f"{minutes} minuto" if minutes == 1 else f"{minutes} minutos"
-    return f"{seconds} segundos"
-
-
-first_event = (final_data.get("events") or [{}])[0]
-firewall_drop_timeout = first_event.get("firewall_drop_timeout")
-is_blocked_alert = bool(first_event.get("is_blocked_alert"))
-source_ip = str(first_event.get("source_ip") or "").strip()
-
-blocked_ip_html = ""
-if is_blocked_alert:
-    timeout_label = (
-        format_timeout(firewall_drop_timeout)
-        if firewall_drop_timeout is not None
-        else "según Active Response"
-    )
-    status_label = (
-        "Bloqueo configurado"
-        if firewall_drop_timeout is not None
-        else "Active Response asociado"
-    )
-    blocked_ip_html = f"""
-                            <tr>
-                                <td width="35%"
-                                    style="width:35%;padding:12px 16px;
-                                    border-bottom:1px solid #cbd5e1;
-                                    color:#334155;font-size:13px;
-                                    line-height:18px;font-weight:700;">
-                                    IP origen bloqueada
-                                </td>
-                                <td width="65%"
-                                    style="width:65%;padding:12px 16px;
-                                    border-bottom:1px solid #cbd5e1;
-                                    color:#0f172a;font-size:14px;
-                                    line-height:20px;font-weight:700;
-                                    word-break:break-word;">
-                                    {esc(source_ip or "IP no identificada")}
-                                    · {esc(status_label)}
-                                    · Tiempo configurado: {esc(timeout_label)}
-                                </td>
-                            </tr>
-    """
 
 
 # ============================================================
@@ -1933,7 +1913,7 @@ for idx, ev in enumerate(
             overflow: hidden;
             font-size: 13px;
             line-height: 1.4;
-        ">{esc(ev.get('full_log', ''))}</pre>
+        ">{format_log_for_html(ev.get('full_log', ''))}</pre>
 
     </div>
     """
@@ -1967,6 +1947,62 @@ wazuh_url = (
 )
 
 
+# Fila de datos normal para alertas con respuesta activa configurada.
+def format_timeout(seconds):
+    if seconds <= 0:
+        return "sin timeout definido"
+    if seconds % 86400 == 0:
+        days = seconds // 86400
+        return f"{days} día" if days == 1 else f"{days} días"
+    if seconds % 3600 == 0:
+        hours = seconds // 3600
+        return f"{hours} hora" if hours == 1 else f"{hours} horas"
+    if seconds % 60 == 0:
+        minutes = seconds // 60
+        return f"{minutes} minuto" if minutes == 1 else f"{minutes} minutos"
+    return f"{seconds} segundos"
+
+
+blocked_ip_html = ""
+if is_blocked_alert:
+    timeout_label = (
+        format_timeout(firewall_drop_timeout)
+        if firewall_drop_timeout is not None
+        else "según Active Response"
+    )
+    blocked_ip_html = f"""
+                            <tr>
+                                <td width="35%"
+                                    style="
+                                        width:35%;
+                                        padding:12px 16px;
+                                        border-bottom:1px solid #cbd5e1;
+                                        color:#334155;
+                                        font-size:13px;
+                                        line-height:18px;
+                                        font-weight:700;
+                                    ">
+                                    Estado de bloqueo
+                                </td>
+                                <td width="65%"
+                                    style="
+                                        width:65%;
+                                        padding:12px 16px;
+                                        border-bottom:1px solid #cbd5e1;
+                                        color:#0f172a;
+                                        font-size:14px;
+                                        line-height:20px;
+                                        font-weight:700;
+                                        word-break:break-word;
+                                        overflow-wrap:anywhere;
+                                    ">
+                                    {esc(source_ip or 'IP no disponible en el evento')}
+                                    <span style="font-weight:400;"> · {esc('firewall-drop configurado' if firewall_drop_timeout is not None else 'Active Response asociado')} · Tiempo: {esc(timeout_label)}</span>
+                                </td>
+                            </tr>
+                            """
+
+
 # ============================================================
 # PLANTILLA HTML CORPORATIVA ORANGEBOX
 # ============================================================
@@ -1994,11 +2030,13 @@ html_template = f"""<!DOCTYPE html>
         <td align="center" style="padding:10px 0;">
 
             <!-- TARJETA ORANGEBOX -->
-            <table role="presentation" width="720" cellpadding="0" cellspacing="0" border="0"
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
                    align="center"
                    style="
                        width:100%;
                        max-width:720px;
+                       width:100%;
+                       table-layout:fixed;
                        background-color:#2d3a4e;
                        border:1px solid #42516a;
                        border-radius:20px;
