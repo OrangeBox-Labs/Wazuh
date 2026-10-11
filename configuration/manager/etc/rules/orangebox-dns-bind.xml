@@ -163,7 +163,7 @@
     <rule id="10810" level="15">
         <if_sid>12109</if_sid>
         <description>ALERTA CRITICA: BIND/named termino por un error fatal y el servicio DNS puede estar fuera de servicio.</description>
-        <group>orangebox,dns,bind,service_availability,attack,</group>
+        <group>orangebox,dns,bind,service_availability,attack,orangebox_immediate,</group>
     </rule>
 
 </group>
