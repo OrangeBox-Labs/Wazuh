@@ -2,6 +2,8 @@
 
 Este directorio contiene listas CDB utilizadas directamente por las reglas del Wazuh Manager.
 
+**Importante para la versión pública:** las entradas IP/hostname de ejemplo se sanitizaron para documentación y no representan el entorno del usuario. Antes de desplegar, reemplaza todos los valores de ejemplo en las listas estáticas y genera las CDB dinámicas con los sincronizadores correspondientes. Las redes TEST-NET (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) no son direcciones operativas.
+
 Las CDB se dividen en dos tipos:
 
 - **estáticas**: se mantienen en el repositorio y se despliegan sin cambios;
