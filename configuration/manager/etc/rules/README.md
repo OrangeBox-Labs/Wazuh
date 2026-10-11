@@ -31,6 +31,8 @@ Las excepciones actuales usan CDB separadas:
 
 - `orangebox-cpanel-agents`: agentes del grupo Wazuh `cpanel`.
 - `orangebox-zimbra-agents`: agentes del grupo Wazuh `zimbra`.
+- `orangebox-dns-agents`: agentes del grupo Wazuh `DNS`, para limitar la excepción FIM `20057` a los plugins SocialBee/XOVI observados en DNSOnly.
+- `20058`: excepción global y acotada para unidades de montaje Snap retiradas por `snapd`; exige actor y patrón de archivo específicos.
 - No existe una CDB global de perfiles para estas excepciones.
 
 Esto evita whitelists globales para software que solo es legítimo en determinados endpoints.
@@ -81,11 +83,15 @@ Detecciones HTTP/Apache orientadas a reconocimiento, autenticación web y abuso 
 
 Detecciones de actividad de red a partir del decoder nativo `kernel`.
 
+### `orangebox-dns-bind.xml`
+
+Detecciones para servidores BIND/named. Utiliza el trafico DNS registrado por OrangeBox en puerto 53 para detectar floods UDP y SYN floods TCP. La regla `10803` funciona como senal de observacion de trafico distribuido y `10811` exige persistencia antes de elevar la actividad a una alerta de nivel 14. Tambien eleva eventos nativos de BIND para AXFR denegado, update DNS no autorizado, abuso de cache, paquetes invalidos y errores fatales.
+
 ### `orangebox-ioc.xml`
 
 Correlaciones OrangeBox sobre las CDB oficiales de Wazuh para IOCs maliciosos. Las reglas `10460`–`10463` combinan una detección de ataque existente con una IP presente en `etc/lists/malicious-ioc/malicious-ip`.
 
-Las acciones de contención siguen perteneciendo a las reglas padre existentes (`5720`, `10025`, `10456`, `10457`); estas reglas no agregan un segundo `firewall-drop`. La detección de hashes y otras detecciones IOC que Wazuh ya entrega (`99901`–`99920`) no se duplican.
+Las acciones de contención siguen perteneciendo a las reglas padre existentes (`5720`, `10025`, `10454`, `10456`); estas reglas no agregan un segundo `firewall-drop`. La detección de hashes y otras detecciones IOC que Wazuh ya entrega (`99901`–`99920`) no se duplican.
 
 ## Criterio de revisión de una whitelist
 
