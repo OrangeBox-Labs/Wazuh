@@ -65,6 +65,6 @@ No agregar una respuesta automática global para un patrón que no identifica un
 
 La regla nativa Wazuh `651` (`Host Blocked by firewall-drop Active Response`) tiene nivel 3. `log_alert_level` debe ser al menos 3 para conservar esa evidencia en `alerts.json`. No se eleva artificialmente el nivel de la regla nativa.
 
-La regla OrangeBox `10458` agrega una señal para los reportes. Con `email_alert_level=16`, ese evento se conserva para auditoría sin generar un correo individual por cada IP bloqueada.
+La regla OrangeBox `10458` agrega una señal de nivel 11 para los reportes. Queda registrada porque `log_alert_level=3`, pero no alcanza el umbral `<level>12</level>` de la integración personalizada. Además, `email_alert_level=16` mantiene desactivado el correo nativo de Wazuh para estos eventos.
 
 Distinguir siempre entre una acción configurada y una acción ejecutada: para confirmar el bloqueo real, revisar los eventos de Active Response `651` y su correlación OrangeBox `10458`.
