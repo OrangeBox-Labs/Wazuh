@@ -8,6 +8,7 @@ import fcntl
 import html
 import hashlib
 import subprocess
+import re
 import xml.etree.ElementTree as ET
 
 from email.mime.multipart import MIMEMultipart
