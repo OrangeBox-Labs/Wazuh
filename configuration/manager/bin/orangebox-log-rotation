@@ -1,0 +1,95 @@
+#!/bin/bash
+
+# OrangeBox - rotación de logs internos de Wazuh.
+#
+# Mantiene únicamente los últimos 7 días de los logs bajo:
+#   /var/ossec/logs/wazuh
+#   /var/ossec/logs/firewall
+#
+# Los archivos .json y .log históricos sin comprimir se comprimen con gzip.
+# Los archivos abiertos actualmente se omiten cuando lsof está disponible.
+# Los archivos comprimidos con más de 7 días se eliminan.
+#
+# No toca:
+#   /var/ossec/logs/alerts
+#   /var/ossec/logs/active-responses.log
+#   /var/ossec/logs/ossec.log
+#
+# El script no reinicia Wazuh y está pensado para ejecución diaria desde cron.
+
+set -u
+
+RETENTION_DAYS=7
+RETENTION_MINUTES=$((RETENTION_DAYS * 1440))
+LOG_ROOTS=(
+    "/var/ossec/logs/wazuh"
+    "/var/ossec/logs/firewall"
+)
+
+if ! command -v find >/dev/null 2>&1 || ! command -v gzip >/dev/null 2>&1; then
+    exit 1
+fi
+
+LOCK_FILE="/run/orangebox-log-rotation.lock"
+exec 9>"$LOCK_FILE"
+
+if command -v flock >/dev/null 2>&1; then
+    flock -n 9 || exit 0
+fi
+
+is_open_file() {
+    local file="$1"
+
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -t -- "$file" >/dev/null 2>&1
+        return $?
+    fi
+
+    return 1
+}
+
+compress_old_logs() {
+    local root="$1"
+    local file
+
+    [ -d "$root" ] || return 0
+
+    while IFS= read -r -d '' file; do
+        # No comprimir archivos modificados durante las últimas 24 horas:
+        # pueden seguir siendo archivos activos aunque tengan otro nombre.
+        if [ "$(find "$file" -maxdepth 0 -mmin +1440 -print 2>/dev/null)" != "$file" ]; then
+            continue
+        fi
+
+        # Si lsof existe y el archivo está abierto, dejarlo intacto.
+        if command -v lsof >/dev/null 2>&1 && is_open_file "$file"; then
+            continue
+        fi
+
+        gzip -n -- "$file" >/dev/null 2>&1 || true
+    done < <(
+        find "$root" -type f \(
+            -name '*.json' -o -name '*.log'
+        \) -print0 2>/dev/null
+    )
+}
+
+purge_old_compressed_logs() {
+    local root="$1"
+
+    [ -d "$root" ] || return 0
+
+    find "$root" -type f \(
+        -name '*.json.gz' -o -name '*.log.gz'
+    \) -mmin +"$RETENTION_MINUTES" -delete 2>/dev/null || true
+
+    # Limpia solamente directorios que hayan quedado vacíos.
+    find "$root" -depth -type d -empty -delete 2>/dev/null || true
+}
+
+for root in "${LOG_ROOTS[@]}"; do
+    compress_old_logs "$root"
+    purge_old_compressed_logs "$root"
+done
+
+exit 0

@@ -1,0 +1,2 @@
+# Rotación de logs internos OrangeBox
+30 0 * * * root /var/ossec/bin/orangebox-log-rotation
