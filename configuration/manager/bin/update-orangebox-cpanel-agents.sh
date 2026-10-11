@@ -55,7 +55,7 @@ if ! "$AGENT_GROUPS" -l -g "$GROUP" >"$GROUP_OUTPUT" 2>&1; then
 fi
 
 # agent_groups devuelve lineas similares a:
-#   ID: 012  Name: server.example.cl.
+#   ID: 012  Name: server.example.invalid.
 #
 # Extraemos solo el campo Name. Toleramos diferencias de mayusculas/minusculas
 # en "Name" y no dependemos del texto de la cabecera.
