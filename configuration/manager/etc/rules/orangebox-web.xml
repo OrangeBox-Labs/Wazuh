@@ -207,7 +207,7 @@
      de metadatos de AWS; no bloquea por longitud solamente.
 ================================================================ -->
 <group name="orangebox,web,cloud_metadata,ssrf,attack,">
-    <rule id="10030" level="14">
+    <rule id="10039" level="14">
         <if_sid>31115</if_sid>
         <url type="pcre2">(?i)169\.254\.169\.254/latest/meta-data/iam/security-credentials/?</url>
         <description>ALERTA CRITICA: Posible intento de acceso a credenciales IAM mediante endpoint de metadatos cloud desde $(srcip).</description>
@@ -263,6 +263,51 @@
         <list field="srcip" lookup="address_match_key">etc/lists/orangebox-web-discovery-proxies</list>
         <description>EXCEPCION: Reconocimiento de archivos proveniente de reverse proxy autorizado; el backend puede registrar la IP del proxy.</description>
         <group>web,reconnaissance,orangebox_exception,orangebox_whitelist,reverse_proxy,</group>
+    </rule>
+
+
+    <!--
+        20027
+        ------------------------------------------------------------
+        EXCEPCION: Sondeo local de Zabbix al endpoint HTTP de estado.
+        Aplica solamente a localhost, GET /<token de 24 caracteres>?auto,
+        respuesta 4xx distinta de 401/403 y User-Agent Zabbix 7.4.x.
+        Las respuestas 401/403 se controlan desde la regla 20028.
+    -->
+    <rule id="20027" level="0">
+        <if_sid>31101</if_sid>
+        <id type="pcre2" negate="yes">^(401|403)$</id>
+        <match type="pcre2">(?is)(?:^|\s)(?:127\.0\.0\.1|::1)\s+-\s+-\s+\[[^\]]+\]\s+"GET /(?:[A-Za-z0-9]{24}\?auto|[A-Za-z0-9._/-]*status[A-Za-z0-9._/-]*(?:/\?auto|\?auto)?) HTTP/1\.[01]"\s+4\d\d\b.*"Zabbix 7\.4\.\d+"</match>
+        <description>EXCEPCION: Zabbix local consulta endpoint HTTP de estado (4xx distinto de 401/403).</description>
+        <group>web,monitoring,orangebox_exception,orangebox_zabbix_status,</group>
+    </rule>
+
+    <!--
+        20028
+        ------------------------------------------------------------
+        EXCEPCION: Sondeo local de Zabbix que dispara la regla 10024
+        por respuestas HTTP 401/403. Mantiene los mismos requisitos
+        estrictos de localhost, token ?auto y User-Agent Zabbix 7.4.x.
+    -->
+    <rule id="20028" level="0">
+        <if_sid>10024</if_sid>
+        <match type="pcre2">(?is)(?:^|\s)(?:127\.0\.0\.1|::1)\s+-\s+-\s+\[[^\]]+\]\s+"GET /(?:[A-Za-z0-9]{24}\?auto|[A-Za-z0-9._/-]*status[A-Za-z0-9._/-]*(?:/\?auto|\?auto)?) HTTP/1\.[01]"\s+4\d\d\b.*"Zabbix 7\.4\.\d+"</match>
+        <description>EXCEPCION: Zabbix local consulta endpoint HTTP de estado (respuesta 401/403).</description>
+        <group>web,monitoring,orangebox_exception,orangebox_zabbix_status,</group>
+    </rule>
+
+    <!--
+        20029
+        ------------------------------------------------------------
+        EXCEPCION: Correlacion de multiples errores HTTP atribuibles
+        al mismo sondeo de estado de Zabbix. Evita que 31151 vuelva a
+        generar la alerta por la repeticion de un evento ya reconocido.
+    -->
+    <rule id="20029" level="0">
+        <if_sid>31151</if_sid>
+        <match type="pcre2">(?is)(?:^|\s)(?:127\.0\.0\.1|::1)\s+-\s+-\s+\[[^\]]+\]\s+"GET /(?:[A-Za-z0-9]{24}\?auto|[A-Za-z0-9._/-]*status[A-Za-z0-9._/-]*(?:/\?auto|\?auto)?) HTTP/1\.[01]"\s+4\d\d\b.*"Zabbix 7\.4\.\d+"</match>
+        <description>EXCEPCION: Correlacion de errores HTTP generada por sondeos locales de Zabbix.</description>
+        <group>web,monitoring,orangebox_exception,orangebox_zabbix_status,</group>
     </rule>
 
 </group>
