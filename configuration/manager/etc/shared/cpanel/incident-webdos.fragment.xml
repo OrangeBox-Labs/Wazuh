@@ -1,0 +1,40 @@
+<!--
+  Sanitized deployment fragment.
+  Merge these blocks into the cPanel shared agent profile after reviewing
+  the command paths and local PHP-FPM process layout for the target OS.
+-->
+
+<!-- High-value web files: low-noise FIM coverage for common persistence/content injection points. -->
+<directories realtime="yes" report_changes="yes" whodata="yes">/home/*/public_html/.htaccess,/home/*/public_html/wp-config.php,/home/*/public_html/index.php,/home/*/public_html/functions.php</directories>
+
+<!-- Persistent SYN-RECV state, grouped by source/destination/service. -->
+<localfile>
+  <log_format>command</log_format>
+  <command>/bin/bash -c 'ss -Hnt4 state syn-recv | awk '\''{split($4,l,":"); split($5,p,":"); print p[1],l[1],l[2]}'\'' | sort | uniq -c | awk '\''{print "ORANGEBOX_SYNRECV count="$1" srcip="$2" dstip="$3" dstport="$4}'\''; printf "ORANGEBOX_SYNRECV_TOTAL count="; ss -Hnt4 state syn-recv | wc -l'</command>
+  <alias>orangebox-synrecv</alias>
+  <frequency>5</frequency>
+</localfile>
+
+<!-- Emit only when aggregate ksoftirqd CPU crosses the threshold. -->
+<localfile>
+  <log_format>full_command</log_format>
+  <command>/bin/bash -c 'cpu=$(ps -eo comm=,pcpu= | awk '\''$1 ~ /^ksoftirqd\// {sum += $2} END {printf "%.2f", sum+0}'\''); awk -v c="$cpu" '\''BEGIN {if (c >= 20) printf "ORANGEBOX_KSOFTIRQ cpu=%s\n", c}'\'''</command>
+  <alias>orangebox-ksoftirq</alias>
+  <frequency>10</frequency>
+</localfile>
+
+<!-- Emit load telemetry only when 1-minute load exceeds CPU count. -->
+<localfile>
+  <log_format>full_command</log_format>
+  <command>/bin/bash -c 'read l1 l5 l15 rest &lt; /proc/loadavg; c=$(nproc); awk -v c="$c" -v l1="$l1" -v l5="$l5" -v l15="$l15" '\''BEGIN {if (l1 &gt; c) printf "ORANGEBOX_LOAD cpus=%d load1=%s load5=%s load15=%s\n", c,l1,l5,l15}'\'''</command>
+  <alias>orangebox-load</alias>
+  <frequency>30</frequency>
+</localfile>
+
+<!-- Emit only individual PHP-FPM workers above the threshold. -->
+<localfile>
+  <log_format>command</log_format>
+  <command>/bin/bash -c 'ps -eo pcpu=,args= --sort=-pcpu | awk '\''$2 ~ /php-fpm:/ &amp;&amp; $3 == "pool" &amp;&amp; $1+0 &gt;= 25 {printf "ORANGEBOX_PHPFPM user=%s cpu=%s command=php-fpm pool %s\n", $4,$1,$4}'\'''</command>
+  <alias>orangebox-phpfpm</alias>
+  <frequency>10</frequency>
+</localfile>
