@@ -1,0 +1,23 @@
+<!--
+  Sanitized deployment fragment.
+  Merge into manager/etc/ossec.conf after validating rule behavior.
+  The rule groups are intentionally narrower than generic web blocking.
+-->
+
+<!-- High-confidence sensitive web reconnaissance/exposure. -->
+<active-response>
+  <disabled>no</disabled>
+  <command>firewall-drop</command>
+  <location>local</location>
+  <rules_group>orangebox_web_auto_block,</rules_group>
+  <timeout>86400</timeout>
+</active-response>
+
+<!-- Persistent single-source SYN-RECV pressure. -->
+<active-response>
+  <disabled>no</disabled>
+  <command>firewall-drop</command>
+  <location>local</location>
+  <rules_group>orangebox_syn_flood_block,</rules_group>
+  <timeout>3600</timeout>
+</active-response>
