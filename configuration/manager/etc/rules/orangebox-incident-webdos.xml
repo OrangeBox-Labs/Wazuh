@@ -1,0 +1,157 @@
+<!--
+    OrangeBox - Incident-derived web abuse and availability detections.
+
+    Coverage:
+      - sensitive credential/configuration path discovery
+      - successful HTTP 2xx exposure of high-value secret paths
+      - repeated web reconnaissance
+      - internal Serf/mod_pagespeed request loops
+      - cache-bypass bot bursts
+      - SEO/content-injection indicators
+      - persistent SYN-RECV pressure
+      - elevated ksoftirqd CPU
+      - sustained load above CPU capacity
+      - hot PHP-FPM workers/pools
+
+    Automatic response is intentionally limited to high-confidence remote
+    reconnaissance and persistent single-source SYN pressure. Validated
+    reverse proxies are excluded through the CDB list below.
+-->
+
+<group name="orangebox,web,reconnaissance,credential_discovery,attack,">
+
+    <rule id="10820" level="4">
+        <url type="pcre2">(?i)^/(?:\.git(?:/|$)|\.env(?:[._/-]|$)|\.config/gcloud(?:/|$)|\.aws(?:/|$)|credentials\.json(?:$|[?])|firebase-adminsdk[^/]*\.json(?:$|[?])|\.docker/config\.json(?:$|[?])|\.npmrc(?:$|[?])|wp-config\.php(?:[._/-]|$)|composer\.(?:json|lock)(?:$|[?])|config\.(?:json|yaml|yml|php)(?:[._-]|$)|database\.(?:sql|sqlite)(?:$|[?]))</url>
+        <description>ORANGEBOX: Web request for a sensitive configuration or credential-bearing path.</description>
+        <mitre><id>T1083</id><id>T1552</id></mitre>
+        <group>orangebox_web_sensitive_probe,web,reconnaissance,credential_discovery,attack,</group>
+    </rule>
+
+    <rule id="10821" level="13">
+        <if_sid>10820</if_sid>
+        <status type="pcre2">^2\d\d$</status>
+        <url type="pcre2">(?i)^/(?:\.env(?:[._/-]|$)|credentials\.json(?:$|[?])|firebase-adminsdk[^/]*\.json(?:$|[?])|\.config/gcloud(?:/|$)|\.aws/(?:credentials|config)(?:$|[?])|\.docker/config\.json(?:$|[?])|\.npmrc(?:$|[?])|wp-config\.php(?:[._/-]|$))</url>
+        <list field="srcip" lookup="not_address_match_key">etc/lists/orangebox-web-discovery-proxies</list>
+        <description>CRITICAL: Possible successful exposure of a credential/secret web resource from $(srcip).</description>
+        <mitre><id>T1552.001</id></mitre>
+        <group>orangebox,web,credential_access,credential_discovery,exposure,orangebox_web_auto_block,</group>
+    </rule>
+
+    <rule id="10822" level="14" frequency="3" timeframe="60" ignore="300">
+        <if_matched_sid>10820</if_matched_sid>
+        <same_srcip />
+        <different_url />
+        <list field="srcip" lookup="not_address_match_key">etc/lists/orangebox-web-discovery-proxies</list>
+        <description>CRITICAL: Automated discovery of multiple sensitive web resources from the same source $(srcip).</description>
+        <mitre><id>T1595.002</id><id>T1552.001</id></mitre>
+        <group>orangebox,web,reconnaissance,credential_discovery,attack,orangebox_web_auto_block,</group>
+    </rule>
+
+    <rule id="10823" level="13" frequency="3" timeframe="30" ignore="300">
+        <if_matched_sid>10820</if_matched_sid>
+        <same_srcip />
+        <same_url />
+        <list field="srcip" lookup="not_address_match_key">etc/lists/orangebox-web-discovery-proxies</list>
+        <description>ALERT: Repeated automated access to a sensitive web resource from $(srcip).</description>
+        <mitre><id>T1595.002</id></mitre>
+        <group>orangebox,web,reconnaissance,credential_discovery,attack,orangebox_web_auto_block,</group>
+    </rule>
+
+</group>
+
+<group name="orangebox,web,availability,mod_pagespeed,">
+
+    <rule id="10824" level="5">
+        <regex type="pcre2">(?i)Serf/1\.3\.9.*mod_pagespeed/1\.13\.35\.2|mod_pagespeed/1\.13\.35\.2.*Serf/1\.3\.9</regex>
+        <description>ORANGEBOX: HTTP request associated with the known Serf/mod_pagespeed internal request signature.</description>
+        <group>orangebox_web_internal_loop,web,availability,mod_pagespeed,</group>
+    </rule>
+
+    <rule id="10825" level="12" frequency="20" timeframe="30" ignore="120">
+        <if_matched_sid>10824</if_matched_sid>
+        <same_srcip />
+        <description>ALERT: Possible mod_pagespeed request loop or repeated internal HTTP activity from $(srcip).</description>
+        <mitre><id>T1499.002</id></mitre>
+        <group>orangebox,web,availability,denial_of_service,mod_pagespeed,orangebox_web_internal_loop,</group>
+    </rule>
+
+</group>
+
+<group name="orangebox,web,bot_abuse,availability,">
+
+    <rule id="10826" level="4">
+        <url type="pcre2">(?i)(?:[?&]k=[A-Za-z0-9]{5}(?:&|$)|[?&]page=\d+)</url>
+        <regex type="pcre2">(?i)Claude-SearchBot/1\.0|SemrushBot/7|SemrushBot</regex>
+        <description>ORANGEBOX: Bot/crawler request with a cache-bypass query pattern.</description>
+        <group>orangebox_web_bot_abuse,web,availability,</group>
+    </rule>
+
+    <rule id="10827" level="10" frequency="20" timeframe="60" ignore="120">
+        <if_matched_sid>10826</if_matched_sid>
+        <same_srcip />
+        <same_url />
+        <description>ALERT: Repeated bot/cache-bypass URL burst; review PHP-FPM and database impact.</description>
+        <mitre><id>T1499.002</id></mitre>
+        <group>orangebox,web,bot_abuse,availability,resource_exhaustion,</group>
+    </rule>
+
+    <rule id="10828" level="12">
+        <status>200</status>
+        <url type="pcre2">(?i)(?:gg[-_]?bet|zaklady[-_]?esportowe|casino|sportsbook|betting)</url>
+        <description>ALERT: URL with a known SEO spam/betting indicator served with HTTP 200; investigate possible content compromise.</description>
+        <mitre><id>T1565.001</id></mitre>
+        <group>orangebox,web,compromise,seo_spam,content_injection,orangebox_web_compromise,</group>
+    </rule>
+
+</group>
+
+<group name="orangebox,availability,host,">
+
+    <rule id="10829" level="13" frequency="3" timeframe="15" ignore="120">
+        <decoded_as>orangebox_synrecv</decoded_as>
+        <field name="synrecv_count" type="pcre2">^(?:[2-9]\d|[1-9]\d{2,})$</field>
+        <same_srcip />
+        <same_dstip />
+        <same_dstport />
+        <description>CRITICAL: Persistent TCP SYN-RECV pressure; $(synrecv_count) connections from $(srcip) to $(dstip):$(dstport).</description>
+        <mitre><id>T1499.001</id></mitre>
+        <group>orangebox,firewall,flood,denial_of_service,orangebox_syn_flood_block,</group>
+    </rule>
+
+    <rule id="10830" level="12">
+        <decoded_as>orangebox_synrecv_total</decoded_as>
+        <field name="synrecv_count" type="pcre2">^(?:[5-9]\d|[1-9]\d{2,})$</field>
+        <description>ALERT: Elevated TCP SYN-RECV socket pressure on the endpoint; total exceeds 50.</description>
+        <mitre><id>T1499.001</id></mitre>
+        <group>orangebox,firewall,flood,denial_of_service,orangebox_syn_state,</group>
+    </rule>
+
+    <rule id="10831" level="12">
+        <decoded_as>orangebox_ksoftirq</decoded_as>
+        <description>ALERT: Aggregate ksoftirqd CPU exceeds the configured threshold; investigate network interrupt pressure.</description>
+        <mitre><id>T1499</id></mitre>
+        <group>orangebox,availability,kernel,network,flood,</group>
+    </rule>
+
+    <rule id="10832" level="8" frequency="3" timeframe="90" ignore="180">
+        <decoded_as>orangebox_load</decoded_as>
+        <description>ALERT: 1-minute load remains above CPU count; review CPU, I/O, network and process pressure.</description>
+        <group>orangebox,availability,performance,load,</group>
+    </rule>
+
+    <rule id="10833" level="8">
+        <decoded_as>orangebox_phpfpm</decoded_as>
+        <field name="php_cpu" type="pcre2">^(?:2[5-9]|[3-9]\d|\d{3,})(?:\.\d+)?$</field>
+        <description>ORANGEBOX: Hot PHP-FPM worker in account $(php_user), CPU $(php_cpu)%, command $(php_command).</description>
+        <group>orangebox,availability,php_fpm,resource_exhaustion,</group>
+    </rule>
+
+    <rule id="10834" level="12" frequency="3" timeframe="60" ignore="180">
+        <if_matched_sid>10833</if_matched_sid>
+        <same_field>php_user</same_field>
+        <description>ALERT: PHP-FPM account $(php_user) remains under elevated worker pressure; investigate HTTP abuse or application degradation.</description>
+        <mitre><id>T1499.002</id></mitre>
+        <group>orangebox,availability,php_fpm,resource_exhaustion,orangebox_phpfpm_pressure,</group>
+    </rule>
+
+</group>
