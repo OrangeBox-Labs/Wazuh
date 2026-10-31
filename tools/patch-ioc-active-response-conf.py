@@ -42,12 +42,14 @@ REPLACEMENT = """<!-- Source-IP IOC detections with a decoded srcip: immediate 7
 
 # Extrae los SIDs definidos en rules_id y normaliza espacios.
 def _rules_ids(block: ET.Element) -> set[str]:
+    """Extrae y normaliza los SID declarados en un bloque Active Response."""
     raw = (block.findtext("rules_id") or "").strip()
     return {item.strip() for item in raw.split(",") if item.strip()}
 
 
 # Devuelve solo bloques firewall-drop habilitados; ignora otras respuestas.
 def _firewall_blocks(root: ET.Element) -> list[ET.Element]:
+    """Devuelve los bloques firewall-drop habilitados y descarta otras respuestas."""
     return [
         block
         for block in root.iter("active-response")
@@ -58,6 +60,7 @@ def _firewall_blocks(root: ET.Element) -> list[ET.Element]:
 
 # Localiza el bloque legacy exacto que esta herramienta tiene permiso de reemplazar.
 def _find_target_block(root: ET.Element) -> list[ET.Element]:
+    """Localiza el único bloque legacy que esta herramienta está autorizada a reemplazar."""
     return [
         block for block in _firewall_blocks(root)
         if _rules_ids(block) == set(OLD_IDS.split(","))
@@ -66,6 +69,7 @@ def _find_target_block(root: ET.Element) -> list[ET.Element]:
 
 # Detecta el estado final esperado para que una segunda ejecución no cambie nada.
 def _already_applied(root: ET.Element) -> bool:
+    """Comprueba si los bloques IOC ya tienen los SID y timeouts esperados."""
     seven_ids = set(SEVEN_DAY_IDS.split(","))
     thirty_ids = set(THIRTY_DAY_IDS.split(","))
     relevant = []
@@ -125,6 +129,7 @@ def _migrate_current_policy(original: str, root: ET.Element) -> str | None:
 
 # Escribe un temporal en el mismo filesystem y reemplaza ossec.conf de forma atómica.
 def _write_atomic(path: Path, updated: str) -> None:
+    """Escribe ossec.conf actualizado en un temporal y reemplaza el original preservando permisos."""
     stat = path.stat()
     fd, temp_name = tempfile.mkstemp(prefix=".ossec.conf.orangebox.", dir=str(path.parent))
     try:
@@ -208,6 +213,7 @@ def patch_config(config_path: str | os.PathLike[str]) -> bool:
 
 # Procesa argumentos, invoca el parche y traduce el resultado a un código de salida.
 def main() -> int:
+    """Procesa argumentos, aplica el parche seguro y devuelve un código de salida para automatización."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="/var/ossec/etc/ossec.conf")
     args = parser.parse_args()
