@@ -23,6 +23,7 @@ MANAGER_CONF = REPO_ROOT / "configuration" / "manager" / "etc" / "ossec.conf"
 
 class FirewallDropPolicyTests(unittest.TestCase):
     def write_config(self, content):
+        """Crea un ossec.conf temporal para probar la política sin tocar la configuración del Manager."""
         tmp = tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False)
         self.addCleanup(lambda: Path(tmp.name).unlink(missing_ok=True))
         tmp.write(content)
@@ -30,12 +31,14 @@ class FirewallDropPolicyTests(unittest.TestCase):
         return tmp.name
 
     def test_repo_policy_ioc_durations(self):
+        """Comprueba que el repositorio mantenga los timeouts IOC de 7 y 30 días."""
         expected = {
             "10460": 604800, "10461": 604800, "10462": 604800, "10463": 604800,
             "99903": 604800, "99904": 604800, "99905": 604800, "99907": 604800,
             "99908": 604800, "99911": 604800, "99912": 604800, "99913": 604800,
             "99914": 604800, "99906": 2592000, "10053": 2592000,
         }
+        # Comprueba el timeout esperado de cada SID de Active Response.
         for rule_id, timeout in expected.items():
             with self.subTest(rule_id=rule_id):
                 result = firewall_drop_policy_for_alert(rule_id, 14, [], str(MANAGER_CONF))
@@ -44,6 +47,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
                 self.assertEqual(result["location"], "local")
 
     def test_rules_id_rules_group_and_level_are_or_selectors(self):
+        """Verifica que SID, grupo y nivel se evalúen como selectores alternativos."""
         config = self.write_config("""<ossec_config>
   <active-response>
     <disabled>no</disabled><command>firewall-drop</command><location>local</location>
@@ -57,6 +61,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
             ("44", 14, [], True, "level"),
             ("44", 11, [], False, ""),
         ]
+        # Ejecuta cada combinación de selector y resultado esperado.
         for rule_id, level, groups, expected, selector in cases:
             with self.subTest(rule_id=rule_id, level=level, groups=groups):
                 result = firewall_drop_policy_for_alert(rule_id, level, groups, config)
@@ -65,6 +70,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
                     self.assertTrue(any(selector in item for item in result["matched_by"]))
 
     def test_rules_group_trailing_comma_requires_exact_match(self):
+        """Comprueba que una coma final exija coincidencia exacta del grupo."""
         config = self.write_config("""<ossec_config>
   <active-response><disabled>no</disabled><command>firewall-drop</command>
     <location>local</location><rules_group>web,</rules_group><timeout>300</timeout>
@@ -76,6 +82,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
         self.assertEqual(partial["status"], "not_configured")
 
     def test_group_without_trailing_comma_allows_substring_match(self):
+        """Verifica la coincidencia parcial cuando el selector no exige exactitud."""
         config = self.write_config("""<ossec_config>
   <active-response><disabled>no</disabled><command>firewall-drop</command>
     <location>local</location><rules_group>web</rules_group><timeout>300</timeout>
@@ -85,6 +92,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
         self.assertEqual(result["status"], "configured")
 
     def test_disabled_response_is_not_reported_as_configured(self):
+        """Asegura que un bloque deshabilitado no se reporte como política activa."""
         config = self.write_config("""<ossec_config>
   <active-response><disabled>yes</disabled><command>firewall-drop</command>
     <location>local</location><rules_id>99906</rules_id><timeout>2592000</timeout>
@@ -94,6 +102,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
         self.assertEqual(result["status"], "not_configured")
 
     def test_wrong_command_is_not_reported_as_firewall_drop(self):
+        """Evita atribuir un bloqueo cuando el bloque usa otro comando Active Response."""
         config = self.write_config("""<ossec_config>
   <active-response><disabled>no</disabled><command>orangebox-yara</command>
     <location>local</location><rules_id>99906</rules_id><timeout>2592000</timeout>
@@ -103,6 +112,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
         self.assertEqual(result["status"], "not_configured")
 
     def test_missing_or_invalid_config_is_unknown_not_not_configured(self):
+        """Distingue entre política ausente y configuración que no puede evaluarse."""
         missing = firewall_drop_policy_for_alert("99906", 14, [], "/does/not/exist")
         invalid_path = self.write_config("<ossec_config><active-response>")
         invalid = firewall_drop_policy_for_alert("99906", 14, [], invalid_path)
@@ -110,6 +120,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
         self.assertEqual(invalid["status"], "unknown")
 
     def test_live_config_patcher_changes_only_ioc_blocks_and_is_idempotent(self):
+        """Comprueba que el patcher limite los cambios a bloques IOC y sea idempotente."""
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
         target = Path(temp_dir.name) / "ossec.conf"
@@ -136,6 +147,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
 
         root = ET.parse(target).getroot()
         policies = []
+        # Recorre bloques Active Response para localizar y modificar únicamente los IOC.
         for block in root.iter("active-response"):
             if (block.findtext("command") or "").strip() != "firewall-drop":
                 continue
@@ -151,6 +163,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
         self.assertEqual(first, target.read_text(encoding="utf-8"))
 
     def test_patcher_migrates_the_current_deployed_99906_block(self):
+        """Valida la migración del bloque de explotación web de la política anterior."""
         target = self.write_config("""<ossec_config>
   <active-response><disabled>no</disabled><command>firewall-drop</command>
     <location>local</location>
@@ -167,6 +180,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
         self.assertFalse(patch_config(target))
 
     def test_live_config_patcher_aborts_on_unexpected_selector_drift(self):
+        """Impide sobrescribir una política que cambió de forma inesperada."""
         config = self.write_config("""<ossec_config>
   <active-response><disabled>no</disabled><command>firewall-drop</command>
     <location>local</location><rules_id>10460,10461,10462</rules_id><timeout>2592000</timeout>
@@ -178,6 +192,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
         self.assertEqual(original, Path(config).read_text(encoding="utf-8"))
 
     def test_live_config_patcher_supports_concatenated_ossec_config_fragments(self):
+        """Comprueba que el patcher acepte fragmentos concatenados de ossec.conf."""
         config = self.write_config("""<ossec_config>
   <command><name>firewall-drop</name><executable>firewall-drop</executable>
     <timeout_allowed>yes</timeout_allowed><expect>srcip</expect></command>
@@ -198,6 +213,8 @@ class FirewallDropPolicyTests(unittest.TestCase):
         self.assertFalse(patch_config(config))
 
     def test_rule_99906_and_10053_share_exact_30_day_policy(self):
+        """Garantiza que ambas reglas de explotación de alta confianza usen 30 días."""
+        # Verifica por separado ambos SID que comparten el bloqueo de 30 días.
         for rule_id in ("99906", "10053"):
             result = firewall_drop_policy_for_alert(
                 rule_id, 14, ["web", "accesslog"], str(MANAGER_CONF)
