@@ -413,6 +413,7 @@ def main():
     t0 = time.monotonic()
     now = datetime.now().astimezone()
 
+    # Resuelve el período del reporte: usa --date si existe o la primera opción temporal seleccionada.
     mode = (
         args.date
         and f"date:{args.date}"
