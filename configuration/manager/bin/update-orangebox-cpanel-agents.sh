@@ -34,6 +34,7 @@ GROUP_OUTPUT="${OUTPUT}.group.tmp.$$"
 TMP="${OUTPUT}.tmp.$$"
 AGENT_GROUPS="${OSSEC_HOME}/bin/agent_groups"
 
+# Elimina los archivos temporales del grupo y de la CDB al terminar.
 cleanup() {
     rm -f "$GROUP_OUTPUT" "$TMP"
 }
@@ -55,7 +56,7 @@ if ! "$AGENT_GROUPS" -l -g "$GROUP" >"$GROUP_OUTPUT" 2>&1; then
 fi
 
 # agent_groups devuelve lineas similares a:
-#   ID: 012  Name: server.example.invalid.
+#   ID: 012  Name: server.example.cl.
 #
 # Extraemos solo el campo Name. Toleramos diferencias de mayusculas/minusculas
 # en "Name" y no dependemos del texto de la cabecera.
@@ -77,6 +78,7 @@ if [[ "$ACTUAL_AGENTS" -eq 0 ]]; then
     exit 1
 fi
 
+# Emite el FQDN y, cuando existe, el nombre corto que usan reglas/alertas.
 while IFS= read -r hostname; do
     [[ -z "$hostname" ]] && continue
 
