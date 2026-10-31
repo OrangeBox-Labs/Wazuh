@@ -2,4 +2,6 @@
 # OrangeBox Wazuh - Actualizacion automatica de listas Geo-IP
 # ==============================================================================
 
+# Actualiza a diario a las 03:15 las bases y listas Geo-IP utilizadas por el SOC.
+# La salida y los errores se conservan en /var/log/orangebox-geoip-update.log.
 15 3 * * * root /var/ossec/bin/update-orangebox-geoip.sh >> /var/log/orangebox-geoip-update.log 2>&1
