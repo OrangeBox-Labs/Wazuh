@@ -1,13 +1,20 @@
 <!--
-    OrangeBox - Lightweight Linux/cPanel availability telemetry.
+    OrangeBox - Telemetria de incidentes de disponibilidad en Linux/cPanel.
 
-    This decoder consumes command telemetry emitted by Logcollector and
-    turns it into dynamic fields for correlation rules. It intentionally
-    contains no environment-specific hosts, addresses, or account names.
+    Decodifica eventos emitidos por Logcollector desde comandos locales:
+      ORANGEBOX_SYNRECV
+      ORANGEBOX_SYNRECV_TOTAL
+      ORANGEBOX_KSOFTIRQ
+      ORANGEBOX_LOAD
+      ORANGEBOX_PHPFPM
+
+    Los campos dinamicos permiten correlacionar estado de sockets, carga y
+    pools PHP-FPM sin depender de una fotografia manual del servidor.
 -->
 
 <decoder name="orangebox_synrecv">
     <parent>ossec</parent>
+    <use_own_name>true</use_own_name>
     <prematch>output: 'orangebox-synrecv':</prematch>
     <regex type="pcre2" offset="after_prematch">\s*ORANGEBOX_SYNRECV count=(\d+) srcip=(\S+) dstip=(\S+) dstport=(\d+)</regex>
     <order>synrecv_count,srcip,dstip,dstport</order>
@@ -15,6 +22,7 @@
 
 <decoder name="orangebox_synrecv_total">
     <parent>ossec</parent>
+    <use_own_name>true</use_own_name>
     <prematch>output: 'orangebox-synrecv-total':</prematch>
     <regex type="pcre2" offset="after_prematch">\s*ORANGEBOX_SYNRECV_TOTAL count=(\d+)</regex>
     <order>synrecv_count</order>
@@ -22,6 +30,7 @@
 
 <decoder name="orangebox_ksoftirq">
     <parent>ossec</parent>
+    <use_own_name>true</use_own_name>
     <prematch>output: 'orangebox-ksoftirq':</prematch>
     <regex type="pcre2" offset="after_prematch">\s*ORANGEBOX_KSOFTIRQ cpu=(\S+)</regex>
     <order>ksoftirq_cpu</order>
@@ -29,6 +38,7 @@
 
 <decoder name="orangebox_load">
     <parent>ossec</parent>
+    <use_own_name>true</use_own_name>
     <prematch>output: 'orangebox-load':</prematch>
     <regex type="pcre2" offset="after_prematch">\s*ORANGEBOX_LOAD cpus=(\d+) load1=(\S+) load5=(\S+) load15=(\S+)</regex>
     <order>cpu_count,load1,load5,load15</order>
@@ -36,6 +46,7 @@
 
 <decoder name="orangebox_phpfpm">
     <parent>ossec</parent>
+    <use_own_name>true</use_own_name>
     <prematch>output: 'orangebox-phpfpm':</prematch>
     <regex type="pcre2" offset="after_prematch">\s*ORANGEBOX_PHPFPM user=(\S+) cpu=(\S+) command=(.+)$</regex>
     <order>php_user,php_cpu,php_command</order>
