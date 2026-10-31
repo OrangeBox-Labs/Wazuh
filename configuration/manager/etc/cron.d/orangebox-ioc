@@ -2,4 +2,6 @@
 # OrangeBox Wazuh - Actualizacion automatica de listas IOC
 # ==============================================================================
 
+# Actualiza a diario a las 03:15 las fuentes IOC y reconstruye las CDB validadas.
+# Si una fuente falta, falla o incumple los controles de tamaño, conserva las listas anteriores.
 15 3 * * * root /var/ossec/bin/update-orangebox-ioc-lists.sh >> /var/log/orangebox-ioc-update.log 2>&1
