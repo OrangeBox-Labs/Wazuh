@@ -86,6 +86,8 @@
         <group>orangebox,web,availability,mod_pagespeed,orangebox_web_internal_loop,</group>
     </rule>
 
+    <!-- Regla 10825: Detecta un bucle de solicitudes HTTP internas repetidas asociado a mod_pagespeed. -->
+
     <rule id="10825" level="12" frequency="20" timeframe="30" ignore="120">
         <if_matched_sid>10824</if_matched_sid>
         <same_srcip />
@@ -107,6 +109,8 @@
         <description>ORANGEBOX: Bot/crawler con patron de evasión de cache observado en el incidente.</description>
         <group>orangebox,web,bot_abuse,availability,orangebox_web_bot_abuse,</group>
     </rule>
+
+    <!-- Regla 10827: Detecta ráfagas repetitivas de bots con parámetros de evasión de caché que pueden degradar PHP-FPM o MariaDB. -->
 
     <rule id="10827" level="10" frequency="20" timeframe="60" ignore="120">
         <if_matched_sid>10826</if_matched_sid>
@@ -210,6 +214,8 @@
         <description>ORANGEBOX: Worker PHP-FPM de $(php_user) consumio $(php_cpu)% de un nucleo en una muestra de aproximadamente 1 s; comando $(php_command).</description>
         <group>orangebox,availability,host,php_fpm,resource_exhaustion,</group>
     </rule>
+
+    <!-- Regla 10834: Detecta consumo elevado sostenido en un pool PHP-FPM y alerta sobre el usuario afectado. -->
 
     <rule id="10834" level="12" frequency="3" timeframe="180" ignore="300">
         <if_matched_sid>10833</if_matched_sid>
