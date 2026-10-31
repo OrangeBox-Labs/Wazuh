@@ -1,8 +1,0 @@
-# Example CDB for private-network exceptions (documentation values only).
-# This list is declared in ossec.conf but is not referenced by current rules.
-# It does not exempt source IPs from firewall-drop by itself.
-# Replace values and add an explicit rule lookup only after policy review.
-192.168.100.:
-192.168.10.:
-192.168.20.:
-10.20.0.:
