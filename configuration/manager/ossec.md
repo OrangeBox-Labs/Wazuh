@@ -493,7 +493,7 @@ La base de producción es:
 /var/lib/orangebox/geoip/dbip-city-lite.mmdb
 ```
 
-El updater diario `tools/update-orangebox-geoip.sh` instala y valida la release mensual disponible. No requiere reiniciar `wazuh-manager`.
+El updater versionado en `configuration/manager/bin/update-orangebox-geoip.sh` se instala en el Manager como `/var/ossec/bin/update-orangebox-geoip.sh`. Descarga y valida la release mensual disponible antes de reemplazar la MMDB. No requiere reiniciar `wazuh-manager`.
 
 Las IP privadas o reservadas se presentan como `IP local` y no se consideran parte de los rankings geográficos públicos.
 
