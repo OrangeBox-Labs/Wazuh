@@ -342,6 +342,10 @@
      Las excepciones activas documentadas en este archivo son:
          20032 = regeneracion automatica del cron cPanel cpanel_ssl_reissue
                     (requiere perfil CDB cpanel)
+         20059 = eliminacion del cron cPanel/CloudLinux de sesiones PHP
+                    (requiere perfil CDB cpanel y ruta exacta; conserva nivel 3)
+         20060 = modificacion de cron de CloudLinux LVE Manager
+                    (requiere perfil CDB cpanel y tres rutas exactas; conserva nivel 3)
          20057 = eliminacion esperada de unidades SocialBee/XOVI en DNSOnly
                     (requiere perfil CDB dns y ruta exacta)
          20058 = limpieza de unidades de montaje Snap por snapd
@@ -488,5 +492,43 @@
         <field name="file" type="pcre2">^/etc/systemd/system/snap-.*\.mount(?:\.[0-9]+~)?$</field>
         <description>EXCEPCION: snapd retira una unidad de montaje Snap o su temporal durante mantenimiento de revisiones.</description>
         <group>orangebox_exception,orangebox_whitelist,snap,systemd,</group>
+    </rule>
+</group>
+
+
+<!--
+    CloudLinux / cPanel:
+    excepciones para operaciones CRON conocidas y verificadas.
+
+    Se conserva nivel 3 para mantener evidencia en Wazuh (log_alert_level=3)
+    sin disparar la integración de correo, configurada desde nivel 12.
+    Las condiciones de perfil y ruta exacta impiden extender la excepción
+    a otros agentes o al resto de /etc/cron.d/.
+-->
+<group name="orangebox,hardening,fim,whitelist,cpanel,cloudlinux,">
+    <!--
+        CloudLinux / CageFS elimina o regenera el cron de limpieza
+        automatica de sesiones PHP. Solo se exceptua esta ruta exacta
+        en agentes identificados por la CDB de perfil cPanel.
+    -->
+    <rule id="20059" level="3">
+        <if_sid>10045</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
+        <field name="file" type="pcre2">^/etc/cron\.d/cpanel_php_sessions_cron$</field>
+        <description>EXCEPCION OPERACIONAL: Cron de limpieza de sesiones PHP de CloudLinux/cPanel.</description>
+        <group>orangebox_exception,orangebox_whitelist,cpanel,cloudlinux,cron,</group>
+    </rule>
+
+    <!--
+        CloudLinux LVE Manager regenera o actualiza estos tres crons
+        durante operaciones normales de mantenimiento/actualizacion.
+        La excepcion cubre solo modificaciones, no eliminaciones.
+    -->
+    <rule id="20060" level="3">
+        <if_sid>10035</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
+        <field name="file" type="pcre2">^/etc/cron\.d/(?:lvemanager-cron|lvemanager-selector|cloudlinux-cron)$</field>
+        <description>EXCEPCION OPERACIONAL: Modificacion de tareas CRON de CloudLinux LVE Manager.</description>
+        <group>orangebox_exception,orangebox_whitelist,cpanel,cloudlinux,cron,</group>
     </rule>
 </group>
