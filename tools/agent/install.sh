@@ -3826,7 +3826,7 @@ def main():
 
         os.lseek(source_fd, 0, os.SEEK_SET)
         source_digest = hashlib.sha256()
-        # Prueba cada alternativa de búsqueda de servicios hasta resolver el estado requerido.
+        # Lee el archivo de origen en bloques de 1 MiB mientras calcula el SHA-256 que se va a verificar.
         while True:
             chunk = os.read(source_fd, 1024 * 1024)
             if not chunk:
@@ -3856,7 +3856,7 @@ def main():
         try:
             copied_hash = hashlib.sha256()
             with os.fdopen(os.dup(source_fd), "rb") as source_file, os.fdopen(temp_fd, "wb") as target_file:
-                # Prueba cada alternativa de búsqueda de servicios hasta resolver el estado requerido.
+                # Copia el archivo en bloques de 1 MiB a cuarentena y calcula el hash de la copia para comprobar su integridad.
                 while True:
                     chunk = source_file.read(1024 * 1024)
                     if not chunk:
