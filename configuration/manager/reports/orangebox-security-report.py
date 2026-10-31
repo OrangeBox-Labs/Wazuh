@@ -85,6 +85,7 @@ def cleanup_archive_artifacts():
 
 
 def load_embedded(source, name, filename):
+    """Carga el motor de reporte embebido en un namespace aislado para reutilizar sus funciones."""
     namespace = {
         "__name__": name,
         "__file__": filename,
@@ -175,6 +176,7 @@ def build_summary(events, allowed):
     firewall_rules_by_ip = defaultdict(set)
     firewall_timeouts = REPORT["load_firewall_timeouts"]()
 
+    # Procesa únicamente eventos de agentes autorizados y agrega métricas al resumen.
     for event in events:
         aid = str(event.get("agent_id", "000"))
         if aid not in allowed:
@@ -248,6 +250,7 @@ def build_summary(events, allowed):
             mitre = [mitre]
         if isinstance(techniques, str):
             techniques = [techniques]
+        # Cuenta cada técnica MITRE y conserva su nombre cuando viene en el evento.
         for index, mitre_id in enumerate(mitre):
             if mitre_id:
                 mitre_counts[str(mitre_id)] += 1
@@ -255,6 +258,7 @@ def build_summary(events, allowed):
                     mitre_names[str(mitre_id)] = techniques[index]
 
     firewall_rows_out = []
+    # Consolida los intentos de bloqueo por agente, regla y descripción.
     for (agent_id, agent_name, rule_id, description), ips in firewall_rows.items():
         attempts = sum(
             firewall_attempts[(agent_id, rule_id, src)]
@@ -299,6 +303,7 @@ def build_summary(events, allowed):
 
 
 def archive_detailed_zip(body, label):
+    """Empaqueta el HTML detallado en un ZIP y valida que contenga una única entrada sin rutas internas."""
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", label)
     zip_path = ARCHIVE_DIR / f"detailed-security-report-{safe}.zip"
@@ -332,6 +337,7 @@ def archive_detailed_zip(body, label):
 
 
 def send_unified_email(subject, summary_body, detailed_zip, recipient):
+    """Envía un solo correo con el resumen y el ZIP detallado adjunto."""
     msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
     msg["From"] = f"Wazuh SOC <{DEFAULT_FROM}>"
@@ -376,6 +382,7 @@ def send_unified_email(subject, summary_body, detailed_zip, recipient):
 
 
 def main():
+    """Coordina el rango temporal, grupos autorizados, agregación CVE, renderizado y entrega del reporte."""
     p = argparse.ArgumentParser(
         description="OrangeBox Security Report v4 - resumen + detallado ZIP"
     )
@@ -432,6 +439,7 @@ def main():
 
     memberships = {}
     allowed = set()
+    # Resuelve los grupos solicitados y construye el conjunto de agentes autorizados.
     for group_name in groups:
         ids = REPORT["group_members"](group_name)
         if ids:
@@ -463,6 +471,7 @@ def main():
             and end == start + timedelta(days=1)
             and end <= now
         )
+        # Lee eventos desde caché por fecha/agente y luego aplica el límite temporal exacto.
         for event in ENGINE["iter_cache"](
             args.cache_dir,
             start.date(),
@@ -493,12 +502,14 @@ def main():
     cves, vuln_error = DETAIL["fetch_critical_cves"](REPORT_MODULE, allowed)
     cloudlinux_agents = DETAIL["fetch_cloudlinux_agents"](REPORT_MODULE, allowed)
 
+    # Adjunta a cada agente sus CVE y el estado de soporte del inventario.
     for agent_id, stat in agent_stats.items():
         stat["cves"] = cves.get(agent_id, [])
         stat["vd_unsupported"] = agent_id in cloudlinux_agents
 
     cve_agents = {}
     cve_unsupported = {}
+    # Construye el resumen CVE por agente sin consultar de nuevo el Indexer.
     for agent_id, rows in cves.items():
         if rows:
             name = agent_stats.get(agent_id, {}).get("name", f"Servidor {agent_id}")
@@ -506,6 +517,7 @@ def main():
                 "name": name,
                 "count": len(rows),
             }
+    # Registra los agentes CloudLinux que no soportan el inventario CVE esperado.
     for agent_id in cloudlinux_agents:
         name = agent_stats.get(agent_id, {}).get("name", f"Servidor {agent_id}")
         cve_unsupported[str(agent_id)] = {"name": name}
@@ -525,6 +537,7 @@ def main():
     total_critical = 0
     total_attacks = 0
 
+    # Renderiza una vista por grupo y acumula los totales del resumen ejecutivo.
     for group, ids in memberships.items():
         stats = {
             agent_id: agent_stats[agent_id]
@@ -630,6 +643,7 @@ def main():
     print(f"Tiempo total: {time.monotonic() - t0:.3f}s")
 
     recipients = []
+    # Separa las direcciones suministradas en uno o varios parámetros --email.
     for value in args.email or []:
         recipients.extend(v.strip() for v in value.split(",") if v.strip())
 
@@ -639,6 +653,7 @@ def main():
 
     t_email = time.monotonic()
     sent = 0
+    # Valida y envía el reporte a cada destinatario solicitado.
     for recipient in recipients:
         if not re.fullmatch(r"[^\s@]+@[^\s@]+", recipient):
             print(f"ERROR: correo inválido: {recipient}", flush=True)
