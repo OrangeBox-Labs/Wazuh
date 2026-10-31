@@ -27,7 +27,7 @@ La prueba de integración requiere ejecutarse en un Wazuh Manager con:
 - reglas, decoders y CDB IOC correspondientes;
 - permisos para leer los archivos de configuración.
 
-La prueba de integración es de solo lectura: no ejecuta Active Response ni bloquea la IP de las muestras.
+La prueba de integración es de solo lectura: no ejecuta Active Response ni bloquea la IP de las muestras. `wazuh-logtest` evalúa decoders y reglas en sandbox; comprobar una regla coincidente no demuestra que el agente haya aplicado un bloqueo. La ejecución real se valida por separado con el evento 651/10458, `active-responses.log` y el firewall del agente.
 
 ## Ejecución
 
@@ -49,7 +49,7 @@ Una ejecución en un equipo sin Wazuh Manager debe limitarse a la suite Python; 
 
 1. Reproducir primero el problema con un caso mínimo.
 2. Agregar un caso positivo y, cuando corresponda, uno negativo para comprobar que no se amplió la detección.
-3. Usar fixtures anonimizados: no incorporar IPs, dominios, correos, nombres de host, logs o datos de clientes reales.
+3. Usar fixtures sintéticos o anonimizados: no incorporar dominios, correos, nombres de host, logs ni datos de clientes reales. Si una prueba necesita una IOC real confirmada para reproducir la política privada, mantenerla únicamente en el repositorio privado y documentar su propósito. La versión pública debe usar direcciones TEST-NET (RFC 5737) y datos ficticios.
 4. Ejecutar la suite completa y documentar cualquier requisito de integración.
 5. No cambiar una regla ni suprimir una alerta solo para hacer pasar una prueba; el resultado esperado debe reflejar la política de seguridad aprobada.
 
