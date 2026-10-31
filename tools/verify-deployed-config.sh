@@ -42,21 +42,25 @@ PASS=0
 FAIL=0
 WARN=0
 
+# Muestra una comprobación correcta y aumenta el contador de validaciones aprobadas.
 ok() {
     echo "[OK]   $1"
     PASS=$((PASS + 1))
 }
 
+# Registra una diferencia o ausencia que impide considerar consistente el despliegue.
 fail() {
     echo "[FAIL] $1"
     FAIL=$((FAIL + 1))
 }
 
+# Informa una condición no bloqueante que requiere revisión manual.
 warn() {
     echo "[WARN] $1"
     WARN=$((WARN + 1))
 }
 
+# Compara un archivo versionado con su copia desplegada y reporta diferencias.
 compare_file() {
     local repo_file="$1"
     local deployed_file="$2"
@@ -79,6 +83,7 @@ compare_file() {
     fi
 }
 
+# Regenera la expectativa de una CDB dinámica desde los grupos Wazuh y la compara con la instalada.
 compare_generated_cdb() {
     local group="$1"
     local profile="$2"
@@ -109,6 +114,7 @@ compare_generated_cdb() {
             }
         ' |
         sort -fu |
+        # Normaliza cada hostname del grupo Wazuh y genera las claves FQDN y nombre corto de la CDB.
         while IFS= read -r hostname; do
             [[ -z "$hostname" ]] && continue
 
@@ -136,6 +142,7 @@ compare_generated_cdb() {
 }
 
 
+# Compara todos los XML de reglas del repositorio con los que están en el Manager.
 compare_manager_rules() {
     local repo_dir="$1"
     local deployed_dir="$2"
@@ -155,12 +162,14 @@ compare_manager_rules() {
         return
     fi
 
+    # Compara uno por uno los XML de reglas versionados con los desplegados.
     for repo_file in "${files[@]}"; do
         rel="${repo_file#"$repo_dir"/}"
         deployed_file="$deployed_dir/$rel"
         compare_file "$repo_file" "$deployed_file"
     done
 }
+# Detecta reglas OrangeBox desplegadas que no tienen un archivo correspondiente en el repositorio.
 check_extra_orangebox_rules() {
     local repo_dir="$1"
     local deployed_dir="$2"
@@ -168,6 +177,7 @@ check_extra_orangebox_rules() {
     local rel
     local repo_file
 
+    # Recorre las reglas OrangeBox instaladas para detectar archivos que no existen en el repositorio.
     while IFS= read -r deployed_file; do
         [[ -z "$deployed_file" ]] && continue
         rel="${deployed_file#"$deployed_dir"/}"
@@ -179,6 +189,7 @@ check_extra_orangebox_rules() {
     done < <(find "$deployed_dir" -maxdepth 1 -type f -name 'orangebox-*.xml' -print 2>/dev/null | sort)
 }
 
+# Comprueba que cada CDB referenciada por una regla esté declarada y disponible.
 check_rule_cdb_references() {
     local rules_dir="$1"
     local ossec_conf="$2"
@@ -188,9 +199,11 @@ check_rule_cdb_references() {
     local repo_list
     local deployed_list
 
+    # Examina cada ruleset XML para extraer las referencias a CDB.
     while IFS= read -r rules_file; do
         [[ -z "$rules_file" ]] && continue
 
+        # Valida cada referencia CDB contra ossec.conf, el repositorio y el Manager.
         while IFS= read -r ref; do
             [[ -z "$ref" ]] && continue
 
@@ -279,6 +292,7 @@ PY
         fail "Falta ruleset YARA oficial: $AGENT_YARA_DIR"
     fi
 
+    # Verifica que estén presentes los dos índices YARA requeridos.
     for index in webshells_index.yar malware_index.yar; do
         if [[ -s "$AGENT_YARA_DIR/$index" ]]; then
             ok "Indice YARA oficial presente: $index"
@@ -287,6 +301,7 @@ PY
         fi
     done
 
+    # Comprueba que el runtime conserve el commit, repositorio y branch del ruleset YARA.
     for meta in YARA-RULES-COMMIT YARA-RULES-REPOSITORY YARA-RULES-BRANCH; do
         if [[ -s "$AGENT_YARA_META/$meta" ]]; then
             ok "Metadata YARA presente: $meta"
@@ -307,6 +322,7 @@ PY
             "$AGENT_YARA_META/orangebox-webshell-core.yar"
             "$AGENT_YARA_META/orangebox-webshell-extended.yar"
         )
+        # Identifica archivos de reglas YARA obsoletos que ya no pertenecen al manifiesto descargado.
         for stale in "${stale_rules[@]}"; do
             if [[ -e "$stale" ]]; then
                 fail "Regla YARA propia antigua todavía desplegada: $stale"
