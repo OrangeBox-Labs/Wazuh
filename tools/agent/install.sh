@@ -2746,6 +2746,8 @@ for parent, child_rules in children.items():
 memo = {}
 
 def roots(rule_name, visiting):
+
+    """Busca recursivamente la regla raíz de correlación para una firma YARA."""
     if rule_name in memo:
         return memo[rule_name]
 
@@ -3545,6 +3547,8 @@ for parent, child_rules in children.items():
 memo = {}
 
 def roots(rule_name, visiting):
+
+    """Busca recursivamente la regla raíz de correlación para una firma YARA."""
     if rule_name in memo:
         return memo[rule_name]
 
@@ -3754,6 +3758,9 @@ LOG_FILE = os.path.join(WAZUH_HOME, "logs", "active-responses.log")
 
 
 def log(message):
+
+
+    """Registra mensajes operativos del runtime YARA en el log local del agente."""
     try:
         with open(LOG_FILE, "a") as log_file:
             log_file.write(
@@ -3767,6 +3774,9 @@ def log(message):
 
 
 def main():
+
+
+    """Procesa el archivo FIM, ejecuta YARA y registra las firmas encontradas."""
     raw = sys.stdin.readline()
     if not raw:
         log("ERROR: entrada Active Response vacia")
