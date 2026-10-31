@@ -96,6 +96,7 @@
     está vinculada a Active Response.
 -->
 <group name="orangebox,audit,execution,php2shell,attack,">
+    <!-- Regla 10052: Detecta ejecución auditd compatible con un patrón de shell o payload remoto; requiere correlación adicional y no confirma PHP2Shell por sí sola. -->
     <rule id="10052" level="12">
         <if_sid>80792</if_sid>
         <match type="pcre2">(?i)(?:\b(?:curl|wget)\b[^\n]{0,256}\|\s*(?:/bin/)?(?:ba)?sh\b|\b(?:ba)?sh\b\s+-c\b[^\n]{0,256}(?:https?://|/dev/tcp/|mkfifo|base64\s+-(?:d|decode)\b)|/dev/tcp/|\bmkfifo\s+|\bbase64\s+-(?:d|decode)\b)</match>
