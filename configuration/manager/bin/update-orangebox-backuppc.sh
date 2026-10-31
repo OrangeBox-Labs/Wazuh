@@ -53,6 +53,7 @@ if ! [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
     exit 1
 fi
 
+# Convierte la IPv4 validada al formato clave:valor que espera la CDB.
 printf '%s:\n' "$ip" > "$TMP"
 
 if [ -f "$CDB" ] && cmp -s "$TMP" "$CDB"; then
