@@ -9,8 +9,10 @@ set -o pipefail
 OSSEC_HOME="/var/ossec"
 FIX=0
 
+# Imprime las opciones admitidas por el verificador de permisos.
 usage() { echo "Uso: $0 [--check] [--fix] [--path /var/ossec]"; }
 
+# Procesa los argumentos --check, --fix y --path antes de inspeccionar el árbol.
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --check) FIX=0 ;;
@@ -27,9 +29,12 @@ done
 
 PASS=0
 FAIL=0
+# Registra un control de permisos aprobado y aumenta el contador PASS.
 ok() { echo "[OK]   $*"; PASS=$((PASS + 1)); }
+# Registra un incumplimiento de permisos y aumenta el contador FAIL.
 fail() { echo "[FAIL] $*"; FAIL=$((FAIL + 1)); }
 
+# Comprueba tipo de archivo, propietario, grupo y modo de una ruta concreta.
 check_path() {
     local path="$1" owner="$2" group="$3" mode="$4"
     [[ -e "$path" ]] || return 0
@@ -52,11 +57,13 @@ check_path() {
     fi
 }
 
+# Recorre el árbol de Wazuh y verifica permisos de los archivos y directorios administrados.
 check_tree() {
     local root="$1" owner="$2" group="$3" dir_mode="$4" file_mode="$5"
     [[ -d "$root" ]] || return 0
     check_path "$root" "$owner" "$group" "$dir_mode"
 
+    # Lee rutas terminadas en NUL para conservar nombres con espacios durante la auditoría.
     while IFS= read -r -d '' path; do
         if [[ -d "$path" ]]; then
             check_path "$path" "$owner" "$group" "$dir_mode"
@@ -81,6 +88,7 @@ check_tree "$OSSEC_HOME/var" wazuh wazuh 750 640
 
 echo
 echo "=== Archivos especialmente sensibles ==="
+# Revisa por separado los archivos que contienen claves o credenciales sensibles.
 for file in     "$OSSEC_HOME/etc/client.keys"     "$OSSEC_HOME/etc/authd.pass"     "$OSSEC_HOME/etc/sslmanager.key"; do
     check_path "$file" root wazuh 640
 done
