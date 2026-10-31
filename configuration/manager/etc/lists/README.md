@@ -2,8 +2,6 @@
 
 Este directorio contiene listas CDB utilizadas directamente por las reglas del Wazuh Manager.
 
-**Importante para la versión pública:** las entradas IP/hostname de ejemplo se sanitizaron para documentación y no representan el entorno del usuario. Antes de desplegar, reemplaza todos los valores de ejemplo en las listas estáticas y genera las CDB dinámicas con los sincronizadores correspondientes. Las redes TEST-NET (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) no son direcciones operativas.
-
 Las CDB se dividen en dos tipos:
 
 - **estáticas**: se mantienen en el repositorio y se despliegan sin cambios;
@@ -16,6 +14,8 @@ Las CDB se dividen en dos tipos:
 Esta CDB de ejemplo está declarada en `ossec.conf`, pero **no está referenciada por ninguna regla del ruleset actual**. Por eso no excluye IPs internas de `firewall-drop` y no debe interpretarse como una whitelist efectiva.
 
 Se conserva como referencia pendiente. No agregar una consulta desde las reglas de contención sin validar la política de seguridad: bloquear una IP interna que realmente ejecuta un ataque puede ser una decisión deliberada de operación.
+
+
 
 ### `orangebox-network-recon-programs`
 
@@ -64,6 +64,39 @@ El updater dinámico de BackupPC no modifica esta lista.
 Contiene la IP actual obtenida por el updater dinámico de BackupPC.
 
 No editar esta lista manualmente salvo para recuperación controlada.
+
+## Listas IOC dinámicas
+
+El actualizador es:
+
+```text
+configuration/manager/bin/update-orangebox-ioc-lists.sh
+```
+
+y el cron diario:
+
+```text
+configuration/manager/etc/cron.d/orangebox-ioc
+```
+
+La procedencia y el uso de las IP se separan deliberadamente:
+
+- `malicious-ip`: IP comprometidas de Emerging Threats. Es la CDB usada para correlacionar **IP de origen** y disparar bloqueos.
+- `malware-host-ip`: IP extraídas de URLs recientes de URLhaus. Identifican infraestructura que aloja malware; no se mezclan con `malicious-ip` ni se usan como IP atacante de origen.
+- `malicious-domains`: dominios de URLhaus.
+- `malware-hashes`: SHA256 de MalwareBazaar, cuando la API está configurada.
+
+La migración inicial puede reducir el tamaño de `malicious-ip` porque separa los IP hosts de URLhaus. La primera reclasificación requiere aprobación manual una sola vez. El marcador persistente es `/var/ossec/var/.orangebox-ioc-source-ip-separated`; mientras no exista, el cron aborta sin modificar las listas. El actualizador rechaza por defecto caídas superiores al 50% y nunca permite una caída inesperada superior al 50% después de creada la marca.
+
+Primero revisar el resultado:
+
+```bash
+ORANGEBOX_IOC_ALLOW_SOURCE_RECLASSIFICATION=1 /var/ossec/bin/update-orangebox-ioc-lists.sh
+```
+
+No ejecutar esa excepción sin revisar el resumen `previous/new/added/removed`. Las ejecuciones cron posteriores no deben usarla. El marcador se crea únicamente después de que la primera ejecución aprobada termine correctamente.
+
+`malware-host-ip` se conserva como dato de inteligencia separado y no está declarado como CDB activa mientras no exista una regla que lo consuma.
 
 ## CDB dinámicas por grupo Wazuh
 
