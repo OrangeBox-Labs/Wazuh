@@ -9,6 +9,9 @@
 # de logs y el posible restart de wazuh-manager cuando cambia la IP.
 # =============================================================================
 
+# Ejecuta la sincronización cada 5 minutos entre 01:00 y 22:55.
 */5 1-22 * * * root /var/ossec/bin/update-orangebox-backuppc.sh >/dev/null 2>&1
+# Continúa cada 5 minutos entre 23:05 y 23:45.
 5-45/5 23 * * * root /var/ossec/bin/update-orangebox-backuppc.sh >/dev/null 2>&1
+# Reanuda cada 5 minutos entre 00:10 y 00:55.
 10-55/5 0 * * * root /var/ossec/bin/update-orangebox-backuppc.sh >/dev/null 2>&1
