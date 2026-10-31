@@ -6,14 +6,14 @@ Este perfil identifica agentes que ejecutan cPanel/WHM.
 
 La etiqueta `orangebox.profile=cpanel` permite reconocer el perfil funcional del agente en las alertas.
 
-La supresión de falsos positivos del SUDO de WP Toolkit no depende únicamente de esta etiqueta: las reglas del Manager utilizan la CDB `orangebox-agent-profiles`, porque las reglas deben disponer de una condición evaluable durante el análisis del evento.
+La supresión de falsos positivos del SUDO de WP Toolkit no depende únicamente de esta etiqueta: las reglas del Manager utilizan la CDB `orangebox-cpanel-agents`, porque las reglas deben disponer de una condición evaluable durante el análisis del evento.
 
 ## Asignación
 
 El agente debe pertenecer al grupo Wazuh `cpanel` y su hostname debe estar registrado en:
 
 ```text
-configuration/lists/orangebox-agent-profiles
+configuration/manager/etc/lists/orangebox-cpanel-agents
 ```
 
 Ejemplo:
@@ -28,7 +28,7 @@ La pertenencia al grupo y la entrada CDB deben mantenerse sincronizadas.
 
 ## Reglas asociadas
 
-El perfil `cpanel` se consume desde las reglas del Manager mediante la CDB `orangebox-agent-profiles`.
+El perfil `cpanel` se consume desde las reglas del Manager mediante la CDB `orangebox-cpanel-agents`.
 
 Actualmente condiciona:
 
@@ -42,7 +42,7 @@ No existe una whitelist genérica de `/bin/sh -c`. Cada wrapper se valida por op
 
 El perfil cPanel utiliza dos listas con responsabilidades distintas. No son intercambiables:
 
-- `orangebox-agent-profiles` (`configuration/lists/orangebox-agent-profiles`) asocia `hostname:cpanel` y la consultan las reglas de autenticación/SUDO que validan el perfil funcional.
+- `orangebox-cpanel-agents` (`configuration/manager/etc/lists/orangebox-cpanel-agents`) asocia `hostname:cpanel` y la consultan las reglas de autenticación/SUDO que validan el perfil funcional.
 - `orangebox-cpanel-agents` (`configuration/manager/etc/lists/orangebox-cpanel-agents`) se genera desde el grupo Wazuh `cpanel` mediante `update-orangebox-cpanel-agents.sh`. La usan las excepciones FIM del ruleset `orangebox-hardening.xml`.
 
 Para que funcionen las excepciones CRON, el agente debe pertenecer al grupo Wazuh `cpanel` y aparecer en la CDB dinámica `orangebox-cpanel-agents`. La etiqueta `orangebox.profile=cpanel` ayuda a identificar el perfil en los eventos, pero no reemplaza la condición CDB del Manager.
