@@ -26,6 +26,7 @@ expected = {
     "99912": 604800, "99913": 604800, "99914": 604800,
     "99906": 2592000, "10053": 2592000,
 }
+# Comprueba que cada SID IOC y PHP2Shell coincida con la duración configurada.
 for rule_id, seconds in expected.items():
     result = firewall_drop_policy_for_alert(
         rule_id, 14, ["web", "accesslog"], "/var/ossec/etc/ossec.conf"
@@ -38,6 +39,7 @@ PY
 echo
 echo "========== WAZUH-LOGTEST: INCIDENT IOC + PHP2SHELL =========="
 index=0
+# Envía cada muestra de log a wazuh-logtest y valida la regla esperada para ese caso.
 while IFS= read -r log_line || [[ -n "$log_line" ]]; do
     [[ -z "$log_line" ]] && continue
     index=$((index + 1))
