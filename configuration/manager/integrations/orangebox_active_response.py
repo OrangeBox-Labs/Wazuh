@@ -15,6 +15,7 @@ from typing import Any
 
 # Normaliza los grupos de la alerta para compararlos sin distinguir mayúsculas.
 def _normalise_groups(groups: Any) -> list[str]:
+    """Normaliza los grupos recibidos desde la alerta para comparar selectores sin distinguir mayúsculas."""
     if isinstance(groups, str):
         groups = [groups]
     if not isinstance(groups, list):
