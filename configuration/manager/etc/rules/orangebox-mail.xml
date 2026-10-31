@@ -43,6 +43,7 @@
     para revisar el correo y no se clasifica como desbordamiento confirmado.
 -->
 <group name="orangebox,mail,spam,">
+    <!-- Regla 20056: Registra una anomalía de SpamAssassin ante un nombre IDN malformado con una secuencia extensa de arrobas. -->
     <rule id="20056" level="5">
         <if_sid>40106</if_sid>
         <program_name>spamd</program_name>
