@@ -256,6 +256,7 @@ def normalize_group_list(raw_groups):
     result = []
     seen = set()
 
+    # Normaliza cada nombre recibido y conserva solo grupos válidos, sin DEFAULT ni duplicados.
     for group in raw_groups:
         key = normalize_group_name(group)
 
@@ -419,12 +420,14 @@ def build_recipients(default_recipient, agent_groups):
     # para no romper una configuracion externa existente.
     add_recipient(default_recipient)
 
+    # Busca el perfil de cada grupo del agente para agregar sus destinatarios autorizados.
     for group in agent_groups:
         config = CLIENT_GROUPS.get(normalize_group_name(group))
 
         if not config or not config.get("enabled"):
             continue
 
+        # Incorpora las direcciones configuradas para ese grupo, sin repetir destinatarios.
         for address in config.get("emails", []):
             add_recipient(address)
 
@@ -500,6 +503,7 @@ def send_aggregated_vulnerability_emails(alert_json, default_recipient):
 
     agents = []
     seen_ids = set()
+    # Convierte los agentes afectados a registros válidos y evita duplicar agent.id.
     for raw in raw_agents:
         if not isinstance(raw, dict):
             continue
@@ -532,6 +536,7 @@ def send_aggregated_vulnerability_emails(alert_json, default_recipient):
     def unique_addresses(addresses):
         result = []
         seen = set()
+        # Normaliza direcciones y elimina duplicados sin distinguir mayúsculas.
         for address in addresses:
             address = str(address or "").strip()
             if address and address.lower() not in seen:
@@ -545,9 +550,11 @@ def send_aggregated_vulnerability_emails(alert_json, default_recipient):
             return
         rows = []
         desktop_rows = []
+        # Construye las filas HTML y texto del correo con cada agente de la audiencia.
         for agent in subset:
             pkg_details = []
             desktop_pkg_details = []
+            # Añade al detalle solo los paquetes informados para este agente y CVE.
             for package in agent["packages"]:
                 name = esc(package.get("name") or "Paquete no informado")
                 version = esc(package.get("version") or "Versión no informada")
@@ -1001,6 +1008,7 @@ def ssh_already_notified(agent_id, srcip, event_timestamp, ssh_identity="", full
         cutoff = time.time() - (7 * 86400)
 
         try:
+            # Retira solo los marcadores SSH cuya fecha supera la ventana de siete días.
             for name in os.listdir(marker_dir):
                 path = os.path.join(marker_dir, name)
 
