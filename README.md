@@ -111,3 +111,15 @@ Wazuh, Wazuh Manager, Wazuh Agent, Wazuh rules, Wazuh FIM, File Integrity Monito
 La documentación técnica se mantiene junto al componente que documenta, usando el mismo nombre base con extensión `.md`. Por ejemplo: `orangebox-auth.xml` + `orangebox-auth.md`, `agent.conf` + `agent.md` y `custom-orangebox-email.py` + `custom-orangebox-email.md`.
 
 Los reportes de seguridad usan un único motor v4. El reporte ejecutivo y el detallado se generan en la misma ejecución; el detallado se entrega como ZIP. La implementación está en `configuration/manager/reports/orangebox-security-report.py` y la documentación en los archivos `.md` del mismo directorio.
+
+## Estado del sistema y pruebas
+
+El inventario de componentes, sus dependencias, políticas de Active Response y diferencias propias de esta distribución están en [`SYSTEM_STATUS.md`](SYSTEM_STATUS.md).
+
+El directorio `tests/` contiene pruebas de desarrollo y no forma parte del despliegue de `/var/ossec`. La suite unitaria se ejecuta con:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+La prueba `tests/test-ioc-active-response.sh` requiere un Wazuh Manager real y `wazuh-logtest`; es una integración manual de solo lectura. El workflow `OrangeBox regression tests` valida automáticamente sintaxis Python, Bash, XML y las suites unitarias.
