@@ -25,7 +25,7 @@
 
     <!--
         10024
-        ------------------------------------------------------------
+        - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         Regla BASE de autenticacion web.
 
         Cada respuesta HTTP 401 o 403 genera este evento.
@@ -41,7 +41,7 @@
 
     <!--
         10023
-        ------------------------------------------------------------
+        - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         DETECCION DE URL SENSIBLE.
 
         Esta regla NO depende de 10024.
@@ -68,7 +68,7 @@
 
     <!--
         10025
-        ------------------------------------------------------------
+        - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         FUERZA BRUTA WEB.
 
         Correlaciona multiples respuestas HTTP 401/403 desde la misma
@@ -99,7 +99,7 @@
 
     <!--
         10461
-        ------------------------------------------------------------
+        - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         IOC DE FUERZA BRUTA WEB.
 
         10025 ya realiza la correlacion de 10 respuestas HTTP 401/403
@@ -119,12 +119,12 @@
         <mitre>
             <id>T1110</id>
         </mitre>
-        <group>web,brute_force,attack,orangebox_ioc,orangebox_web,orangebox_behavior,</group>
+        <group>web,brute_force,attack,orangebox_ioc,orangebox_web,orangebox_behavior,orangebox_immediate,</group>
     </rule>
 
     <!--
         10026
-        ------------------------------------------------------------
+        - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         DESCUBRIMIENTO AUTOMATIZADO DE ARCHIVOS SENSIBLES / CREDENCIALES.
 
         Correlaciona 2 eventos 10023 desde la misma IP dentro de
@@ -179,7 +179,7 @@
 
     <!-- Señal auxiliar para SQLi, XSS, traversal/LFI, RCE y SSRF -->
     <rule id="10028" level="1">
-        <regex type="pcre2">(?i)(?:%27\s*(?:%20)?(?:or|and)|(?:^|[?&\s])(?:or|and)(?:%20|\+|\s)+['"]?\d+['"]?(?:=|%3d)|(?:union|select|insert|where|order(?:%20|\+|\s)+by)(?:%20|\+|\s)|%3c(?:script|img|svg)|(?:javascript:|onerror\s*=|onload\s*=|svg/onload)|(?:\.\./|\.\.%2f|%2e%2e(?:%2f|/)|%5c\.\.|/etc/passwd|win\.ini|php://filter)|(?:[;&|](?:%20|\+|\s)*(?:id|echo|curl|wget|bash|sh)\b|\$\{(?:echo|phpinfo)\}|(?:system|shell_exec|passthru|proc_open|phpinfo)\s*\()|(?:https?://[^\s"]*(?:oob|probe|inexistent)|(?:file|gopher)://))</regex>
+        <regex type="pcre2">(?i)(?:%27\s*(?:%20)?(?:or|and)|(?:^|[?&amp;\s])(?:or|and)(?:%20|\+|\s)+['"]?\d+['"]?(?:=|%3d)|(?:union|select|insert|where|order(?:%20|\+|\s)+by)(?:%20|\+|\s)|%3c(?:script|img|svg)|(?:javascript:|onerror\s*=|onload\s*=|svg/onload)|(?:\.\./|\.\.%2f|%2e%2e(?:%2f|/)|%5c\.\.|/etc/passwd|win\.ini|php://filter)|(?:[;&amp;|](?:%20|\+|\s)*(?:id|echo|curl|wget|bash|sh)\b|\$\{(?:echo|phpinfo)\}|(?:system|shell_exec|passthru|proc_open|phpinfo)\s*\()|(?:https?://[^\s"]*(?:oob|probe|inexistent)|(?:file|gopher)://))</regex>
         <options>no_log</options>
         <description>ORANGEBOX: Señal auxiliar de búsqueda de vulnerabilidades, inyección o explotación web.</description>
         <group>orangebox_web_attack_signal,orangebox_web_exploit,</group>
@@ -268,7 +268,7 @@
 
     <!--
         20027
-        ------------------------------------------------------------
+        - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         EXCEPCION: Sondeo local de Zabbix al endpoint HTTP de estado.
         Aplica solamente a localhost, GET /<token de 24 caracteres>?auto,
         respuesta 4xx distinta de 401/403 y User-Agent Zabbix 7.4.x.
@@ -284,7 +284,7 @@
 
     <!--
         20028
-        ------------------------------------------------------------
+        - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         EXCEPCION: Sondeo local de Zabbix que dispara la regla 10024
         por respuestas HTTP 401/403. Mantiene los mismos requisitos
         estrictos de localhost, token ?auto y User-Agent Zabbix 7.4.x.
@@ -298,7 +298,7 @@
 
     <!--
         20029
-        ------------------------------------------------------------
+        - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         EXCEPCION: Correlacion de multiples errores HTTP atribuibles
         al mismo sondeo de estado de Zabbix. Evita que 31151 vuelva a
         generar la alerta por la repeticion de un evento ya reconocido.
