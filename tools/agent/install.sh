@@ -2367,6 +2367,7 @@ run_step "Logging" configure_logging
 # ---------------------------------------------------------------------------
 # 7. Componentes OrangeBox integrados: auditd + YARA
 # ---------------------------------------------------------------------------
+# Genera y carga reglas auditd de ejecución y prepara la atribución Who-Data que usa FIM.
 configure_exec_audit() {
     local RULE_FILE="/etc/audit/rules.d/70-orangebox-wazuh.rules"
     local KEY_TEMP="orangebox_exec"
