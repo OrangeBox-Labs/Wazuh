@@ -23,6 +23,9 @@ Las tareas programadas OrangeBox se mantienen en `etc/cron.d/` en lugar de conce
 La organización es deliberadamente simple:
 
 - `orangebox-cpanel-agents` — genera dinámicamente la CDB de agentes pertenecientes al grupo Wazuh `cpanel`.
+- `orangebox-dns-agents` — genera dinámicamente la CDB de agentes del grupo Wazuh `dns`.
+- `orangebox-zimbra-agents` — genera dinámicamente la CDB de agentes del grupo Wazuh `zimbra`.
+- `orangebox-vulnerability-alerts` — cada 8 horas consulta los CVE nuevos, deduplica por CVE/agente en SQLite y publica eventos JSONL para el pipeline Wazuh.
 - `orangebox-backuppc` — actualiza la whitelist dinámica de BackupPC.
 - `orangebox-geoip` — actualiza las bases/listas Geo-IP.
 - `orangebox-ioc` — actualiza las listas IOC.
