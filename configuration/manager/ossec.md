@@ -197,7 +197,7 @@ Esto se diseñó para detectar el escenario que realmente nos interesa: no solam
 
 La regla `10026` también usa `firewall-drop` durante 24 horas.
 
-Las correlaciones IOC de una IP maliciosa (`10460`–`10463`) utilizan `firewall-drop` durante `720h` (30 días).
+Las IOC se separan por naturaleza y confianza: las IP de origen confirmadas (`10460`–`10463` y reglas nativas `99903`–`99905`, `99907`–`99914`) se bloquean durante `604800s` (7 días); una explotación web de alta confianza asociada a IOC (`99906` o `10053`, PHP2Shell) recibe `2592000s` (30 días).
 
 Se aplica a múltiples intentos contra rutas sensibles como `.env`, credenciales de AWS/GCloud/OCI, `wp-config.php` y rutas equivalentes detectadas por las reglas web.
 
@@ -514,3 +514,63 @@ No se eleva artificialmente la severidad de la regla nativa 651. En su lugar:
 - 10458 queda disponible para reportes pero no genera un correo por cada IP bloqueada.
 
 Esta separación es importante: la persistencia de un evento y su envío por correo son controles diferentes. El objetivo es tener trazabilidad completa de Active Response sin convertir cada bloqueo automático en ruido operacional.
+
+
+## 24. Política Active Response IOC y de incidentes
+
+Los bloques `<active-response>` de `ossec.conf` conectan las reglas con `firewall-drop`. Los IDs, grupos y niveles de cada bloque son selectores alternativos según la semántica de Wazuh; las reglas son las que determinan cuándo existe una detección.
+
+| Selector | Duración | Uso |
+|---|---:|---|
+| `10460–10463`, `99903–99905`, `99907–99914` | 7 días | IOC confirmado de IP de origen y correlaciones nativas de origen malicioso. |
+| `99906`, `10053` | 30 días | Explotación web de alta confianza relacionada con IOC, incluido PHP2Shell. |
+| Grupo `orangebox_web_auto_block` | 24 horas | Reconocimiento web de alta confianza que supera los filtros de proxy autorizado. |
+| Grupo `orangebox_syn_flood_block` | 1 hora | Presión persistente SYN-RECV atribuida a una única IP de origen. |
+
+El DoS distribuido no se bloquea como conjunto: al no existir una única IP responsable, la detección queda para investigación. Tampoco se debe inferir un bloqueo a partir del nivel de alerta: la política se confirma leyendo los bloques Active Response configurados y, para acreditar una ejecución real, revisando el evento 651 y el firewall del agente.
+
+Los fragments XML de despliegue duplicados se retiraron. La configuración efectiva vive en este archivo; no se deben volver a insertar bloques equivalentes desde copias auxiliares.
+
+## 25. Detector complementario de vulnerabilidades
+
+El módulo `vulnerability-alerts.py` complementa Vulnerability Detection nativo. Consulta el inventario `wazuh-states-vulnerabilities-*`, agrupa hallazgos por CVE y agente, y deduplica cada pareja `CVE + agent.id` usando SQLite.
+
+El flujo operativo es:
+
+```text
+Indexer: wazuh-states-vulnerabilities-*
+    ↓
+vulnerability-alerts.py
+    ↓
+SQLite: deduplicación + outbox
+    ↓
+/var/ossec/logs/vulnerability-alerts/events.jsonl
+    ↓
+Logcollector / decoder JSON
+    ↓
+100321 (Medium) / 100322 (High) / 100323 (Critical)
+    ↓
+custom-orangebox-email.py
+```
+
+El cron de ejemplo ejecuta el detector cada 8 horas. El script mantiene un baseline inicial, publica un evento consolidado por CVE con todos los agentes afectados y guarda el detalle extendido en sidecars; el JSONL contiene solo el payload compacto que necesita Wazuh.
+
+La severidad Critical no se puede deshabilitar. High y Medium se pueden ajustar en el archivo local `/var/ossec/vulnerability-alerts/config.json`. Las credenciales de Indexer/API, SQLite, JSONL y sidecars son datos de runtime y no deben versionarse.
+
+Para consultar estado sin modificar datos:
+
+```bash
+/var/ossec/vulnerability-alerts/vulnerability-alerts.py --status
+```
+
+Para probar el payload sin publicarlo:
+
+```bash
+/var/ossec/vulnerability-alerts/vulnerability-alerts.py --dry-run --force --cve CVE-2019-13115
+```
+
+El modo `--force` sin `--dry-run` puede publicar una alerta real y generar correo.
+
+## 26. Fuentes locales adicionales
+
+El bloque final de `<ossec_config>` lee el log de Active Response y el JSONL consolidado de vulnerabilidades. La telemetría de SYN-RECV, ksoftirqd, carga y PHP-FPM se configura localmente mediante `tools/agent/install.sh`; no se replica en los grupos compartidos para evitar entradas duplicadas y mantener `logcollector.remote_commands=0`.
