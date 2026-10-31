@@ -1,0 +1,110 @@
+<!--
+    OrangeBox Wazuh - Deteccion PHP2Shell
+    CVE-2026-109618 y CVE-2026-109619.
+
+    10050 is an intermediate classifier: noalert=1 keeps Wazuh evaluating
+    the remaining rule tree. Its children separate source IOC from non-IOC.
+    A source IOC with a PHP2Shell/PEAR pattern becomes rule 10053 and receives
+    the dedicated 30-day firewall-drop policy. A source not in the IOC CDB
+    becomes 10054 and is logged without automatic blocking.
+
+    10051 correlates repeated alertable 10054 matches from non-IOC sources.
+    10052 detects selected auditd
+    post-exploitation behavior. Neither 10051 nor 10052 has Active Response.
+-->
+<group name="orangebox,web,php2shell,attack,">
+
+    <!--
+        10050: HTTP marker or PEAR config-create write pattern.
+        Behavioral match requires all three PEAR indicators in one access log:
+        pearcmd + config-create + destination under a temporary directory.
+
+        noalert=1 is essential: a matching parent rule must not stop the
+        Wazuh engine from evaluating its other rules and child rules below.
+    -->
+    <rule id="10050" level="8" noalert="1">
+        <if_sid>31100</if_sid>
+        <match type="pcre2">(?is)(?:php2shell|wide-cve-2026-109618|CVE-2026-109618|CVE-2026-109619)|^(?=.*pearcmd)(?=.*config-create)(?=.*(?:/tmp/|/var/tmp/|/dev/shm/)).+</match>
+        <description>ORANGEBOX: Clasificador HTTP PHP2Shell/CVE o patron PEAR pearcmd + config-create + destino temporal desde $(srcip). La clasificacion no prueba RCE.</description>
+        <mitre>
+            <id>T1595</id>
+            <id>T1190</id>
+        </mitre>
+        <group>web,attack,reconnaissance,exploit_attempt,orangebox_php2shell,orangebox_php2shell_probe,</group>
+    </rule>
+
+
+    <!--
+        Known source IOC: dedicated final alert. This rule has a 30-day
+        firewall-drop selector in ossec.conf, matching the existing 99906
+        high-confidence web-attack containment duration.
+    -->
+    <rule id="10053" level="14">
+        <if_sid>10050</if_sid>
+        <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
+        <description>ALERTA IOC: Intento PHP2Shell/PEAR config-create desde IP maliciosa conocida $(srcip). Patrón de explotación detectado; RCE no confirmada.</description>
+        <mitre>
+            <id>T1190</id>
+            <id>T1595</id>
+        </mitre>
+        <group>web,attack,exploit_attempt,orangebox_php2shell,orangebox_ioc,orangebox_behavior,orangebox_immediate,</group>
+    </rule>
+
+    <!--
+        Source not present in the current source-IP IOC CDB: record the
+        PHP2Shell/PEAR probe, but do not automatically block an unconfirmed
+        source. "Not in IOC CDB" does not mean the source is benign.
+    -->
+    <rule id="10054" level="8">
+        <if_sid>10050</if_sid>
+        <list field="srcip" lookup="not_match_key">etc/lists/malicious-ioc/malicious-ip</list>
+        <description>ORANGEBOX: Sondeo PHP2Shell/PEAR desde IP no incluida actualmente en la CDB de IOC $(srcip). Investigar; no se ejecuta bloqueo automatico.</description>
+        <mitre>
+            <id>T1190</id>
+            <id>T1595</id>
+        </mitre>
+        <group>web,attack,reconnaissance,exploit_attempt,orangebox_php2shell,orangebox_php2shell_probe,</group>
+    </rule>
+
+    <!-- Repeticion de sondeos no IOC: cuenta alertas previas 10054 del mismo origen. -->
+    <rule id="10051" level="12" frequency="3" timeframe="300" ignore="300">
+        <if_matched_sid>10054</if_matched_sid>
+        <same_srcip />
+        <list field="srcip" lookup="not_match_key">etc/lists/malicious-ioc/malicious-ip</list>
+        <description>ALERTA: Tres o mas sondeos PHP2Shell/PEAR desde la misma IP no IOC en 5 minutos ($(srcip)). Investigar actividad repetida; sin bloqueo automatico.</description>
+        <mitre>
+            <id>T1595</id>
+            <id>T1190</id>
+        </mitre>
+        <group>web,attack,reconnaissance,exploit_attempt,orangebox_php2shell,orangebox_php2shell_probe,orangebox_immediate,</group>
+    </rule>
+
+
+</group>
+
+<!--
+    Indicadores de ejecución pos-explotación observables en auditd.
+    80792 representa eventos de comando ejecutado del ruleset nativo.
+
+    IMPORTANTE: el decoder auditd no expone el comando completo en
+    audit.command; en eventos EXECVE lo reparte entre audit.execve.a0,
+    audit.execve.a1, audit.execve.a2, etc. Por eso 10052 inspecciona el
+    evento bruto mediante <match> después de que 80792 haya confirmado
+    que es una ejecución auditd. Así no dependemos de un argumento fijo.
+
+    Puede detectar administración legítima; requiere investigación y NO
+    está vinculada a Active Response.
+-->
+<group name="orangebox,audit,execution,php2shell,attack,">
+    <rule id="10052" level="12">
+        <if_sid>80792</if_sid>
+        <match type="pcre2">(?i)(?:\b(?:curl|wget)\b[^\n]{0,256}\|\s*(?:/bin/)?(?:ba)?sh\b|\b(?:ba)?sh\b\s+-c\b[^\n]{0,256}(?:https?://|/dev/tcp/|mkfifo|base64\s+-(?:d|decode)\b)|/dev/tcp/|\bmkfifo\s+|\bbase64\s+-(?:d|decode)\b)</match>
+        <description>ALERTA CRITICA: auditd registró una ejecución con patrón de shell/payload remoto compatible con posible RCE web. Revisar audit.command y audit.execve.* junto con usuario, proceso padre y logs web del mismo agente; explotación PHP2Shell no confirmada por esta señal sola.</description>
+        <mitre>
+            <id>T1059</id>
+            <id>T1105</id>
+            <id>T1190</id>
+        </mitre>
+        <group>audit,execution,command_execution,attack,orangebox_php2shell,orangebox_php2shell_behavior,orangebox_immediate,</group>
+    </rule>
+</group>
