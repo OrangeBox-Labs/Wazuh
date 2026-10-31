@@ -81,6 +81,10 @@ Las reglas 100321/100322/100323 cubren Medium/High/Critical. Critical es obligat
 
 Este repo distribuye el RPM OPT 4.14.8. El builder y el instalador públicos se mantienen alineados con esa versión; el hostname de Manager es un placeholder que se debe configurar al desplegar.
 
+## Hardening web/DoS derivado de incidentes
+
+La guía [`docs/incident-derived-webdos-hardening.md`](docs/incident-derived-webdos-hardening.md) documenta la matriz de detección 10820–10834, el origen de las señales, los umbrales, las decisiones de Active Response y las validaciones requeridas. La guía es común a ambos repositorios y no contiene datos de clientes.
+
 ## Reportes
 
 `orangebox-security-report.py` utiliza un motor unificado: produce el resumen ejecutivo y el detalle ZIP en la misma ejecución. El motor público conserva el nivel más completo de detalle para MITRE, FIM, autenticación, IOC/bloqueos, vulnerabilidades y GeoIP.
