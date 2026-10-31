@@ -56,6 +56,8 @@
         <group>inventory,identity,</group>
     </rule>
 
+    <!-- Regla 100315: Detecta la creación de una cuenta nueva en el endpoint. -->
+
     <rule id="100315" level="12">
         <if_sid>100314</if_sid>
         <field name="operation_type">INSERTED</field>
@@ -90,6 +92,8 @@
         <group>inventory,identity,account_manipulation,privilege_escalation,privilege_escalation_root,orangebox_immediate,</group>
     </rule>
 
+    <!-- Regla 100316: Detecta la creación de una cuenta nueva con UID 0, que obtiene privilegios de root. -->
+
     <rule id="100316" level="15">
         <if_sid>100315</if_sid>
         <field name="user.user_uid_signed">^0$</field>
@@ -105,6 +109,8 @@
         <group>inventory,identity,</group>
     </rule>
 
+    <!-- Regla 100318: Detecta cambios en la pertenencia o composición de un grupo privilegiado como wheel o sudo. -->
+
     <rule id="100318" level="13">
         <if_sid>100317</if_sid>
         <field name="operation_type">MODIFIED</field>
@@ -112,6 +118,8 @@
         <description>ORANGEBOX: Grupo privilegiado wheel/sudo modificado.</description>
         <group>inventory,identity,privilege_escalation,orangebox_immediate,</group>
     </rule>
+
+    <!-- Regla 100319: Detecta la creación de un grupo privilegiado como wheel o sudo. -->
 
     <rule id="100319" level="13">
         <if_sid>100317</if_sid>
