@@ -156,6 +156,8 @@
      ================================================================ -->
 <group name="orangebox,authentication,ssh,attack,">
 
+    <!-- Regla 10006: Correlaciona fuerza bruta SSH con un login exitoso posterior desde el mismo origen dentro de cinco minutos. -->
+
     <rule id="10006" level="13" frequency="2" timeframe="300">
         <if_sid>10001</if_sid>
         <if_matched_sid>5763</if_matched_sid>
@@ -171,6 +173,8 @@
      MOVIMIENTO LATERAL - SSH DESDE RED INTERNA
      ================================================================ -->
 <group name="orangebox,authentication,lateral_movement,attack,">
+
+    <!-- Regla 10007: Detecta una ráfaga de fallos SSH desde la red interna, posible señal de movimiento lateral. -->
 
     <rule id="10007" level="13">
         <if_sid>5712</if_sid>
@@ -197,6 +201,8 @@
      generar este patron de forma legitima. Se alerta para investigacion.
      ================================================================ -->
 <group name="orangebox,authentication,lateral_movement,attack,">
+
+    <!-- Regla 10008: Detecta logins SSH exitosos desde una misma IP hacia varios servidores dentro de cinco minutos. -->
 
     <rule id="10008" level="13" frequency="3" timeframe="300">
         <if_matched_sid>10001</if_matched_sid>
@@ -245,6 +251,7 @@
     siguen siendo detectadas por la politica de autenticacion.
 -->
 <group name="orangebox,authentication,privilege_escalation,whitelist,">
+    <!-- Regla 20044: Silencia sesiones SU hacia cuentas de servicio cuando el proceso iniciador ya era root. -->
     <rule id="20044" level="0">
         <if_sid>40101</if_sid>
         <regex type="pcre2">session\s+opened\s+for\s+user\s+\S+\(uid=\d+\)\s+by\s+\(uid=0\)</regex>
@@ -255,6 +262,8 @@
 
 
 <group name="orangebox,authentication,systemd,whitelist,">
+
+    <!-- Regla 20007: Silencia sesiones PAM no interactivas creadas por systemd-user. -->
 
     <rule id="20007" level="0">
         <if_sid>40101</if_sid>
@@ -349,6 +358,8 @@
         <description>EXCEPCION: SSH exitoso legitimo desde servidor BackupPC estatico autorizado.</description>
         <group>authentication_success,orangebox_exception,orangebox_whitelist,backuppc,</group>
     </rule>
+
+    <!-- Regla 20002: Autoriza logins SSH únicamente desde las IP dinámicas registradas para BackupPC. -->
 
     <rule id="20002" level="0">
         <if_sid>10001</if_sid>
@@ -484,6 +495,7 @@
      ================================================================ -->
 
 <group name="orangebox,authentication,sudo,whitelist,zimbra,carbonio,">
+    <!-- Regla 110100: Silencia sudo de Zimbra/Carbonio solo para comandos incluidos en la allowlist del perfil. -->
     <rule id="110100" level="0">
         <!--
             Zimbra / Carbonio CE - comandos operativos validados.
