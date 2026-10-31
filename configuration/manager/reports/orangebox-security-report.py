@@ -153,7 +153,7 @@ def build_summary(events, allowed):
     agent_stats = defaultdict(
         lambda: {"events": 0, "high": 0, "ips": set(), "attacks": 0}
     )
-    # Inicializa las categorías que el resumen presenta por separado.
+    # Crea un conjunto de contadores vacío para cada categoría del resumen.
     categories = {
         name: {
             "count": 0,
@@ -265,6 +265,7 @@ def build_summary(events, allowed):
     # Consolida los intentos de bloqueo por agente, regla y descripción.
     for (agent_id, agent_name, rule_id, description), ips in firewall_rows.items():
         attempts = sum(
+            # Suma los intentos registrados para cada IP del mismo agente y regla.
             firewall_attempts[(agent_id, rule_id, src)]
             for src in ips
         )
@@ -329,6 +330,7 @@ def archive_detailed_zip(body, label):
         # Blindaje: nunca aceptar directorios ni rutas internas.
         names = archive.namelist()
         if names != [html_name] or any(
+            # Rechaza directorios y rutas internas que no sean el HTML esperado.
             name.endswith("/") or Path(name).name != name
             for name in names
         ):
@@ -418,6 +420,7 @@ def main():
         args.date
         and f"date:{args.date}"
         or next(
+            # Selecciona la primera opción temporal activa cuando no se indicó fecha.
             name
             for name in (
                 "today",
@@ -547,6 +550,7 @@ def main():
     # Renderiza una vista por grupo y acumula los totales del resumen ejecutivo.
     for group, ids in memberships.items():
         stats = {
+            # Conserva solo agentes de este grupo presentes en el inventario resumido.
             agent_id: agent_stats[agent_id]
             for agent_id in ids
             if agent_id in agent_stats
