@@ -53,22 +53,26 @@ La versión por defecto del builder es **4.14.8**. Primero se prueba. Después s
 
 ## Ciclo interno de `build.sh`
 
-El builder usa el generador oficial de Wazuh y deja la fuente original sin modificaciones:
+El builder no parchea ni modifica el código fuente de Wazuh. Ejecuta el procedimiento oficial en un checkout temporal y publica el RPM resultante:
 
 1. Comprueba Git y detecta Docker o Podman.
-2. Limpia `OUTDIR` y el checkout temporal `SOURCE_DIR` administrados por el builder.
-3. Clona el tag oficial `v<WAZUH_VERSION>`.
-4. Entra a `packages/` y prepara un wrapper temporal si solo hay Podman.
-5. Ejecuta `generate_package.sh` para agente `amd64`, prefijo `/opt/ossec` y formato RPM.
-6. Exige un solo RPM instalable y descarta los auxiliares `debuginfo`.
-7. Si está disponible `rpm`, comprueba que el paquete instala bajo `/opt/ossec`.
-8. Copia el artefacto versionado junto a `tools/agent/install.sh`; el wrapper temporal se elimina al terminar.
+2. Limpia el directorio de salida administrado por el builder y el checkout temporal de la versión seleccionada.
+3. Clona el tag `v<WAZUH_VERSION>` y entra en `packages/`.
+4. Cuando se utiliza Podman, crea un wrapper temporal llamado `docker` para satisfacer al generador oficial; el script oficial se ejecuta sin editarlo.
+5. Ejecuta `generate_package.sh` para `agent`, arquitectura `amd64`, prefijo `/opt/ossec`, formato RPM.
+6. Filtra los RPM auxiliares de depuración y exige exactamente un RPM instalable.
+7. Cuando el comando `rpm` está disponible, inspecciona la lista de archivos y confirma que el paquete instala bajo `/opt/ossec`.
+8. Copia el paquete junto a `tools/agent/install.sh` con el nombre versionado que espera el instalador unificado.
 
-| Variable | Valor por defecto | Función |
+El wrapper de Podman se elimina al terminar. El checkout se conserva bajo `SOURCE_DIR` hasta la siguiente compilación; `OUTDIR` se reemplaza en cada ejecución. No apuntar estas variables a directorios que contengan datos ajenos al builder.
+
+Variables admitidas:
+
+| Variable | Valor por defecto | Uso |
 |---|---|---|
-| `WAZUH_VERSION` | `4.14.8` | Tag oficial a construir. |
-| `JOBS` | `2` | Trabajos paralelos. |
-| `OUTDIR` | `packages/agent/output` | RPM generado; se limpia al inicio. |
-| `SOURCE_DIR` | `/tmp/wazuh-<versión>` | Checkout temporal; se elimina antes de clonar. |
+| `WAZUH_VERSION` | `4.14.8` | Tag oficial de Wazuh que se compila. |
+| `JOBS` | `2` | Trabajos paralelos del generador. |
+| `OUTDIR` | `packages/agent/output` | Directorio de RPM generados; se limpia al inicio. |
+| `SOURCE_DIR` | `/tmp/wazuh-<versión>` | Checkout temporal de la fuente oficial. |
 
-**Cuidado:** `OUTDIR` y `SOURCE_DIR` se eliminan al inicio. No deben apuntar a directorios con información ajena al builder. La versión pública permanece en 4.14.8 para coincidir con el RPM OPT incluido y con `tools/agent/install.sh`.
+Antes de publicar un RPM, comparar la versión con el paquete que consume `tools/agent/install.sh`. El paquete OPT incluido en el repositorio público es una versión independiente y saneada para distribución pública.
