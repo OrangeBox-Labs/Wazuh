@@ -79,6 +79,10 @@ Las firmas ejecutables se mantienen en los archivos `.yar` del mismo directorio 
 
 Detecciones HTTP/Apache orientadas a reconocimiento, autenticación web y abuso de recursos sensibles.
 
+### `orangebox-php2shell.xml`
+
+Detección de PHP2Shell/CVE-2026-109618/CVE-2026-109619 desde dos fuentes: `10050/10051` identifican sondeos explícitos en access logs; `10052` detecta patrones sospechosos de ejecución a partir de auditd (`80792`). Ninguna de estas reglas demuestra por sí sola explotación ni tiene Active Response asociado. No se añade FIM masivo a `public_html`; ver `orangebox-php2shell.md` para cobertura, limitaciones y pruebas.
+
 ### `orangebox-firewall.xml`
 
 Detecciones de actividad de red a partir del decoder nativo `kernel`.
