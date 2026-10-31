@@ -207,6 +207,7 @@
      de metadatos de AWS; no bloquea por longitud solamente.
 ================================================================ -->
 <group name="orangebox,web,cloud_metadata,ssrf,attack,">
+    <!-- Regla 10039: Detecta intentos de acceder a endpoints de metadatos cloud desde una solicitud web. -->
     <rule id="10039" level="14">
         <if_sid>31115</if_sid>
         <url type="pcre2">(?i)169\.254\.169\.254/latest/meta-data/iam/security-credentials/?</url>
