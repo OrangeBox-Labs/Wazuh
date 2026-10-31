@@ -34,6 +34,10 @@ SSH_STATE_FILE = os.path.join(STATE_DIR, "ssh_notifications.json")
 # Destinatario obligatorio de todas las alertas.
 DEFAULT_ALERT_RECIPIENT = "soporte@example.com"
 
+# Tipo de evento sintético y directorio donde el detector guarda su detalle completo.
+VULNERABILITY_EVENT_TYPE = "orangebox_vulnerability_alert"
+VULNERABILITY_DETAILS_DIR = "/var/ossec/logs/vulnerability-alerts/details"
+
 
 # ============================================================
 # ALERTAS POR GRUPO / CLIENTE
