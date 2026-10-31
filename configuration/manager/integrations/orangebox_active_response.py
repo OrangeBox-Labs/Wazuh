@@ -96,7 +96,8 @@ def firewall_drop_policy_for_alert(
 
         matched_by: list[str] = []
 
-        # Extrae los SID del bloque; rules_id, rules_group y level son selectores OR.
+        # Recorre los SID separados por coma y conserva solo valores no vacíos.
+        # rules_id, rules_group y level son selectores OR independientes.
         configured_ids = {
             item.strip()
             for item in (response.findtext("rules_id") or "").split(",")
