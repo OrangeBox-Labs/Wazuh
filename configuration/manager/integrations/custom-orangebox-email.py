@@ -402,6 +402,7 @@ def build_recipients(default_recipient, agent_groups):
     seen = set()
 
     def add_recipient(address):
+        """Agrega una dirección válida una sola vez al conjunto de destinatarios."""
         address = str(address or "").strip()
 
         if not address:
@@ -534,6 +535,7 @@ def send_aggregated_vulnerability_emails(alert_json, default_recipient):
         return
 
     def unique_addresses(addresses):
+        """Normaliza y deduplica direcciones de correo."""
         result = []
         seen = set()
         # Normaliza direcciones y elimina duplicados sin distinguir mayúsculas.
@@ -545,6 +547,7 @@ def send_aggregated_vulnerability_emails(alert_json, default_recipient):
         return result
 
     def mail_for_audience(addresses, subset, audience):
+        """Construye y envía el correo para el subconjunto de agentes de una audiencia."""
         addresses = unique_addresses(addresses)
         if not addresses or not subset:
             return
@@ -824,6 +827,7 @@ def ssh_already_notified(agent_id, srcip, event_timestamp, ssh_identity="", full
         os.makedirs(marker_dir, mode=0o750, exist_ok=True)
 
         def marker_path(kind, value):
+            """Genera la ruta persistente del marcador de deduplicación para un evento."""
             material = f"{agent_id}|{kind}|{value}|{event_date}"
             digest = hashlib.sha256(
                 material.encode("utf-8", errors="replace")
@@ -1100,6 +1104,7 @@ def append_event_to_buffer(buffer_path, current_event,
 
             already_exists = any(
                 str(event.get("alert_id", "")) == current_alert_id
+                # Compara los eventos agrupados para no volver a incluir el mismo ID de alerta en el buffer.
                 for event in data["events"]
             )
 
@@ -1358,6 +1363,7 @@ if not isinstance(rule_groups, list):
 
 groups = ", ".join(
     str(group)
+    # Revisa los grupos de la regla y busca cuáles identifican un perfil operativo del agente.
     for group in rule_groups
 )
 
@@ -1387,6 +1393,7 @@ if firewall_drop_unknown:
 
 normalized_rule_groups = {
     normalize_group_name(group)
+    # Revisa los grupos de la regla y busca cuáles identifican un perfil operativo del agente.
     for group in rule_groups
 }
 send_immediately = (
@@ -1978,6 +1985,7 @@ fim_details_html = ""
 
 fim_event_counter = 0
 
+# Recorre los eventos FIM agrupados para construir el detalle de auditoría del correo.
 for idx, ev in enumerate(
     final_data.get("events", []),
     start=1
@@ -2035,6 +2043,7 @@ for idx, ev in enumerate(
 
     hash_rows = ""
 
+    # Incluye únicamente los hashes posteriores que Wazuh entregó en el evento FIM.
     for hash_name in (
         "md5_after",
         "sha1_after",
@@ -2065,6 +2074,7 @@ for idx, ev in enumerate(
 
         changed_text = ", ".join(
             str(x)
+            # Convierte la lista de atributos modificados en texto legible para el detalle FIM.
             for x in changed_fields
         )
 
@@ -2190,6 +2200,7 @@ for idx, ev in enumerate(
 # HISTORIAL DE LOGS CRUDOS
 # ============================================================
 
+# Recorre los eventos FIM agrupados para construir el detalle de auditoría del correo.
 for idx, ev in enumerate(
     final_data.get("events", []),
     start=1
