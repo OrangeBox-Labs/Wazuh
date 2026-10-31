@@ -83,6 +83,8 @@
         <group>orangebox_yara,</group>
     </rule>
 
+    <!-- Regla 10501: Convierte una coincidencia válida del análisis YARA en una alerta OrangeBox con firma, archivo y categoría. -->
+
     <rule id="10501" level="3">
         <if_sid>10500</if_sid>
         <field name="yara_rule" type="pcre2">.+</field>
