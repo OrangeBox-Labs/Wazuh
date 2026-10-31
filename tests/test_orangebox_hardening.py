@@ -67,8 +67,10 @@ class CloudLinuxCronExceptionTests(unittest.TestCase):
         deleted = self.rules["10045"]
         self.assertEqual(modified.findtext("if_sid"), "550")
         self.assertEqual(deleted.findtext("if_sid"), "553")
-        self.assertRegex(modified.findtext("field", ""), r"/etc/cron")
-        self.assertRegex(deleted.findtext("field", ""), r"/etc/cron")
+        modified_file = next(field for field in modified.findall("field") if field.get("name") == "file")
+        deleted_file = next(field for field in deleted.findall("field") if field.get("name") == "file")
+        self.assertRegex(modified_file.text or "", r"/etc/cron")
+        self.assertRegex(deleted_file.text or "", r"/etc/cron")
         self.assertEqual(modified.get("level"), "13")
         self.assertEqual(deleted.get("level"), "15")
 
