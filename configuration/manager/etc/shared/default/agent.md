@@ -19,10 +19,8 @@ Se vigilan en tiempo real:
 - `/tmp`
 - `/var/tmp`
 - `/dev/shm`
-- `/opt/zimbra/data/tmp`
-- `/opt/zextras/data/tmp`
 
-Zimbra y Carbonio aparecen separados porque ambos utilizan directorios temporales distintos. Esto viene de los incidentes que motivaron estas reglas; no es una lista genérica puesta porque sí.
+Los directorios temporales propios de Zimbra y Carbonio (`/opt/zimbra/data/tmp` y `/opt/zextras/data/tmp`) se definen exclusivamente en `zimbra/agent.conf`, no en el perfil común.
 
 ## Who-Data en rutas críticas
 
