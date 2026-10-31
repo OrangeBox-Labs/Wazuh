@@ -61,7 +61,7 @@ Los grupos específicos de la implementación privada también se anonimizaron e
 No sincronizar automáticamente todo el árbol privado. Algunos archivos son específicos de clientes o sirven solo para pruebas:
 
 - Cron individuales de reportes por cliente bajo `configuration/manager/etc/cron.d/`. En público se mantiene únicamente el ejemplo genérico.
-- Listas CDB de clientes o proveedores con IPs autorizadas, como `orangebox-sftp-authorized`. La versión pública usa una lista genérica como `orangebox-sftp-authorized` con valores de documentación.
+- Listas CDB de clientes o proveedores con IPs autorizadas, como `orangebox-sftp-certcoopeuch`. Esta versión pública conserva únicamente la CDB genérica `orangebox-sftp-authorized` y datos de documentación.
 - Reportes temporales/de prueba, como `configuration/manager/reports/reporte-test.py`.
 - Artículos y capturas de pruebas que contengan nombres de hosts, dominios, alertas o detalles operacionales de clientes.
 - Archivos de estado, caches, logs, volcados, datos exportados o artefactos generados en producción.
