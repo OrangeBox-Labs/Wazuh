@@ -196,7 +196,7 @@ Ambas excepciones producen `level 0` y no alteran la alerta base `10001`.
 
 ### SFTP sftp-service
 
-`20004` valida el usuario `sftp-service` y consulta las IP de origen en `etc/lists/orangebox-sftp-sftp-service`.
+`20004` valida el usuario `sftp-service` y consulta las IP de origen en `etc/lists/orangebox-sftp-authorized`.
 
 Para agregar otro origen autorizado, agregar una nueva línea `<IP>:` a la CDB y reiniciar el Manager. No se crea una regla adicional por cada IP.
 
@@ -260,7 +260,7 @@ Cada nuevo wrapper debe probarse también con una variante que agregue `;`, `&&`
 - CDB `etc/lists/orangebox-agent-profiles`;
 - CDB `etc/lists/orangebox-backuppc-static`;
 - CDB `etc/lists/orangebox-backuppc-dynamic`;
-- CDB `etc/lists/orangebox-sftp-sftp-service`;
+- CDB `etc/lists/orangebox-sftp-authorized`;
 - CDB `etc/lists/orangebox-web-auth-proxies`;
 - CDB `etc/lists/orangebox-web-discovery-proxies`;
 - entrada de las CDB declarada en `manager/ossec.conf`;
