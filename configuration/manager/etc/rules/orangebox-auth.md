@@ -123,8 +123,8 @@ El perfil se resuelve mediante `configuration/manager/etc/lists/orangebox-agent-
 Ejemplo:
 
 ```text
-srv27:cpanel
-srv27.cloudlatam.cl:cpanel
+cpanel01.example.invalid:cpanel
+cpanel01.example.invalid:cpanel
 ```
 
 `20031` contiene comandos directos conocidos de WP Toolkit/cPanel.
@@ -161,9 +161,9 @@ Los árboles reconocidos son:
 Hosts actualmente registrados en la CDB:
 
 ```text
-mail.orangebox.cl:zimbra
-zimbra10.orangebox.cl:zimbra
-mail2.jhg.cl:zimbra
+mail01.example.invalid:zimbra
+zimbra02.example.invalid:zimbra
+mail03.example.invalid:zimbra
 mail.appnexit.cl:zimbra
 ```
 
