@@ -117,6 +117,30 @@ cPanel regenera este cron durante tareas normales de renovación/reemisión SSL.
 
 La condición de perfil evita convertir una excepción específica de cPanel en una whitelist global.
 
+### 20059 — Eliminación del cron de sesiones PHP de CloudLinux/CageFS
+
+La regla `20059` aplica sobre `10045` (eliminación FIM `553`) y requiere simultáneamente:
+
+```text
+perfil CDB = cpanel
++
+/etc/cron.d/cpanel_php_sessions_cron
+```
+
+La excepción utiliza nivel 3: el evento permanece registrado en Wazuh, pero no alcanza el umbral 12 de la integración de correo. No se exceptúan otros cron de PHP ni otras rutas de `/etc/cron.d/`.
+
+### 20060 — Modificaciones de cron de CloudLinux LVE Manager
+
+La regla `20060` aplica sobre `10035` (modificación FIM `550`) y se limita a:
+
+```text
+/etc/cron.d/lvemanager-cron
+/etc/cron.d/lvemanager-selector
+/etc/cron.d/cloudlinux-cron
+```
+
+También exige el perfil CDB `cpanel` y utiliza nivel 3 para conservar la evidencia en Wazuh sin generar correo crítico. Esta excepción cubre únicamente modificaciones. Las eliminaciones de esos archivos continúan sujetas a `10045` y no quedan autorizadas por `20060`.
+
 ### 20057 — Limpieza de plugins cPanel SocialBee/XOVI en DNSOnly
 
 La regla nativa OrangeBox `10044` detecta la eliminación de unidades persistentes de systemd. La excepción `20057` cubre únicamente estos archivos bajo `/etc/systemd/system/`:
@@ -145,7 +169,7 @@ La regla exige el actor `process_name=snapd` y el patrón exacto de archivo, y s
 
 Las excepciones anteriores corresponden a falsos positivos validados en producción. No se debe extender una excepción a todo un directorio, proceso o usuario cuando el evento concreto puede expresarse mediante una ruta exacta y, cuando está disponible, una condición adicional sobre el contenido o el resultado de FIM.
 
-Esto mantiene `10037` operativo para cambios reales de firewall y mantiene `10035` operativo para el resto de la configuración CRON.
+Esto mantiene `10037` operativo para cambios reales de firewall y mantiene `10035` operativo para el resto de la configuración CRON, excepto las tres rutas CloudLinux concretas cubiertas por `20060`. Las eliminaciones siguen protegidas por `10045`, salvo el cron de sesiones PHP exacto cubierto por `20059`.
 
 ## Política FIM para modificaciones
 
