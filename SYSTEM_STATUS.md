@@ -87,12 +87,14 @@ Este repo distribuye el RPM OPT 4.14.8. El builder y el instalador públicos se 
 
 ## Pruebas
 
-El directorio `tests/` es **desarrollo**, no configuración de Manager. Contiene pruebas unitarias/contractuales para Active Response, IOC updater y PHP2Shell, además de fixtures sanitizados. `test_orangebox_hardening.py` verifica el alcance y las condiciones exactas de las excepciones FIM CRON `20059`/`20060`. La CI ejecuta:
+El directorio `tests/` es **desarrollo**, no configuración de Manager. Contiene pruebas unitarias/contractuales para Active Response, IOC updater, detector de vulnerabilidades y PHP2Shell, además de fixtures sanitizados. `test_orangebox_hardening.py` verifica el alcance y las condiciones exactas de las excepciones FIM CRON `20059`/`20060`. La CI ejecuta:
 
 ```bash
 python -m unittest discover -s configuration/manager/vulnerability-alerts -p 'test_*.py' -v
 python -m unittest discover -s tests -p 'test_*.py' -v
 ```
+
+El test `test_vulnerability_alerts.py` vive en `tests/`, no en `configuration/manager/`, para que no se copie al Manager durante el despliegue.
 
 La integración `sudo bash tests/test-ioc-active-response.sh` requiere un Manager real y `wazuh-logtest`; se ejecuta manualmente y no bloquea IPs.
 
