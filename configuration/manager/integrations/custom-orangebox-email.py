@@ -9,10 +9,11 @@ import html
 import textwrap
 import hashlib
 import subprocess
-import xml.etree.ElementTree as ET
 
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+from orangebox_active_response import firewall_drop_policy_for_alert
 
 
 # ============================================================
@@ -117,8 +118,9 @@ CLIENT_GROUPS = {
 # buffer, sin tener que editar este script.
 #
 # IMPORTANTE:
-#   FIREWALL_DROP_RULES se evalua antes que esta politica.
-#   Una alerta con firewall-drop sigue sin generar correo individual.
+#   El tratamiento de firewall-drop se determina leyendo los selectores
+#   reales (rules_id, rules_group y level) de ossec.conf mediante el modulo
+#   orangebox_active_response. No se mantiene una lista paralela de IDs.
 #
 IMMEDIATE_RULES = {
     # Reglas historicas / nativas que no podemos marcar todas desde
@@ -131,34 +133,34 @@ IMMEDIATE_RULES = {
     "10005",
     "10008",
     "10009",
+
+    # IOC nativos de autenticación exitosa y ataque web crítico.
+    # Deben notificarse inmediatamente, aunque tengan firewall-drop configurado.
+    "99903",
+    "99906",
+    "99910",
+    "99912",
+    "99913",
+    "99920",
 }
 
 IMMEDIATE_RULE_GROUP = "ORANGEBOX_IMMEDIATE"
 
 
 # ============================================================
-# REGLAS CON FIREWALL-DROP
+# FIREWALL-DROP: DETECCION DINAMICA, SIN LISTA DE IDS
 # ============================================================
 #
-# Estas reglas siguen generando la alerta Wazuh y ejecutando
-# Active Response normalmente.
+# El integrador no mantiene una lista paralela de rule IDs.
+# Para cada alerta usa rule.id del JSON y consulta los bloques
+# active-response habilitados en /var/ossec/etc/ossec.conf.
+# Si firewall-drop está asociado a esa regla, obtiene el timeout
+# configurado y suprime el correo individual.
 #
-# Solamente se evita el correo individual de la integracion.
-# El reporte/dashboard PDF las recoge desde alerts.json y,
-# para confirmar el bloqueo real, desde la regla 651.
+# La ejecución real se audita mediante el evento nativo 651 que
+# Wazuh genera al ejecutar firewall-drop. Tenerlo configurado no
+# es, por sí solo, prueba de que el bloqueo se ejecutó.
 #
-FIREWALL_DROP_RULES = {
-    "5720",   # SSH brute force -> firewall-drop
-    "10006",  # SSH brute force seguido de login exitoso -> firewall-drop
-    "10025",  # Web brute force -> firewall-drop
-    "10026",  # Descubrimiento de archivos sensibles -> firewall-drop
-    "10456",  # Port scan publico -> firewall-drop
-    "10454",  # SYN flood confirmado -> firewall-drop
-    "10700",  # Mail brute force Postfix -> firewall-drop
-    "10701",  # Mail brute force Exim/Dovecot -> firewall-drop
-}
-
-
 # ============================================================
 # REGLAS SIN CORREO
 # ============================================================
@@ -212,26 +214,13 @@ def esc(value):
 
 
 
-def format_log_for_html(value, width=72):
-    """Escapa y divide lineas extensas solo para visualizacion en correo HTML.
+def format_log_for_html(value):
+    """Escapa el log para HTML sin insertar saltos de linea artificiales.
 
-    No modifica el evento original ni los datos enviados a Wazuh.
-    Evita que cadenas sin espacios (por ejemplo, sondas HTTP enormes)
-    fuercen un ancho excesivo en Gmail para Android.
+    Conserva los saltos originales. El wrapping visual depende del cliente
+    de correo y del ancho disponible; no se cortan tokens por bloques fijos.
     """
-    raw = str(value or "")
-    visual_lines = []
-
-    for line in raw.split("\n"):
-        if not line:
-            visual_lines.append("")
-            continue
-        visual_lines.extend(
-            line[offset:offset + width]
-            for offset in range(0, len(line), width)
-        )
-
-    return html.escape("\n".join(visual_lines))
+    return html.escape(str(value or ""))
 
 
 def load_json_file(path):
@@ -307,9 +296,9 @@ def get_agent_groups_from_manager(agent_id):
     output = result.stdout or ""
 
     # Formato habitual:
-    #   has the group: '[u'CLIENTE_04', u'default']'
+    #   has the group: '[u'Nexit', u'default']'
     # y versiones:
-    #   belongs to groups: default, CLIENTE_04
+    #   belongs to groups: default, Nexit
     import re
 
     match = re.search(r"\[([^\]]*)\]", output)
@@ -319,7 +308,11 @@ def get_agent_groups_from_manager(agent_id):
             r'''(?:u)?['"]([^'"]+)['"]''',
             match.group(1)
         )
-        return normalize_group_list(raw_groups)
+        # Algunas versiones muestran el nombre del grupo con puntuación
+        # de cierre (por ejemplo, "JHG." o "default.").
+        return normalize_group_list(
+            [group.strip().rstrip(".,;:") for group in raw_groups]
+        )
 
     match = re.search(
         r"belongs to groups?:\s*(.+)$",
@@ -329,28 +322,61 @@ def get_agent_groups_from_manager(agent_id):
 
     if match:
         return normalize_group_list(
-            [group.strip() for group in match.group(1).split(",")]
+            [group.strip().rstrip(".,;:") for group in match.group(1).split(",")]
         )
 
     return []
 
 
+def get_agent_ip_from_manager(agent_id):
+    """Fallback para agentes cuyo documento de vulnerabilidad no incluye agent.ip."""
+    agent_id = str(agent_id or "").strip()
+    if not agent_id or agent_id == "000":
+        return ""
+    try:
+        result = subprocess.run(
+            ["/var/ossec/bin/agent_control", "-i", agent_id],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=4,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    import re
+    match = re.search(r"\bIP(?:\s+address)?:\s*([^\s,]+)", result.stdout or "", flags=re.IGNORECASE)
+    if not match:
+        return ""
+    address = match.group(1).strip()
+    if address.lower() in {"any", "unknown", "n/a", "not", "none"}:
+        return ""
+    return address
+
+
+
 def extract_agent_groups(alert_json):
     """
-    Obtiene los grupos del agente desde el evento Wazuh.
+    Obtiene los grupos del agente real de la alerta.
 
-    Primero usa agent.groups / agent.group si vienen en el alerta.
-    Si Wazuh no los incluye, consulta la membresia real del agente
-    en el manager mediante agent_groups.
-
-    Nunca usa rule.groups porque esos son grupos de la regla.
+    En eventos de vulnerabilidad, la alerta se origina en el manager (agente
+    000), pero data.affected_agent.id identifica al endpoint afectado.
     """
+    event_data = alert_json.get("data", {})
+    if isinstance(event_data, dict) and event_data.get("event_type") == VULNERABILITY_EVENT_TYPE:
+        affected_agent = event_data.get("affected_agent", {})
+        if isinstance(affected_agent, dict):
+            result = normalize_group_list(affected_agent.get("groups", []))
+            if result:
+                return result
+            return get_agent_groups_from_manager(affected_agent.get("id", ""))
+        return []
+
     agent = alert_json.get("agent", {})
     if not isinstance(agent, dict):
         return []
 
     raw_groups = agent.get("groups", [])
-
     if isinstance(raw_groups, str):
         raw_groups = [raw_groups]
     elif not isinstance(raw_groups, list):
@@ -361,10 +387,8 @@ def extract_agent_groups(alert_json):
         raw_groups.append(singular)
 
     result = normalize_group_list(raw_groups)
-
     if result:
         return result
-
     return get_agent_groups_from_manager(agent.get("id", ""))
 
 
@@ -407,6 +431,307 @@ def build_recipients(default_recipient, agent_groups):
     return recipients
 
 
+
+
+
+def restore_vulnerability_event_details(alert_json):
+    """Rehidrata los paquetes completos guardados fuera del JSONL de Logcollector."""
+    if not isinstance(alert_json, dict):
+        return alert_json
+
+    data = alert_json.get("data", {})
+    if not isinstance(data, dict) or data.get("event_type") != VULNERABILITY_EVENT_TYPE:
+        return alert_json
+
+    event_key = str(data.get("event_key") or "").strip()
+    if not event_key:
+        return alert_json
+
+    filename = hashlib.sha256(event_key.encode("utf-8")).hexdigest() + ".json"
+    detail_path = os.path.join(VULNERABILITY_DETAILS_DIR, filename)
+    try:
+        with open(detail_path, "r", encoding="utf-8") as stream:
+            details = json.load(stream)
+    except (OSError, ValueError) as exc:
+        try:
+            with open("/var/ossec/logs/integrations.log", "a", encoding="utf-8") as logf:
+                logf.write(
+                    f"WARN vulnerability email: detalle auxiliar no disponible "
+                    f"para {event_key}: {type(exc).__name__}: {exc}\\n"
+                )
+        except OSError:
+            pass
+        return alert_json
+
+    if (
+        not isinstance(details, dict)
+        or details.get("event_type") != VULNERABILITY_EVENT_TYPE
+        or str(details.get("event_key") or "") != event_key
+        or not isinstance(details.get("affected_agents"), list)
+        or not isinstance(details.get("vulnerability"), dict)
+    ):
+        try:
+            with open("/var/ossec/logs/integrations.log", "a", encoding="utf-8") as logf:
+                logf.write(
+                    f"WARN vulnerability email: detalle auxiliar inválido para {event_key}\\n"
+                )
+        except OSError:
+            pass
+        return alert_json
+
+    restored = dict(alert_json)
+    restored["data"] = details
+    return restored
+
+def send_aggregated_vulnerability_emails(alert_json, default_recipient):
+    """Envía una copia global y copias filtradas por grupo para un único evento CVE."""
+    alert_json = restore_vulnerability_event_details(alert_json)
+    data = alert_json.get("data", {})
+    vulnerability = data.get("vulnerability", {})
+    raw_agents = data.get("affected_agents", [])
+    if not isinstance(vulnerability, dict) or not isinstance(raw_agents, list):
+        return
+
+    cve = str(vulnerability.get("cve") or vulnerability.get("id") or "N/A")
+    severity = str(vulnerability.get("severity") or "N/A").strip().title()
+    description = str(vulnerability.get("description") or "Descripción no disponible en el inventario.")
+    published_at = str(vulnerability.get("published_at") or "No informada por el inventario.")
+    status = str(vulnerability.get("status") or "Active")
+
+    agents = []
+    seen_ids = set()
+    for raw in raw_agents:
+        if not isinstance(raw, dict):
+            continue
+        agent_id = str(raw.get("id") or "").strip()
+        if not agent_id or agent_id in seen_ids:
+            continue
+        seen_ids.add(agent_id)
+        groups = normalize_group_list(raw.get("groups", []))
+        if not groups:
+            groups = get_agent_groups_from_manager(agent_id)
+        packages = raw.get("packages", [])
+        if not isinstance(packages, list):
+            packages = []
+        agents.append({
+            "id": agent_id,
+            "name": str(raw.get("name") or agent_id),
+            "ip": str(raw.get("ip") or get_agent_ip_from_manager(agent_id) or "IP no disponible"),
+            "groups": groups,
+            "packages": [p for p in packages if isinstance(p, dict)],
+        })
+
+    if not agents:
+        try:
+            with open("/var/ossec/logs/integrations.log", "a") as logf:
+                logf.write(f"WARN vulnerability email: {cve} sin agentes afectados en el evento.\n")
+        except OSError:
+            pass
+        return
+
+    def unique_addresses(addresses):
+        result = []
+        seen = set()
+        for address in addresses:
+            address = str(address or "").strip()
+            if address and address.lower() not in seen:
+                seen.add(address.lower())
+                result.append(address)
+        return result
+
+    def mail_for_audience(addresses, subset, audience):
+        addresses = unique_addresses(addresses)
+        if not addresses or not subset:
+            return
+        rows = []
+        desktop_rows = []
+        for agent in subset:
+            pkg_details = []
+            desktop_pkg_details = []
+            for package in agent["packages"]:
+                name = esc(package.get("name") or "Paquete no informado")
+                version = esc(package.get("version") or "Versión no informada")
+                arch = esc(package.get("architecture") or "arquitectura no informada")
+                condition = esc(package.get("condition") or "")
+                detected_at = esc(package.get("detected_at") or "")
+                desktop_extra = []
+                if condition:
+                    desktop_extra.append("Condición: " + condition)
+                if detected_at:
+                    desktop_extra.append("Detectado: " + detected_at)
+                desktop_pkg_details.append(
+                    "<div style='margin:3px 0;line-height:1.35;overflow-wrap:anywhere'>"
+                    "<strong>" + name + "</strong> — " + version + " (" + arch + ")"
+                    + (("<br><small style='font-size:11px'>" +
+                        " · ".join(desktop_extra) + "</small>") if desktop_extra else "")
+                    + "</div>"
+                )
+                pkg_details.append(
+                    "<div style='margin:9px 0 0;padding:10px 12px;"
+                    "border:1px solid #e2e8f0;border-radius:6px;background:#ffffff;"
+                    "line-height:1.5;overflow-wrap:anywhere'>"
+                    "<div style='font-weight:700;font-size:13px;line-height:1.45;"
+                    "margin-bottom:7px;color:#0f172a;overflow-wrap:anywhere'>" + name + "</div>"
+                    "<div style='margin:4px 0;font-size:12px;line-height:1.5'>"
+                    "<strong style='color:#475569'>Versión:</strong> " + version + "</div>"
+                    "<div style='margin:4px 0;font-size:12px;line-height:1.5'>"
+                    "<strong style='color:#475569'>Arquitectura:</strong> " + arch + "</div>"
+                    + (("<div style='margin:6px 0 0;font-size:12px;line-height:1.55;"
+                        "overflow-wrap:anywhere'><strong style='color:#475569'>Condición:</strong> " +
+                        condition + "</div>") if condition else "")
+                    + (("<div style='margin:5px 0 0;font-size:11px;line-height:1.5;"
+                        "color:#64748b;overflow-wrap:anywhere'><strong>Detectado:</strong> " +
+                        detected_at + "</div>") if detected_at else "")
+                    + "</div>"
+                )
+            if not pkg_details:
+                pkg_details = ["Paquete no informado"]
+            if not desktop_pkg_details:
+                desktop_pkg_details = ["Paquete no informado"]
+            groups_text = ", ".join(agent["groups"]) or "Sin grupo identificado"
+            desktop_rows.append(
+                "<tr>"
+                "<td style='padding:9px;border-bottom:1px solid #e2e8f0;vertical-align:top;"
+                "overflow-wrap:anywhere'>" + esc(agent["name"]) + "<br><small>ID " +
+                esc(agent["id"]) + "</small></td>"
+                "<td style='padding:9px;border-bottom:1px solid #e2e8f0;vertical-align:top;"
+                "overflow-wrap:anywhere'>" + esc(agent["ip"]) + "</td>"
+                "<td style='padding:9px;border-bottom:1px solid #e2e8f0;vertical-align:top;"
+                "overflow-wrap:anywhere'>" + esc(groups_text) + "</td>"
+                "<td style='padding:9px;border-bottom:1px solid #e2e8f0;vertical-align:top;"
+                "font-size:12px;overflow-wrap:anywhere'>" + "".join(desktop_pkg_details) + "</td>"
+                "</tr>"
+            )
+            rows.append(
+                "<tr><td style='padding:12px 10px;border-bottom:1px solid #dbe3ec;"
+                "vertical-align:top;overflow-wrap:anywhere'>"
+                "<div style='padding:14px 14px;background:#f8fafc;border:1px solid #dbe3ec;"
+                "border-radius:8px;overflow-wrap:anywhere'>"
+                "<div style='margin:0 0 12px;padding:0 0 9px;border-bottom:1px solid #dbe3ec;"
+                "font-size:13px;line-height:1.5;overflow-wrap:anywhere'>"
+                "<strong style='display:inline-block;width:150px;max-width:40%;box-sizing:border-box;"
+                "vertical-align:top;padding-right:10px;color:#475569'>Servidor:</strong>"
+                "<span style='display:inline-block;width:58%;vertical-align:top;font-weight:700;"
+                "overflow-wrap:anywhere'>" + esc(agent["name"]) +
+                "<br><small style='font-weight:400;color:#64748b'>ID " + esc(agent["id"]) + "</small></span></div>"
+                "<div style='margin:9px 0;font-size:13px;line-height:1.6;overflow-wrap:anywhere'>"
+                "<strong style='display:inline-block;width:150px;max-width:40%;box-sizing:border-box;"
+                "vertical-align:top;padding-right:10px;color:#475569'>IP:</strong>"
+                "<span style='display:inline-block;width:58%;vertical-align:top;overflow-wrap:anywhere'>" +
+                esc(agent["ip"]) + "</span></div>"
+                "<div style='margin:9px 0 13px;font-size:13px;line-height:1.6;overflow-wrap:anywhere'>"
+                "<strong style='display:inline-block;width:150px;max-width:40%;box-sizing:border-box;"
+                "vertical-align:top;padding-right:10px;color:#475569'>Grupo:</strong>"
+                "<span style='display:inline-block;width:58%;vertical-align:top;overflow-wrap:anywhere'>" +
+                esc(groups_text) + "</span></div>"
+                "<div style='margin-top:14px;padding-top:12px;border-top:1px solid #dbe3ec'>"
+                "<div style='font-size:13px;line-height:1.5;font-weight:700;color:#334155;"
+                "margin-bottom:8px'>Paquetes y versiones</div>"
+                "<div style='overflow-wrap:anywhere'>" +
+                "".join(pkg_details) +
+                "</div></div></div></td></tr>"
+            )
+
+        severity_color = {
+            "CRITICAL": "#dc2626",
+            "HIGH": "#ea580c",
+            "MEDIUM": "#ca8a04",
+        }.get(severity.upper(), "#475569")
+        html_body = (
+            "<!doctype html><html><head><meta charset='UTF-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1.0'>"
+            "<style type='text/css'>"
+            ".ob-cve-desktop-table{display:none!important}"
+            ".ob-cve-mobile-cards{display:table!important}"
+            "@media screen and (min-width:600px){"
+            ".ob-cve-desktop-table{display:table!important}"
+            ".ob-cve-mobile-cards{display:none!important}"
+            "}"
+            "</style></head>"
+            "<body style='margin:0;padding:12px;background:#f1f5f9;font-family:Arial,sans-serif;color:#0f172a'>"
+            "<div style='max-width:1000px;margin:auto;background:#fff;border:1px solid #cbd5e1;border-radius:12px;overflow:hidden'>"
+            "<div style='padding:22px;background:#1e293b;color:#fff;text-align:center'>"
+            "<img src='https://www.orangebox.cl/obox/img/logo-dark.png' "
+            "alt='OrangeBox' border='0' width='220' "
+            "style='display:block;width:220px;max-width:75%;height:auto;margin:0 auto 12px'>"
+            "<div style='font-size:20px;font-weight:700'>OrangeBox · Alerta de vulnerabilidad</div>"
+            "<div style='margin-top:12px;display:inline-block;background:" + severity_color +
+            ";padding:6px 12px;border-radius:6px;font-weight:700'>" + esc(severity.upper()) +
+            "</div><h2 style='margin:14px 0 4px'>" + esc(cve) + "</h2>"
+            "<div>" + str(len(subset)) + " servidores afectados" +
+            (" · " + esc(audience) if audience else "") + "</div></div>"
+            "<div style='padding:12px 16px'><table role='presentation' style='width:100%;max-width:100%;border-collapse:collapse;margin-bottom:18px'>"
+            "<tr><td style='padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;line-height:1.45;overflow-wrap:anywhere'>"
+            "<strong style='display:inline-block;width:150px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:10px;color:#475569'>Estado:</strong>"
+            "<span style='display:inline-block;width:58%;vertical-align:top;overflow-wrap:anywhere'>" +
+            esc(status) + "</span></td></tr>"
+            "<tr><td style='padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;line-height:1.45;overflow-wrap:anywhere'>"
+            "<strong style='display:inline-block;width:150px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:10px;color:#475569'>Publicación CVE:</strong>"
+            "<span style='display:inline-block;width:58%;vertical-align:top;overflow-wrap:anywhere'>" +
+            esc(published_at) + "</span></td></tr>"
+            "<tr><td style='padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;line-height:1.45;overflow-wrap:anywhere'>"
+            "<strong style='display:inline-block;width:150px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:10px;color:#475569'>Descripción:</strong>"
+            "<span style='display:inline-block;width:58%;vertical-align:top;overflow-wrap:anywhere'>" +
+            esc(description) + "</span></td></tr></table>"
+            "<h3 style='margin:18px 0 8px'>Servidores y paquetes afectados (" + str(len(subset)) + ")</h3>"
+            "<table class='ob-cve-desktop-table' role='presentation' style='display:none;width:100%;max-width:100%;"
+            "table-layout:fixed;border-collapse:collapse;font-size:13px'><thead><tr style='background:#e2e8f0;text-align:left'>"
+            "<th style='padding:9px;width:26%'>Servidor</th><th style='padding:9px;width:15%'>IP</th>"
+            "<th style='padding:9px;width:18%'>Grupo</th><th style='padding:9px;width:41%'>Paquete / versión</th>"
+            "</tr></thead><tbody>" + "".join(desktop_rows) + "</tbody></table>"
+            "<table class='ob-cve-mobile-cards' role='presentation' style='display:table;width:100%;max-width:100%;"
+            "border-collapse:collapse;font-size:13px'><tbody>" +
+            "".join(rows) +
+            "</tbody></table></div><div style='padding:14px 20px;background:#f8fafc;color:#64748b;font-size:12px'>"
+            "Mensaje automatizado de OrangeBox SOC &amp; CyberSecurity · Wazuh SIEM</div></div></body></html>"
+        )
+        message = MIMEMultipart("alternative")
+        message["Subject"] = (
+            f"[VULNERABILIDAD {severity.upper()}] {cve} - {len(subset)} servidores afectados"
+            + (f" ({audience})" if audience else "")
+        )
+        message["From"] = "Wazuh SOC <wazuh@example.com>"
+        message["To"] = ", ".join(addresses)
+        message.attach(MIMEText(html_body, "html", "utf-8"))
+        try:
+            result = subprocess.run(
+                ["/usr/sbin/sendmail", "-t", "-i"],
+                input=message.as_string(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            if result.returncode != 0:
+                detail = result.stderr.strip() or result.stdout.strip() or f"sendmail exit={result.returncode}"
+                with open("/var/ossec/logs/integrations.log", "a") as logf:
+                    logf.write(f"ERROR vulnerability email {cve} {audience}: {detail}\n")
+        except Exception as exc:
+            try:
+                with open("/var/ossec/logs/integrations.log", "a") as logf:
+                    logf.write(f"ERROR vulnerability email {cve} {audience}: {type(exc).__name__}: {exc}\n")
+            except OSError:
+                pass
+
+    # OrangeBox recibe siempre el conjunto completo de agentes.
+    global_recipients = unique_addresses([DEFAULT_ALERT_RECIPIENT, default_recipient])
+    mail_for_audience(global_recipients, agents, "OrangeBox - Todos los afectados")
+
+    # Cada contacto recibe solamente los agentes que pertenecen a su grupo.
+    for group_name, config in CLIENT_GROUPS.items():
+        if not config.get("enabled"):
+            continue
+        subset = [
+            agent for agent in agents
+            if normalize_group_name(group_name) in agent["groups"]
+        ]
+        if subset:
+            mail_for_audience(config.get("emails", []), subset, group_name)
+
+
+
+
 # ============================================================
 # DEDUPLICACION SSH
 # ============================================================
@@ -433,7 +758,7 @@ def extract_ssh_source_ip(full_log):
     no entrega data.srcip al decoder.
 
     Ejemplo esperado:
-        Accepted password for root from 198.51.100.22 port 60943 ssh2
+        Accepted password for root from 10.8.0.22 port 60943 ssh2
 
     Esta ruta de respaldo es necesaria porque algunos eventos
     provenientes de journald llegan al integrador sin srcip aunque
@@ -596,7 +921,7 @@ def ssh_already_notified(agent_id, srcip, event_timestamp, ssh_identity="", full
         # Esta es la politica principal. Es la que debe resolver
         # exactamente el caso:
         #
-        #   Accepted password ... from 198.51.100.22
+        #   Accepted password ... from 10.8.0.22
         #
         # cinco veces durante el dia en el mismo agente -> un solo correo.
         #
@@ -875,6 +1200,16 @@ except Exception as e:
     sys.exit(1)
 
 
+# Los eventos consolidados de vulnerabilidad tienen su propio envío:
+# un correo global completo y una copia filtrada por cada grupo habilitado.
+_early_data = alert_json.get("data", {})
+if isinstance(_early_data, dict) and _early_data.get("event_type") == VULNERABILITY_EVENT_TYPE:
+    _early_agents = _early_data.get("affected_agents")
+    if isinstance(_early_agents, list):
+        send_aggregated_vulnerability_emails(alert_json, recipient)
+        sys.exit(0)
+
+
 # ============================================================
 # DATOS PRINCIPALES
 # ============================================================
@@ -894,23 +1229,42 @@ description = alert_json.get(
     "Sin descripcion"
 )
 
-agent_id = str(
-    alert_json.get("agent", {}).get("id", "000")
-)
+event_data = alert_json.get("data", {})
+if not isinstance(event_data, dict):
+    event_data = {}
 
-agent_name = alert_json.get(
-    "agent", {}
-).get(
-    "name",
-    "Wazuh Manager"
-)
+vulnerability_event = event_data.get("event_type") == VULNERABILITY_EVENT_TYPE
+vulnerability_data = event_data.get("vulnerability", {})
+if not isinstance(vulnerability_data, dict):
+    vulnerability_data = {}
 
-agent_ip = alert_json.get(
-    "agent", {}
-).get(
-    "ip",
-    "Local"
+affected_agent = event_data.get("affected_agent", {})
+if not isinstance(affected_agent, dict):
+    affected_agent = {}
+
+display_agent = alert_json.get("agent", {})
+if not isinstance(display_agent, dict):
+    display_agent = {}
+if vulnerability_event:
+    display_agent = affected_agent
+
+if vulnerability_event:
+    # En eventos sintéticos, usar el endpoint real para buffer y destinatarios.
+    agent_id = str(display_agent.get("id") or "000")
+    agent_name = str(display_agent.get("name") or "Wazuh Manager")
+    agent_ip = str(display_agent.get("ip") or "N/A")
+else:
+    # Mantener exactamente los valores por defecto de las alertas normales.
+    agent_id = str(display_agent.get("id", "000"))
+    agent_name = display_agent.get("name", "Wazuh Manager")
+    agent_ip = display_agent.get("ip", "Local")
+
+vulnerability_cve = str(
+    vulnerability_data.get("cve") or vulnerability_data.get("id") or "N/A"
 )
+vulnerability_severity = str(
+    vulnerability_data.get("severity") or "N/A"
+).strip().title()
 
 location = alert_json.get(
     "location",
@@ -926,6 +1280,22 @@ full_log = alert_json.get(
     "full_log",
     "No log fragment attached."
 )
+
+if vulnerability_event:
+    vulnerability_status = str(vulnerability_data.get("status") or "Active")
+    description = (
+        f"Vulnerabilidad {vulnerability_severity}: {vulnerability_cve} "
+        f"detectada en {agent_name}"
+    )
+    location = "wazuh-states-vulnerabilities-*"
+    full_log = (
+        "[ORANGEBOX VULNERABILITY ALERT]\n"
+        f"CVE: {vulnerability_cve}\n"
+        f"Severidad: {vulnerability_severity}\n"
+        f"Estado: {vulnerability_status}\n"
+        f"Agente afectado: {agent_name} ({agent_id})\n"
+        f"IP del agente: {agent_ip}"
+    )
 
 # Vulnerability Detection genera eventos estructurados sin log crudo.
 # En ese caso construimos un resumen tecnico para que el correo no
@@ -983,103 +1353,56 @@ groups = ", ".join(
     for group in rule_groups
 )
 
-# Detecta dinamicamente si la regla disparada tiene un Active Response
-# firewall-drop habilitado en la configuracion efectiva del manager.
-# No mantener IDs de reglas duplicados en el integrador.
+# Detecta la política efectiva de firewall-drop usando la semántica Wazuh:
+# rules_id, rules_group y level son selectores alternativos (OR).
 OSSEC_CONF = "/var/ossec/etc/ossec.conf"
 
+firewall_drop_policy = firewall_drop_policy_for_alert(
+    rule_id,
+    rule_level,
+    rule_groups,
+    OSSEC_CONF,
+)
+firewall_drop_configured = firewall_drop_policy.get("status") == "configured"
+firewall_drop_unknown = firewall_drop_policy.get("status") == "unknown"
+firewall_drop_timeout = firewall_drop_policy.get("timeout_seconds")
 
-def firewall_drop_timeout_for_rule(alert_rule_id, config_path=OSSEC_CONF):
-    """Devuelve el timeout de firewall-drop para la regla, o None si no aplica.
-
-    Algunos ossec.conf instalados contienen bloques ossec_config concatenados.
-    ElementTree no acepta varios elementos raíz, así que se envuelve el contenido
-    en una raíz temporal antes de buscar los bloques active-response.
-    """
-    import re
-
+if firewall_drop_unknown:
     try:
-        with open(config_path, "r", encoding="utf-8") as config_file:
-            config_text = config_file.read()
-    except OSError as exc:
-        config_text = None
-        error = str(exc)
+        with open("/var/ossec/logs/integrations.log", "a", encoding="utf-8") as logf:
+            logf.write(
+                "WARN custom-orangebox-email: Active Response no verificable "
+                f"para regla {rule_id}: {firewall_drop_policy.get('error', 'error desconocido')}\\n"
+            )
+    except OSError:
+        pass
 
-    if config_text is None:
-        try:
-            with open("/var/ossec/logs/integrations.log", "a") as logf:
-                logf.write(
-                    "WARN custom-orangebox-email: no se pudo leer "
-                    f"{config_path}: {error}\n"
-                )
-        except OSError:
-            pass
-        return None
-
-    # La declaración XML solo es válida al principio del documento; al envolver
-    # el archivo debe quitarse. El wrapper permite procesar varios bloques raíz.
-    config_text = re.sub(r"<\?xml[^?]*\?>", "", config_text, flags=re.IGNORECASE)
-    wrapped_config = "<orangebox-config-root>\n" + config_text + "\n</orangebox-config-root>"
-
-    try:
-        root = ET.fromstring(wrapped_config)
-    except ET.ParseError as exc:
-        try:
-            with open("/var/ossec/logs/integrations.log", "a") as logf:
-                logf.write(
-                    "WARN custom-orangebox-email: XML no válido en "
-                    f"{config_path}: {exc}\n"
-                )
-        except OSError:
-            pass
-        return None
-
-    for response in root.iter("active-response"):
-        disabled = (response.findtext("disabled") or "no").strip().lower()
-        command = (response.findtext("command") or "").strip()
-        if disabled == "yes" or command != "firewall-drop":
-            continue
-
-        configured_ids = {
-            item.strip()
-            for item in (response.findtext("rules_id") or "").split(",")
-            if item.strip()
-        }
-        if str(alert_rule_id).strip() not in configured_ids:
-            continue
-
-        timeout_text = (response.findtext("timeout") or "").strip()
-        if not timeout_text:
-            return 0
-        try:
-            return int(timeout_text)
-        except ValueError:
-            try:
-                with open("/var/ossec/logs/integrations.log", "a") as logf:
-                    logf.write(
-                        "WARN custom-orangebox-email: timeout inválido para "
-                        f"regla {alert_rule_id}: {timeout_text}\n"
-                    )
-            except OSError:
-                pass
-            return 0
-
-    return None
-
-
-firewall_drop_timeout = firewall_drop_timeout_for_rule(rule_id)
 normalized_rule_groups = {
     normalize_group_name(group)
     for group in rule_groups
 }
-is_blocked_alert = (
-    firewall_drop_timeout is not None
-    or bool(normalized_rule_groups & {"ACTIVE-RESPONSE", "ACTIVE_RESPONSE"})
+send_immediately = (
+    rule_id in IMMEDIATE_RULES
+    or IMMEDIATE_RULE_GROUP in normalized_rule_groups
 )
 
+
+event_data = alert_json.get("data", {})
+if not isinstance(event_data, dict):
+    event_data = {}
+
+win_data = event_data.get("win", {})
+if not isinstance(win_data, dict):
+    win_data = {}
+win_event_data = win_data.get("eventdata", {})
+if not isinstance(win_event_data, dict):
+    win_event_data = {}
+
 source_ip = (
-    alert_json.get("data", {}).get("srcip", "")
-    or alert_json.get("data", {}).get("src_ip", "")
+    event_data.get("srcip", "")
+    or event_data.get("src_ip", "")
+    or event_data.get("ip_address", "")
+    or win_event_data.get("ipAddress", "")
 )
 if not source_ip:
     import re
@@ -1090,9 +1413,18 @@ if not source_ip:
     if source_match:
         source_ip = source_match.group(1)
 
+# Las alertas críticas con IP de origen deben indicar también cuando
+# no existe una asociación firewall-drop. Nunca inferimos ejecución.
+is_blocked_alert = (
+    firewall_drop_configured
+    or firewall_drop_unknown
+    or (rule_level >= 12 and bool(source_ip))
+)
 
 # rule.groups pertenece a la REGLA. El routing usa grupos del AGENTE.
 agent_groups = extract_agent_groups(alert_json)
+if vulnerability_event:
+    groups = ", ".join(agent_groups) or "Sin grupo de cliente asignado"
 recipients = build_recipients(recipient, agent_groups)
 
 # Identidad secundaria del login SSH.
@@ -1145,7 +1477,10 @@ if rule_id in {"5715", "10001"}:
 # nivel bajo y no cruza nuestro umbral de integracion, por lo
 # que tampoco genera un correo individual.
 #
-if rule_id in FIREWALL_DROP_RULES or rule_id in NO_EMAIL_RULES:
+if (
+    rule_id in NO_EMAIL_RULES
+    or (firewall_drop_configured and not send_immediately)
+):
     sys.exit(0)
 
 
@@ -1230,17 +1565,6 @@ current_event = {
 #
 # !!! FIN CONTRATO LOCKED !!!
 #
-normalized_rule_groups = {
-    normalize_group_name(group)
-    for group in rule_groups
-}
-
-send_immediately = (
-    rule_id in IMMEDIATE_RULES
-    or IMMEDIATE_RULE_GROUP in normalized_rule_groups
-)
-
-
 # ------------------------------------------------------------
 # DEDUPLICACION PARA SSH
 # ------------------------------------------------------------
@@ -1552,18 +1876,27 @@ else:
 # COLOR Y TEXTO DE CABECERA
 # ============================================================
 
-if highest_level >= 12:
+if vulnerability_event:
+    severity_key = vulnerability_severity.upper()
+    if severity_key == "CRITICAL":
+        status_color = "#dc2626"
+        status_text = "CRITICO"
+    elif severity_key == "HIGH":
+        status_color = "#ea580c"
+        status_text = "ALTO"
+    else:
+        status_color = "#ca8a04"
+        status_text = "MEDIO"
 
+elif highest_level >= 12:
     status_color = "#dc2626"
     status_text = "CRITICO"
 
 elif highest_level >= 7:
-
     status_color = "#f97316"
     status_text = "ADVERTENCIA"
 
 else:
-
     status_color = "#4b5563"
     status_text = "INFORMACION"
 
@@ -1577,15 +1910,18 @@ if (
     or total_alerts == 1
 ):
 
-    subtitulo_header = (
-        f"Alerta de Seguridad: Nivel "
-        f"{highest_level} ({status_text})"
-    )
-
-    texto_contador = (
-        "1 Alerta registrada "
-        "(Evento unico)"
-    )
+    if vulnerability_event:
+        subtitulo_header = f"Vulnerabilidad {status_text}: {vulnerability_cve}"
+        texto_contador = "1 vulnerabilidad detectada (CVE/agente)"
+    else:
+        subtitulo_header = (
+            f"Alerta de Seguridad: Nivel "
+            f"{highest_level} ({status_text})"
+        )
+        texto_contador = (
+            "1 Alerta registrada "
+            "(Evento unico)"
+        )
 
 else:
 
@@ -1700,19 +2036,13 @@ for idx, ev in enumerate(
         if hash_name in syscheck:
 
             hash_rows += f"""
-            <tr>
-                <td style="width: 35%; padding: 8px 16px;
-                    border-bottom: 1px solid #e2e8f0;
-                    font-size: 12px; font-weight: 700;
-                    color: #475569;">
-                    {esc(hash_name)}
-                </td>
-                <td style="width: 65%; padding: 8px 16px;
-                    border-bottom: 1px solid #e2e8f0;
-                    font-size: 12px; color: #0f172a;
-                    font-family: monospace;
-                    word-break: break-all;">
-                    {esc(syscheck.get(hash_name))}
+            <tr class="ob-detail-row">
+                <td colspan="2" style="padding:7px 10px;
+                    border-bottom:1px solid #e2e8f0;
+                    font-size:12px;line-height:1.45;color:#0f172a;
+                    overflow-wrap:anywhere;">
+                    <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#475569;">{esc(hash_name)}:</strong>
+                    <span style="display:inline-block;width:58%;vertical-align:top;font-family:monospace;word-break:normal;">{esc(syscheck.get(hash_name))}</span>
                 </td>
             </tr>
             """
@@ -1739,18 +2069,13 @@ for idx, ev in enumerate(
     if changed_text:
 
         changed_html = f"""
-        <tr>
-            <td style="width: 35%; padding: 8px 16px;
-                border-bottom: 1px solid #e2e8f0;
-                font-size: 12px; font-weight: 700;
-                color: #475569;">
-                Atributos modificados
-            </td>
-            <td style="width: 65%; padding: 8px 16px;
-                border-bottom: 1px solid #e2e8f0;
-                font-size: 12px; color: #0f172a;
-                font-family: monospace;">
-                {esc(changed_text)}
+        <tr class="ob-detail-row">
+            <td colspan="2" style="padding:7px 10px;
+                border-bottom:1px solid #e2e8f0;
+                font-size:12px;line-height:1.45;color:#0f172a;
+                overflow-wrap:anywhere;">
+                <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#475569;">Atributos modificados:</strong>
+                <span style="display:inline-block;width:58%;vertical-align:top;font-family:monospace;word-break:normal;">{esc(changed_text)}</span>
             </td>
         </tr>
         """
@@ -1803,44 +2128,23 @@ for idx, ev in enumerate(
         </td>
     </tr>
 
-    <tr>
-        <td style="width: 35%;
-            padding: 10px 16px;
-            border-bottom: 1px solid #e2e8f0;
-            font-size: 13px;
-            font-weight: 700;
-            color: #475569;">
-            Ruta del Archivo
-        </td>
-
-        <td style="width: 65%;
-            padding: 10px 16px;
-            border-bottom: 1px solid #e2e8f0;
-            font-size: 13px;
-            color: #0f172a;
-            font-family: monospace;
-            font-weight: bold;">
-            {esc(file_path)}
+    <tr class="ob-detail-row">
+        <td colspan="2" style="padding:8px 10px;
+            border-bottom:1px solid #e2e8f0;
+            font-size:12px;line-height:1.45;color:#0f172a;
+            overflow-wrap:anywhere;">
+            <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#475569;">Ruta del archivo:</strong>
+            <span style="display:inline-block;width:58%;vertical-align:top;font-family:monospace;font-weight:bold;word-break:normal;">{esc(file_path)}</span>
         </td>
     </tr>
 
-    <tr>
-        <td style="width: 35%;
-            padding: 10px 16px;
-            border-bottom: 1px solid #e2e8f0;
-            font-size: 13px;
-            font-weight: 700;
-            color: #475569;">
-            Propietario / Tamaño
-        </td>
-
-        <td style="width: 65%;
-            padding: 10px 16px;
-            border-bottom: 1px solid #e2e8f0;
-            font-size: 13px;
-            color: #0f172a;">
-            {esc(file_uname)}
-            ({esc(file_size)} bytes)
+    <tr class="ob-detail-row">
+        <td colspan="2" style="padding:8px 10px;
+            border-bottom:1px solid #e2e8f0;
+            font-size:12px;line-height:1.45;color:#0f172a;
+            overflow-wrap:anywhere;">
+            <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#475569;">Propietario / tamaño:</strong>
+            <span style="display:inline-block;width:58%;vertical-align:top;">{esc(file_uname)} ({esc(file_size)} bytes)</span>
         </td>
     </tr>
 
@@ -1905,8 +2209,8 @@ for idx, ev in enumerate(
             color: #b91c1c;
             font-family: monospace;
             white-space: pre-wrap;
-            overflow-wrap: anywhere;
-            word-break: break-word;
+            overflow-wrap: break-word;
+            word-break: normal;
             width: 100%;
             max-width: 100%;
             box-sizing: border-box;
@@ -1924,7 +2228,7 @@ for idx, ev in enumerate(
 # ============================================================
 
 wazuh_url = (
-    "https://wazuh.example.invalid/app/threat-hunting"
+    "https://wazuh.orangebox.cl/app/threat-hunting"
     "#/overview/?tab=general&tabView=events"
     f"&agentId={final_data['agent_id']}"
     "&_a=(filters:!(('$state':(store:appState),"
@@ -1949,6 +2253,8 @@ wazuh_url = (
 
 # Fila de datos normal para alertas con respuesta activa configurada.
 def format_timeout(seconds):
+    if seconds is None:
+        return "no especificado"
     if seconds <= 0:
         return "sin timeout definido"
     if seconds % 86400 == 0:
@@ -1965,39 +2271,31 @@ def format_timeout(seconds):
 
 blocked_ip_html = ""
 if is_blocked_alert:
-    timeout_label = (
-        format_timeout(firewall_drop_timeout)
-        if firewall_drop_timeout is not None
-        else "según Active Response"
-    )
+    timeout_label = format_timeout(firewall_drop_timeout)
+    if firewall_drop_configured:
+        status_detail = "firewall-drop configurado; ejecución pendiente de confirmar"
+        location_detail = firewall_drop_policy.get("location", "no especificado")
+        selector_detail = ", ".join(firewall_drop_policy.get("matched_by", []))
+    elif firewall_drop_unknown:
+        status_detail = "No fue posible verificar la configuración de Active Response"
+        location_detail = "no verificado"
+        selector_detail = firewall_drop_policy.get("error", "error desconocido")
+    else:
+        status_detail = "NO BLOQUEADA: no hay firewall-drop configurado para esta regla"
+        location_detail = "no aplica"
+        selector_detail = "No coincide con ningún selector rules_id, rules_group o level"
+
     blocked_ip_html = f"""
-                            <tr>
-                                <td width="35%"
-                                    style="
-                                        width:35%;
-                                        padding:12px 16px;
-                                        border-bottom:1px solid #cbd5e1;
-                                        color:#334155;
-                                        font-size:13px;
-                                        line-height:18px;
-                                        font-weight:700;
-                                    ">
-                                    Estado de bloqueo
-                                </td>
-                                <td width="65%"
-                                    style="
-                                        width:65%;
-                                        padding:12px 16px;
-                                        border-bottom:1px solid #cbd5e1;
-                                        color:#0f172a;
-                                        font-size:14px;
-                                        line-height:20px;
-                                        font-weight:700;
-                                        word-break:break-word;
-                                        overflow-wrap:anywhere;
-                                    ">
-                                    {esc(source_ip or 'IP no disponible en el evento')}
-                                    <span style="font-weight:400;"> · {esc('firewall-drop configurado' if firewall_drop_timeout is not None else 'Active Response asociado')} · Tiempo: {esc(timeout_label)}</span>
+                            <tr class="ob-detail-row">
+                                <td colspan="2" style="padding:8px 10px;
+                                    border-bottom:1px solid #cbd5e1;
+                                    color:#0f172a;font-size:12px;line-height:1.45;
+                                    overflow-wrap:anywhere;">
+                                    <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#334155;">Active Response:</strong>
+                                    <span style="display:inline-block;width:58%;vertical-align:top;font-weight:700;">{esc(source_ip or 'IP no disponible en el evento')}</span>
+                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;">{esc(status_detail)}</span>
+                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;">Acción: firewall-drop · Tiempo: {esc(timeout_label)} · Ejecución en: {esc(location_detail)}</span>
+                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;font-size:11px;color:#475569;">Selector: {esc(selector_detail)}</span>
                                 </td>
                             </tr>
                             """
@@ -2013,6 +2311,16 @@ html_template = f"""<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="x-apple-disable-message-reformatting">
+    <style>
+        /* ORANGEBOX MOBILE EMAIL FIX */
+        @media only screen and (max-width:480px) {{
+            .ob-card {{ width:100% !important; max-width:100% !important; }}
+            .ob-content {{ padding-left:8px !important; padding-right:8px !important; }}
+            .ob-details-table {{ width:100% !important; max-width:100% !important; table-layout:fixed !important; }}
+            /* Each detail field spans the full table width; no mobile-only
+               table-cell transformation is required. */
+        }}
+    </style>
     <title>Alerta Wazuh: Nivel {highest_level} en {esc(final_data['agent_name'])}</title>
 </head>
 
@@ -2032,6 +2340,7 @@ html_template = f"""<!DOCTYPE html>
             <!-- TARJETA ORANGEBOX -->
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
                    align="center"
+                   class="ob-card"
                    style="
                        width:100%;
                        max-width:720px;
@@ -2051,7 +2360,7 @@ html_template = f"""<!DOCTYPE html>
                             border-radius:20px 20px 0 0;
                         ">
 
-                        <img src="https://www.example.invalid/obox/img/logo-dark.png"
+                        <img src="https://www.orangebox.cl/obox/img/logo-dark.png"
                              alt="OrangeBox"
                              border="0"
                              width="220"
@@ -2093,13 +2402,17 @@ html_template = f"""<!DOCTYPE html>
 
                 <!-- CONTENIDO -->
                 <tr>
-                    <td style="padding:0 20px 4px;">
+                    <td class="ob-content" style="padding:0 8px 4px;">
 
                         <!-- TABLA PRINCIPAL -->
                         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                               class="ob-details-table"
                                style="
                                    width:100%;
                                    background-color:#eef2ff;
+                                   max-width:100%;
+                                   table-layout:fixed;
+                                   box-sizing:border-box;
                                    border:1px solid #cbd5e1;
                                    border-collapse:separate;
                                    border-radius:14px;
@@ -2138,121 +2451,44 @@ html_template = f"""<!DOCTYPE html>
                             </tr>
 
                             <!-- DATOS EN FORMATO TABLA -->
-                            <tr>
-                                <td width="35%"
-                                    style="
-                                        width:35%;
-                                        padding:12px 16px;
-                                        border-bottom:1px solid #cbd5e1;
-                                        color:#334155;
-                                        font-size:13px;
-                                        line-height:18px;
-                                        font-weight:700;
-                                    ">
-                                    Agente afectado
-                                </td>
-
-                                <td width="65%"
-                                    style="
-                                        width:65%;
-                                        padding:12px 16px;
-                                        border-bottom:1px solid #cbd5e1;
-                                        color:#0f172a;
-                                        font-size:14px;
-                                        line-height:20px;
-                                        font-weight:700;
-                                        word-break:break-word;
-                                        overflow-wrap:anywhere;
-                                    ">
-                                    {esc(final_data['agent_name'])}
-                                    ({esc(final_data['agent_ip'])})
+                            <tr class="ob-detail-row">
+                                <td colspan="2" style="padding:8px 10px;
+                                    border-bottom:1px solid #cbd5e1;
+                                    color:#0f172a;font-size:13px;line-height:1.45;
+                                    overflow-wrap:anywhere;">
+                                    <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#334155;font-size:12px;">Agente afectado:</strong>
+                                    <span style="display:inline-block;width:58%;vertical-align:top;font-weight:700;word-break:normal;">{esc(final_data['agent_name'])} ({esc(final_data['agent_ip'])})</span>
                                 </td>
                             </tr>
 
                             {blocked_ip_html}
 
-                            <tr>
-                                <td width="35%"
-                                    style="
-                                        width:35%;
-                                        padding:12px 16px;
-                                        border-bottom:1px solid #cbd5e1;
-                                        color:#334155;
-                                        font-size:13px;
-                                        line-height:18px;
-                                        font-weight:700;
-                                    ">
-                                    Origen / Ubicacion
-                                </td>
-
-                                <td width="65%"
-                                    style="
-                                        width:65%;
-                                        padding:12px 16px;
-                                        border-bottom:1px solid #cbd5e1;
-                                        color:#0f172a;
-                                        font-size:14px;
-                                        line-height:20px;
-                                        font-family:monospace;
-                                        word-break:break-all;
-                                    ">
-                                    {esc(final_data['location'])}
+                            <tr class="ob-detail-row">
+                                <td colspan="2" style="padding:8px 10px;
+                                    border-bottom:1px solid #cbd5e1;
+                                    color:#0f172a;font-size:13px;line-height:1.45;
+                                    overflow-wrap:anywhere;">
+                                    <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#334155;font-size:12px;">Origen / ubicación:</strong>
+                                    <span style="display:inline-block;width:58%;vertical-align:top;font-family:monospace;word-break:normal;">{esc(final_data['location'])}</span>
                                 </td>
                             </tr>
 
-                            <tr>
-                                <td width="35%"
-                                    style="
-                                        width:35%;
-                                        padding:12px 16px;
-                                        border-bottom:1px solid #cbd5e1;
-                                        color:#334155;
-                                        font-size:13px;
-                                        line-height:18px;
-                                        font-weight:700;
-                                        vertical-align:top;
-                                    ">
-                                    Categoria / Grupo
-                                </td>
-
-                                <td width="65%"
-                                    style="
-                                        width:65%;
-                                        padding:12px 16px;
-                                        border-bottom:1px solid #cbd5e1;
-                                        color:#0f172a;
-                                        font-size:13px;
-                                        line-height:20px;
-                                        word-break:break-word;
-                                        overflow-wrap:anywhere;
-                                    ">
-                                    {esc(final_data['groups'])}
+                            <tr class="ob-detail-row">
+                                <td colspan="2" style="padding:8px 10px;
+                                    border-bottom:1px solid #cbd5e1;
+                                    color:#0f172a;font-size:12px;line-height:1.45;
+                                    overflow-wrap:anywhere;">
+                                    <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#334155;">Categoría / grupo:</strong>
+                                    <span style="display:inline-block;width:58%;vertical-align:top;word-break:normal;">{esc(final_data['groups'])}</span>
                                 </td>
                             </tr>
 
-                            <tr>
-                                <td width="35%"
-                                    style="
-                                        width:35%;
-                                        padding:12px 16px;
-                                        color:#334155;
-                                        font-size:13px;
-                                        line-height:18px;
-                                        font-weight:700;
-                                    ">
-                                    Estado del Evento
-                                </td>
-
-                                <td width="65%"
-                                    style="
-                                        width:65%;
-                                        padding:12px 16px;
-                                        color:#0f172a;
-                                        font-size:14px;
-                                        line-height:20px;
-                                        font-weight:700;
-                                    ">
-                                    {texto_contador}
+                            <tr class="ob-detail-row">
+                                <td colspan="2" style="padding:8px 10px;
+                                    color:#0f172a;font-size:13px;line-height:1.45;
+                                    overflow-wrap:anywhere;">
+                                    <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#334155;font-size:12px;">Estado del evento:</strong>
+                                    <span style="display:inline-block;width:58%;vertical-align:top;font-weight:700;">{texto_contador}</span>
                                 </td>
                             </tr>
 
@@ -2378,11 +2614,14 @@ html_template = f"""<!DOCTYPE html>
 
 msg = MIMEMultipart("alternative")
 
-subject_prefix = (
-    f"[{total_alerts} EVENTOS] "
-    if total_alerts > 1
-    else ""
-)
+if vulnerability_event:
+    subject_prefix = f"[VULNERABILIDAD {vulnerability_severity.upper()}] "
+else:
+    subject_prefix = (
+        f"[{total_alerts} EVENTOS] "
+        if total_alerts > 1
+        else ""
+    )
 
 msg["Subject"] = (
     f"{subject_prefix}"
