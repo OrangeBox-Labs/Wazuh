@@ -37,6 +37,7 @@ if command -v flock >/dev/null 2>&1; then
     flock -n 9 || exit 0
 fi
 
+# Comprueba si un proceso mantiene abierto el archivo; si lsof falta, no afirma que esté abierto.
 is_open_file() {
     local file="$1"
 
@@ -48,12 +49,14 @@ is_open_file() {
     return 1
 }
 
+# Comprime logs antiguos de un directorio, omitiendo archivos recientes o abiertos.
 compress_old_logs() {
     local root="$1"
     local file
 
     [ -d "$root" ] || return 0
 
+    # Lee rutas separadas por NUL para admitir nombres con espacios o caracteres especiales.
     while IFS= read -r -d '' file; do
         # No comprimir archivos modificados durante las últimas 24 horas:
         # pueden seguir siendo archivos activos aunque tengan otro nombre.
@@ -74,6 +77,7 @@ compress_old_logs() {
     )
 }
 
+# Elimina los .gz que superaron la retención y luego limpia directorios vacíos.
 purge_old_compressed_logs() {
     local root="$1"
 
@@ -87,6 +91,7 @@ purge_old_compressed_logs() {
     find "$root" -depth -type d -empty -delete 2>/dev/null || true
 }
 
+# Aplica compresión y retención solo a los dos árboles autorizados.
 for root in "${LOG_ROOTS[@]}"; do
     compress_old_logs "$root"
     purge_old_compressed_logs "$root"
