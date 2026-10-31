@@ -22,7 +22,7 @@ WAZUH_VERSION='4.14.8'
 WAZUH_MANAGER='TU_HOSTNAME'
 WAZUH_AGENT_GROUP='default'
 WAZUH_AGENT_NAME=''
-WAZUH_REGISTRATION_PASSWORD=''
+WAZUH_REGISTRATION_PASSWORD='tu_pass'
 WAZUH_AGENT_RPM=''
 WAZUH_OSSEC_SIZE='1G'
 WAZUH_OSSEC_LV='wazuh'
@@ -54,23 +54,28 @@ AGENT_ACTION_FILE="/tmp/orangebox-agent-action-required.$"
 rm -f "$AGENT_ACTION_FILE"
 trap 'rm -f "$AGENT_ACTION_FILE"' EXIT
 
+# Marca que una etapa cambió configuración y solicita aplicar la acción final sobre el agente.
 request_agent_action() {
     : > "$AGENT_ACTION_FILE"
 }
 
+# Registra un error de etapa y aumenta el contador global de fallas.
 step_error() {
     echo "ERROR: $*" >&2
     ERROR_COUNT=$((ERROR_COUNT + 1))
 }
 
+# Agrega una etapa completada al resumen final.
 record_step_ok() {
     STEP_OK+=("$1")
 }
 
+# Agrega una etapa fallida al resumen final.
 record_step_failed() {
     STEP_FAILED+=("$1")
 }
 
+# Ejecuta una etapa, captura su resultado y permite continuar con las demás.
 run_step() {
     local label="$1"
     shift
@@ -99,9 +104,13 @@ run_step() {
     return 0
 }
 
+# Muestra un error fatal y termina el instalador.
 fail() { echo "ERROR: $*" >&2; exit 1; }
+# Muestra un resultado o validación exitosa.
 ok() { echo "OK: $*"; }
+# Muestra una advertencia sin detener el instalador.
 warn() { echo "AVISO: $*" >&2; }
+# Comprueba si una utilidad está disponible en PATH.
 has() { command -v "$1" >/dev/null 2>&1; }
 
 # Reemplaza un archivo administrado solo cuando su contenido o metadatos
@@ -151,6 +160,7 @@ sync_managed_file() {
 }
 
 
+# Configura el repositorio EPEL archivado necesario para paquetes de sistemas EL6.
 ensure_epel6() {
     [ "$EL_MAJOR" = "6" ] || return 0
     has yum || fail "EL6 requiere yum para habilitar EPEL6."
@@ -198,6 +208,7 @@ EPEL6_REPO
     ok "EPEL6 archivado disponible para dependencias OrangeBox."
 }
 
+# Localiza o instala Python 3 y define el intérprete que usarán los validadores.
 ensure_python3() {
     if has python3; then
         PYTHON3_BIN="$(command -v python3)"
@@ -234,6 +245,7 @@ fail "No existe yum ni dnf para instalar Python 3."
     # EL6/EPEL entrega python3.4 sin necesariamente crear el alias python3.
     # Crear el alias solo si no existe otro python3; nunca tocar Python 2.
     local python3_candidate=""
+    # Busca intérpretes Python 3 compatibles antes de intentar instalar uno.
     for python3_candidate in /usr/bin/python3.4 /usr/local/bin/python3.4; do
         if [ -x "$python3_candidate" ]; then
             if [ ! -e /usr/bin/python3 ] && [ ! -L /usr/bin/python3 ]; then
@@ -248,8 +260,10 @@ fail "No existe yum ni dnf para instalar Python 3."
     PYTHON3_BIN="$(command -v python3)"
     ok "Python 3 disponible: $PYTHON3_BIN."
 }
+# Solicita una respuesta sí/no y repite la pregunta hasta recibir una opción válida.
 yesno() {
     local a
+    # Repite la pregunta interactiva hasta recibir una respuesta válida.
     while true; do
         read -r -p "$1 (s/N): " a
         case "$a" in
@@ -300,22 +314,27 @@ detect_platform() {
 # 1. Wazuh Agent
 # ---------------------------------------------------------------------------
 
+# Comprueba si el paquete wazuh-agent está instalado.
 agent_installed() {
     rpm -q wazuh-agent >/dev/null 2>&1 || [ -x "$WAZUH_HOME/bin/wazuh-control" ]
 }
 
+# Devuelve la versión del paquete Wazuh Agent instalado.
 agent_version() {
     rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' wazuh-agent 2>/dev/null || echo "desconocida"
 }
 
+# Obtiene las opciones actuales del montaje de Wazuh.
 ossec_mount_options() {
     awk -v mp="$WAZUH_HOME" '$2 == mp { print $4; exit }' /proc/mounts 2>/dev/null
 }
 
+# Obtiene el dispositivo que proporciona el filesystem de Wazuh.
 ossec_mount_source() {
     awk -v mp="$WAZUH_HOME" '$2 == mp { print $1; exit }' /proc/mounts 2>/dev/null
 }
 
+# Valida que el almacenamiento de Wazuh esté montado con las opciones requeridas.
 ossec_mount_ready() {
     mountpoint -q "$WAZUH_HOME" 2>/dev/null || return 1
 
@@ -339,6 +358,7 @@ ossec_mount_ready() {
     return 0
 }
 
+# Identifica el grupo de volúmenes LVM disponible para el almacenamiento de Wazuh.
 find_ossec_vg() {
     if [ -n "$WAZUH_OSSEC_VG" ]; then
         vgs "$WAZUH_OSSEC_VG" >/dev/null 2>&1 || return 1
@@ -368,11 +388,13 @@ find_ossec_vg() {
     echo "$vg"
 }
 
+# Crea una copia de seguridad de fstab antes de cambiar el montaje.
 backup_fstab() {
     cp -p /etc/fstab "/etc/fstab.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
         || fail "No se pudo respaldar /etc/fstab."
 }
 
+# Escribe de forma controlada la entrada persistente de montaje de Wazuh en fstab.
 write_ossec_fstab() {
     local uuid="$1"
     local fstype="$2"
@@ -413,6 +435,7 @@ write_ossec_fstab() {
     fi
 }
 
+# Prepara el volumen y montaje dedicado de Wazuh sin alterar un montaje válido existente.
 prepare_ossec_storage() {
     [ "$IS_CPANEL" = "yes" ] && return 0
 
@@ -574,6 +597,7 @@ prepare_ossec_storage() {
     rm -f "$fstab_backup"
     ok "/var/ossec montado en $lv_device con exec,nosuid,nodev."
 }
+# Determina el nombre de agente que debe registrarse en el Manager.
 detect_wazuh_agent_name() {
     # Respetar siempre un nombre explicitamente configurado.
     if [ -n "$WAZUH_AGENT_NAME" ]; then
@@ -604,6 +628,7 @@ detect_wazuh_agent_name() {
     # correctamente el FQDN (caso habitual con /etc/hosts/DNS).
     candidate="$(hostname -A 2>/dev/null | awk '
         {
+            # Examina los campos de la línea para extraer el valor de configuración esperado.
             for (i = 1; i <= NF; i++) {
                 if ($i ~ /\./ && $i !~ /^[0-9.]+$/ &&
                     $i !~ /^localhost([.]|$)/) {
@@ -623,10 +648,246 @@ detect_wazuh_agent_name() {
     [ -n "$short_hostname" ] && printf '%s\n' "$short_hostname"
 }
 
+# Consulta la versión efectiva del paquete Wazuh Agent.
 agent_current_version() {
     rpm -q --qf '%{VERSION}\n' wazuh-agent 2>/dev/null || true
 }
 
+# Reconciles command telemetry locally in ossec.conf. Local command sources do not
+# require enabling remote Logcollector commands; that option remains explicitly disabled.
+configure_local_telemetry() {
+    local WAZUH_CONF="$WAZUH_HOME/etc/ossec.conf"
+    local options_file="$WAZUH_HOME/etc/local_internal_options.conf"
+    local template_file output_file backup matches count value changed=0
+
+    [ -f "$WAZUH_CONF" ] && [ ! -L "$WAZUH_CONF" ] ||
+        fail "$WAZUH_CONF no es un archivo regular; no se modifica."
+    ensure_python3 || return 1
+
+    template_file="$(mktemp)" || fail "No se pudo crear plantilla temporal de métricas."
+    output_file="$(mktemp "${WAZUH_CONF}.orangebox.XXXXXX")" ||
+        { rm -f "$template_file"; fail "No se pudo crear temporal para ossec.conf."; }
+
+    cat > "$template_file" <<'ORANGEBOX_METRICS_XML'
+  <!-- BEGIN ORANGEBOX LOCAL TELEMETRY -->
+  <!-- ==============================================================
+       Telemetria de disponibilidad derivada del incidente servidor de producción.
+       Las métricas comunes se ejecutan localmente en Linux; PHP-FPM es exclusivo de cPanel.
+       La salida alimenta los decoders/rules OrangeBox.
+  -->
+
+  <!-- SYN-RECV por origen/servicio cada 60 s; solo publica grupos con 20+ sockets. -->
+  <localfile>
+    <log_format>command</log_format>
+    <command>/bin/bash -c 'ss -Hnt4 state syn-recv | awk '\''{split($3,l,":"); split($4,p,":"); print p[1],l[1],l[2]}'\'' | sort | uniq -c | awk '\''$1 >= 20 {print "ORANGEBOX_SYNRECV count="$1" srcip="$2" dstip="$3" dstport="$4}'\'''</command>
+    <alias>orangebox-synrecv</alias>
+     <frequency>60</frequency>
+  </localfile>
+
+  <!-- Contador total SYN-RECV: solo emite una muestra cuando llega a 50 sockets o mas. -->
+  <localfile>
+    <log_format>full_command</log_format>
+    <command>/bin/bash -c 'count=$(ss -Hnt4 state syn-recv | wc -l | xargs); awk -v c="$count" '\''BEGIN {if (c &gt;= 50) printf "ORANGEBOX_SYNRECV_TOTAL count=%s\n", c}'\''' </command>
+    <alias>orangebox-synrecv-total</alias>
+     <frequency>60</frequency>
+  </localfile>
+
+  <!-- ksoftirqd: CPU agregada promediada entre muestras de 5 min mediante contadores persistentes; umbral 20% equivalente a un nucleo. -->
+  <localfile>
+    <log_format>full_command</log_format>
+    <command>/bin/bash -c 'home=/opt/ossec; if [[ ! -x "$home/bin/wazuh-logcollector" ]]; then home=/var/ossec; fi; state="$home/var/run/orangebox-ksoftirq.state"; declare -A before current; now=$(date +%s); hz=$(getconf CLK_TCK 2>/dev/null); if [[ ! "$hz" =~ ^[0-9]+$ ]]; then hz=100; fi; state_data=$(cat "$state" 2>/dev/null || true); prev_time=${state_data%%$'\''\n'\''*}; rows=""; if [[ "$state_data" == *$'\''\n'\''* ]]; then rows=${state_data#*$'\''\n'\''}; fi; while [[ -n "$rows" ]]; do row=${rows%%$'\''\n'\''*}; pid=${row%% *}; ticks=${row#* }; if [[ "$pid" =~ ^[0-9]+$ ]]; then if [[ "$ticks" =~ ^[0-9]+$ ]]; then before["$pid"]=$ticks; fi; fi; if [[ "$rows" == *$'\''\n'\''* ]]; then rows=${rows#*$'\''\n'\''}; else rows=""; fi; done; for stat in /proc/[0-9]*/stat; do if [[ ! -r "$stat" ]]; then continue; fi; line=$(cat "$stat" 2>/dev/null) || continue; comm=${line#*\(}; comm=${comm%%\)*}; if [[ "$comm" != ksoftirqd/* ]]; then continue; fi; pid=${stat#/proc/}; pid=${pid%/stat}; rest=${line##*) }; set -- $rest; if [[ $# -lt 13 ]]; then continue; fi; current["$pid"]=$(( ${12} + ${13} )); done; tmp="${state}.$$"; { printf "%s\n" "$now"; for pid in "${!current[@]}"; do printf "%s %s\n" "$pid" "${current[$pid]}"; done; } > "$tmp"; chmod 600 "$tmp"; mv -f "$tmp" "$state"; if [[ "$prev_time" =~ ^[0-9]+$ ]]; then if (( now > prev_time )); then elapsed=$((now-prev_time)); if [[ "$elapsed" -le 900 ]]; then total=0; for pid in "${!current[@]}"; do old=${before[$pid]-}; if [[ "$old" =~ ^[0-9]+$ ]]; then ticks=${current[$pid]}; if (( ticks >= old )); then total=$((total+ticks-old)); fi; fi; done; cpu100=$((total * 10000 / hz / elapsed)); if (( cpu100 >= 2000 )); then printf -v cpu "%d.%02d" "$((cpu100/100))" "$((cpu100%100))"; printf "ORANGEBOX_KSOFTIRQ cpu=%s\n" "$cpu"; fi; fi; fi; fi'</command>
+    <alias>orangebox-ksoftirq</alias>
+     <frequency>300</frequency>
+  </localfile>
+
+  <!-- Load por encima del numero de CPUs; muestreo cada 5 min para detectar sobrecarga persistente. -->
+  <localfile>
+    <log_format>full_command</log_format>
+    <command>/bin/bash -c 'read l1 l5 l15 rest &lt; /proc/loadavg; c=$(nproc); awk -v c="$c" -v l1="$l1" -v l5="$l5" -v l15="$l15" '\''BEGIN {if (l1 &gt; c) printf "ORANGEBOX_LOAD cpus=%d load1=%s load5=%s load15=%s\n", c,l1,l5,l15}'\'''</command>
+    <alias>orangebox-load</alias>
+     <frequency>300</frequency>
+  </localfile>
+  <!-- BEGIN ORANGEBOX CPANEL-ONLY TELEMETRY -->
+  <!-- PHP-FPM: consumo de cada worker medido durante ~1 s, muestreado cada 60 s; umbral 25% de un nucleo. -->
+  <localfile>
+    <log_format>command</log_format>
+    <command>/bin/bash -c 'declare -A before_ticks; read_workers() { local pid osuser args stat line rest pool ticks; while read -r pid osuser args; do if [[ "$args" =~ php-fpm:\ pool\ ([^[:space:]]+) ]]; then pool=${BASH_REMATCH[1]}; stat="/proc/$pid/stat"; if [[ ! -r "$stat" ]]; then continue; fi; if ! IFS= read -r line &lt; "$stat"; then continue; fi; rest=${line##*) }; set -- $rest; if (( $# &lt; 13 )); then continue; fi; ticks=$(( ${12} + ${13} )); printf "%s %s %s\n" "$pid" "$pool" "$ticks"; fi; done &lt; &lt;(ps -eo pid=,user=,args=); }; while read -r pid pool ticks; do before_ticks["$pid"]=$ticks; done &lt; &lt;(read_workers); hz=$(getconf CLK_TCK 2>/dev/null); if [[ ! "$hz" =~ ^[0-9]+$ ]]; then hz=100; fi; start_ns=$(date +%s%N); sleep 1; while read -r pid pool ticks; do old=${before_ticks[$pid]-}; if [[ ! "$old" =~ ^[0-9]+$ ]]; then continue; fi; delta=$((ticks-old)); if (( delta &lt;= 0 )); then continue; fi; end_ns=$(date +%s%N); elapsed_ns=$((end_ns-start_ns)); if (( elapsed_ns &lt;= 0 )); then elapsed_ns=1000000000; fi; cpu100=$((delta * 10000000000000 / hz / elapsed_ns)); if (( cpu100 >= 2500 )); then printf -v cpu "%d.%02d" "$((cpu100/100))" "$((cpu100%100))"; printf "ORANGEBOX_PHPFPM user=%s cpu=%s command=php-fpm pool %s\n" "$pool" "$cpu" "$pool"; fi; done &lt; &lt;(read_workers)' </command>
+    <alias>orangebox-phpfpm</alias>
+     <frequency>60</frequency>
+  </localfile>
+  <!-- END ORANGEBOX CPANEL-ONLY TELEMETRY -->
+  <!-- END ORANGEBOX LOCAL TELEMETRY -->
+ORANGEBOX_METRICS_XML
+
+    if ! "$PYTHON3_BIN" - "$WAZUH_CONF" "$IS_CPANEL" "$template_file" "$output_file" <<'PY'
+import pathlib
+import re
+import sys
+import xml.etree.ElementTree as ET
+
+config_path = pathlib.Path(sys.argv[1])
+is_cpanel = sys.argv[2] == "yes"
+template_path = pathlib.Path(sys.argv[3])
+output_path = pathlib.Path(sys.argv[4])
+
+begin = "<!-- BEGIN ORANGEBOX LOCAL TELEMETRY -->"
+end = "<!-- END ORANGEBOX LOCAL TELEMETRY -->"
+cpanel_begin = "<!-- BEGIN ORANGEBOX CPANEL-ONLY TELEMETRY -->"
+cpanel_end = "<!-- END ORANGEBOX CPANEL-ONLY TELEMETRY -->"
+aliases = [
+    "orangebox-synrecv",
+    "orangebox-synrecv-total",
+    "orangebox-ksoftirq",
+    "orangebox-load",
+    "orangebox-phpfpm",
+]
+
+content = config_path.read_text(encoding="utf-8")
+template = template_path.read_text(encoding="utf-8")
+
+cp_start = template.find(cpanel_begin)
+cp_end = template.find(cpanel_end)
+if cp_start < 0 or cp_end < cp_start:
+    raise SystemExit("La plantilla de telemetría cPanel está incompleta.")
+if not is_cpanel:
+    template = template[:cp_start] + template[cp_end + len(cpanel_end):]
+
+begin_count = content.count(begin)
+end_count = content.count(end)
+if begin_count != end_count or begin_count > 1:
+    raise SystemExit("Marcadores ORANGEBOX LOCAL TELEMETRY duplicados o incompletos.")
+
+old_start = content.find(begin)
+old_end = -1
+if old_start >= 0:
+    old_end_start = content.find(end, old_start)
+    if old_end_start < 0:
+        raise SystemExit("Falta END ORANGEBOX LOCAL TELEMETRY.")
+    old_end = old_end_start + len(end)
+    base = content[:old_start] + content[old_end:]
+else:
+    base = content
+
+# Revisa cada alias de telemetría para incorporar solo los bloques que faltan.
+for alias in aliases:
+    if re.search(r"<alias>\s*" + re.escape(alias) + r"\s*</alias>", base):
+        raise SystemExit(
+            "Ya existe el alias " + alias +
+            " fuera del bloque administrado; revisar manualmente para evitar duplicados."
+        )
+
+if old_start >= 0:
+    new_content = content[:old_start] + template.rstrip() + content[old_end:]
+else:
+    closing = base.rfind("</ossec_config>")
+    if closing < 0:
+        raise SystemExit("No se encontró </ossec_config> en ossec.conf.")
+    prefix = base[:closing]
+    if not prefix.endswith("\n"):
+        prefix += "\n"
+    new_content = prefix + template.rstrip() + "\n" + base[closing:]
+
+# Wazuh permite varios bloques raíz <ossec_config> en ossec.conf.
+# El XML estándar exige una sola raíz, por lo que validamos sintaxis envolviendo
+# el contenido en una raíz temporal; el archivo instalado conserva su formato
+# original y no se fusionan ni eliminan bloques de configuración.
+validation_content = re.sub(
+    r"^\s*<\?xml[^?]*\?>", "", new_content, count=1, flags=re.IGNORECASE
+)
+try:
+    ET.fromstring(
+        "<orangebox_validation_root>\n"
+        + validation_content
+        + "\n</orangebox_validation_root>"
+    )
+except ET.ParseError as exc:
+    raise SystemExit("ossec.conf resultaría XML inválido: " + str(exc))
+
+# Limita la selección a las métricas comunes; PHP-FPM se agrega por separado en cPanel.
+for alias in aliases[:4]:
+    n = len(re.findall(r"<alias>\s*" + re.escape(alias) + r"\s*</alias>", new_content))
+    if n != 1:
+        raise SystemExit("La configuración final debe contener una sola fuente para " + alias + ".")
+
+php_count = len(re.findall(r"<alias>\s*orangebox-phpfpm\s*</alias>", new_content))
+if (is_cpanel and php_count != 1) or (not is_cpanel and php_count != 0):
+    raise SystemExit("La fuente PHP-FPM no coincide con el perfil del servidor.")
+
+output_path.write_text(new_content, encoding="utf-8")
+PY
+    then
+        rm -f "$template_file" "$output_file"
+        fail "No se pudo reconciliar telemetría local; ossec.conf no se reemplazó."
+    fi
+
+    if ! cmp -s "$output_file" "$WAZUH_CONF"; then
+        backup="${WAZUH_CONF}.orangebox-backup.$(date +%Y%m%d%H%M%S)"
+        cp -p "$WAZUH_CONF" "$backup" ||
+            { rm -f "$template_file" "$output_file"; fail "No se pudo respaldar ossec.conf."; }
+        chmod --reference="$WAZUH_CONF" "$output_file" 2>/dev/null || chmod 640 "$output_file"
+        chown --reference="$WAZUH_CONF" "$output_file" 2>/dev/null || chown root:root "$output_file"
+        mv "$output_file" "$WAZUH_CONF" ||
+            { rm -f "$template_file" "$output_file"; fail "No se pudo instalar la telemetría local."; }
+        changed=1
+        request_agent_action
+        ok "Telemetría local OrangeBox reconciliada en ossec.conf."
+    else
+        rm -f "$output_file"
+        ok "Telemetría local OrangeBox ya coincide; no se modifica ossec.conf."
+    fi
+    rm -f "$template_file"
+
+    # Explicitly set the local Logcollector option to 0; this overrides any previous opt-in.
+    if [ -e "$options_file" ]; then
+        [ -f "$options_file" ] && [ ! -L "$options_file" ] ||
+            fail "$options_file no es un archivo regular; no se modifica."
+    else
+        install -m 0640 -o root -g root /dev/null "$options_file" ||
+            fail "No se pudo crear $options_file."
+        changed=1
+    fi
+
+    matches="$(grep -E "^[[:space:]]*logcollector[.]remote_commands[[:space:]]*=" "$options_file" || true)"
+    count="$(printf "%s\n" "$matches" | awk "NF { n++ } END { print n+0 }")"
+    if [ "$count" -gt 1 ]; then
+        fail "Hay $count definiciones de logcollector.remote_commands en $options_file; resuelve los duplicados manualmente."
+    elif [ "$count" -eq 1 ]; then
+        value="$(printf "%s\n" "$matches" | sed -E "s/^[[:space:]]*logcollector[.]remote_commands[[:space:]]*=[[:space:]]*([^[:space:]#]+).*$/\1/")"
+        if [ "$value" != "0" ]; then
+            backup="${options_file}.orangebox-backup.$(date +%Y%m%d%H%M%S)"
+            cp -p "$options_file" "$backup" || fail "No se pudo respaldar $options_file."
+            tmp="$(mktemp "${options_file}.orangebox.XXXXXX")" || fail "No se pudo crear temporal para local_internal_options.conf."
+            awk '/^[[:space:]]*logcollector[.]remote_commands[[:space:]]*=/ { if (!done) { print "logcollector.remote_commands=0"; done=1 } next } { print } END { if (!done) print "logcollector.remote_commands=0" }' "$options_file" > "$tmp" ||
+                { rm -f "$tmp"; fail "No se pudo deshabilitar remote_commands."; }
+            chmod --reference="$options_file" "$tmp" 2>/dev/null || chmod 640 "$tmp"
+            chown --reference="$options_file" "$tmp" 2>/dev/null || chown root:root "$tmp"
+            mv "$tmp" "$options_file" || fail "No se pudo instalar local_internal_options.conf."
+            changed=1
+            ok "logcollector.remote_commands establecido en 0."
+        else
+            ok "logcollector.remote_commands=0 ya está definido."
+        fi
+    else
+        backup="${options_file}.orangebox-backup.$(date +%Y%m%d%H%M%S)"
+        cp -p "$options_file" "$backup" 2>/dev/null || true
+        tmp="$(mktemp "${options_file}.orangebox.XXXXXX")" || fail "No se pudo crear temporal para local_internal_options.conf."
+        cat "$options_file" > "$tmp" || { rm -f "$tmp"; fail "No se pudo copiar local_internal_options.conf."; }
+        [ ! -s "$tmp" ] || [ "$(tail -c 1 "$tmp" | wc -l)" -gt 0 ] || printf "\n" >> "$tmp"
+        printf "%s\n" "logcollector.remote_commands=0" >> "$tmp" ||
+            { rm -f "$tmp"; fail "No se pudo agregar remote_commands=0."; }
+        chmod --reference="$options_file" "$tmp" 2>/dev/null || chmod 640 "$tmp"
+        chown --reference="$options_file" "$tmp" 2>/dev/null || chown root:root "$tmp"
+        mv "$tmp" "$options_file" || fail "No se pudo guardar remote_commands=0."
+        changed=1
+        ok "logcollector.remote_commands=0 agregado."
+    fi
+
+    grep -Eq "^[[:space:]]*logcollector[.]remote_commands[[:space:]]*=[[:space:]]*0([[:space:]]*(#.*)?)?$" "$options_file" ||
+        fail "Verificación posterior falló: remote_commands no quedó en 0."
+    [ "$changed" -eq 1 ] && request_agent_action
+}
+
+# Compara la instalación actual con la versión deseada y actualiza sin hacer downgrade.
 reconcile_agent() {
     local changed=0
     local current=""
@@ -696,6 +957,7 @@ reconcile_agent() {
     return 0
 }
 
+# Instala el agente, lo registra y prepara sus parámetros de conexión.
 install_agent() {
     AGENT_NAME=""
     MANAGER="$WAZUH_MANAGER"
@@ -760,6 +1022,7 @@ install_agent() {
     request_agent_action
     ok "Wazuh Agent disponible en $WAZUH_HOME: $(agent_version)"
 }
+# Habilita e inicia el agente solo al final, cuando las etapas previas quedaron configuradas.
 activate_agent_final() {
     agent_installed || fail "No se puede activar Wazuh: el agente no está instalado."
 
@@ -824,10 +1087,12 @@ activate_agent_final() {
 # 2. Firewall: Shorewall > firewalld > iptables
 # ---------------------------------------------------------------------------
 
+# Comprueba si Shorewall está instalado y disponible.
 shorewall_installed() {
     has shorewall || (has rpm && rpm -q shorewall >/dev/null 2>&1)
 }
 
+# Integra las reglas de logging OrangeBox con Shorewall.
 configure_shorewall() {
     local rules_file="/etc/shorewall/rules"
     local started_file="/etc/shorewall/started"
@@ -853,12 +1118,14 @@ if [ -n "$IPTABLES" ]; then
         awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1);exit}}')"
     ORANGEBOX_PUBLIC_IP="$(curl -4 -fsS --max-time 5 https://ifconfig.me 2>/dev/null || true)"
 
+    # Elimina reglas TCP antiguas duplicadas antes de instalar la cadena administrada.
     while "$IPTABLES" -C INPUT -p tcp --tcp-flags SYN SYN \
         ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1; do
         "$IPTABLES" -D INPUT -p tcp --tcp-flags SYN SYN \
             ! -s 127.0.0.0/8 -j ORANGEBOX-FW || break
     done
 
+    # Elimina reglas UDP antiguas duplicadas antes de instalar la cadena administrada.
     while "$IPTABLES" -C INPUT -p udp \
         ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1; do
         "$IPTABLES" -D INPUT -p udp \
@@ -866,11 +1133,13 @@ if [ -n "$IPTABLES" ]; then
     done
 
     if [ -n "$ORANGEBOX_PUBLIC_IP" ] && [ -n "$ORANGEBOX_PRIVATE_IP" ]; then
+        # Elimina reglas TCP antiguas duplicadas antes de instalar la cadena administrada.
         while "$IPTABLES" -C INPUT -p tcp --tcp-flags SYN SYN \
             -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1; do
             "$IPTABLES" -D INPUT -p tcp --tcp-flags SYN SYN \
                 -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN || break
         done
+        # Elimina reglas UDP antiguas duplicadas antes de instalar la cadena administrada.
         while "$IPTABLES" -C INPUT -p udp \
             -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1; do
             "$IPTABLES" -D INPUT -p udp \
@@ -918,6 +1187,7 @@ ORANGEBOX_START
 
             awk -v desired_file="$desired_tmp" '
                 $0 == "# BEGIN ORANGEBOX WAZUH FIREWALL" {
+                    # Copia las reglas deseadas al archivo temporal de reconciliación.
                     while ((getline line < desired_file) > 0) print line
                     close(desired_file)
                     inside=1
@@ -1049,6 +1319,7 @@ detect_orangebox_ips() {
         ok "IPs detectadas: privada=${ORANGEBOX_PRIVATE_IP:-desconocida}, publica=${ORANGEBOX_PUBLIC_IP:-desconocida}."
     fi
 }
+# Configura logging de firewall con iptables y conserva reglas preexistentes no administradas.
 configure_iptables() {
     if ! has iptables; then
         step_error "iptables no está instalado."
@@ -1161,12 +1432,14 @@ configure_iptables() {
     else
         # Retirar únicamente los hooks OrangeBox conocidos. No se toca ninguna
         # regla de otros componentes.
+        # Limpia reglas TCP repetidas del backend iptables antes de insertar el estado esperado.
         while "$iptables_bin" -C INPUT -p tcp --tcp-flags SYN SYN \
             ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1; do
             "$iptables_bin" -D INPUT -p tcp --tcp-flags SYN SYN \
                 ! -s 127.0.0.0/8 -j ORANGEBOX-FW || break
         done
 
+        # Limpia reglas UDP repetidas del backend iptables antes de insertar el estado esperado.
         while "$iptables_bin" -C INPUT -p udp \
             ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1; do
             "$iptables_bin" -D INPUT -p udp \
@@ -1174,12 +1447,14 @@ configure_iptables() {
         done
 
         if [ -n "$ORANGEBOX_PUBLIC_IP" ] && [ -n "$ORANGEBOX_PRIVATE_IP" ]; then
+            # Limpia reglas TCP repetidas del backend iptables antes de insertar el estado esperado.
             while "$iptables_bin" -C INPUT -p tcp --tcp-flags SYN SYN \
                 -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1; do
                 "$iptables_bin" -D INPUT -p tcp --tcp-flags SYN SYN \
                     -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN || break
             done
 
+            # Limpia reglas UDP repetidas del backend iptables antes de insertar el estado esperado.
             while "$iptables_bin" -C INPUT -p udp \
                 -s "$ORANGEBOX_PUBLIC_IP" -d "$ORANGEBOX_PRIVATE_IP" -j RETURN >/dev/null 2>&1; do
                 "$iptables_bin" -D INPUT -p udp \
@@ -1350,6 +1625,7 @@ EOF
     return 0
 }
 
+# Deshabilita el servicio legado de iptables OrangeBox cuando ya no corresponde.
 disable_orangebox_iptables_service() {
     has systemctl || return 0
     local service_file="$WAZUH_FIREWALL_SERVICE"
@@ -1361,6 +1637,7 @@ disable_orangebox_iptables_service() {
     fi
 }
 
+# Retira únicamente restos conocidos de la configuración OrangeBox antigua de firewalld.
 cleanup_legacy_orangebox_firewalld() {
     local direct_file="/etc/firewalld/direct.xml"
     local backup_file=""
@@ -1386,6 +1663,7 @@ cleanup_legacy_orangebox_firewalld() {
     fi
 }
 
+# Instala o reconcilia las zonas/cadenas de logging OrangeBox en firewalld.
 configure_firewalld() {
     has firewall-cmd || fail "firewalld está activo pero firewall-cmd no existe."
 
@@ -1536,6 +1814,7 @@ configure_firewalld() {
 
     ok "Firewalld OrangeBox reconciliado: INPUT -> excepciones -> ORANGEBOX-FW -> LOG -> RETURN."
 }
+# Integra el logging de firewall con CSF/LFD en servidores cPanel.
 configure_cpanel_firewall() {
     local csf_conf="/etc/csf/csf.conf"
     local csf_post="/usr/local/csf/bin/csfpost.sh"
@@ -1550,6 +1829,7 @@ configure_cpanel_firewall() {
             return 1
         }
 
+        # Comprueba si CSF ya permite el puerto TCP de salida requerido.
         csf_tcp_out_has_port() {
             local port="$1"
             awk -v p="$port" '
@@ -1559,6 +1839,7 @@ configure_cpanel_firewall() {
                     sub(/^[^=]*=/, "", line)
                     gsub(/[[:space:]"]/ , "", line)
                     n=split(line, ports, ",")
+                    # Recorre los tokens de CSF para comprobar si el puerto solicitado ya está permitido.
                     for (i=1; i<=n; i++) {
                         if (ports[i] == p) {
                             found=1
@@ -1612,6 +1893,7 @@ IPTABLES=/usr/sbin/iptables
 PUBLIC_IP="$public_ip"
 PRIVATE_IP="$private_ip"
 
+# Valida que la cadena de firewall tenga las reglas y el orden esperados.
 chain_ok() {
     [ -x "\$IPTABLES" ] || return 1
     local actual expected
@@ -1622,6 +1904,7 @@ chain_ok() {
     [ "\$actual" = "\$expected" ]
 }
 
+# Comprueba que el firewall activo coincide con la política persistente.
 runtime_ok() {
     chain_ok || return 1
 
@@ -1651,6 +1934,7 @@ runtime_ok() {
     return 0
 }
 
+# Compara y reconcilia reglas del firewall sin duplicarlas.
 sync_firewall() {
     "\$IPTABLES" -N ORANGEBOX-FW 2>/dev/null || true
 
@@ -1660,12 +1944,14 @@ sync_firewall() {
 
     "\$IPTABLES" -F ORANGEBOX-FW
 
+    # Retira entradas TCP antiguas de la regla persistente antes de reconstruirla.
     while "\$IPTABLES" -C INPUT -p tcp --tcp-flags SYN SYN \
         ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1; do
         "\$IPTABLES" -D INPUT -p tcp --tcp-flags SYN SYN \
             ! -s 127.0.0.0/8 -j ORANGEBOX-FW || break
     done
 
+    # Retira entradas UDP antiguas de la regla persistente antes de reconstruirla.
     while "\$IPTABLES" -C INPUT -p udp \
         ! -s 127.0.0.0/8 -j ORANGEBOX-FW >/dev/null 2>&1; do
         "\$IPTABLES" -D INPUT -p udp \
@@ -1673,12 +1959,14 @@ sync_firewall() {
     done
 
     if [ -n "\$PUBLIC_IP" ] && [ -n "\$PRIVATE_IP" ]; then
+        # Retira entradas TCP antiguas de la regla persistente antes de reconstruirla.
         while "\$IPTABLES" -C INPUT -p tcp --tcp-flags SYN SYN \
             -s "\$PUBLIC_IP" -d "\$PRIVATE_IP" -j RETURN >/dev/null 2>&1; do
             "\$IPTABLES" -D INPUT -p tcp --tcp-flags SYN SYN \
                 -s "\$PUBLIC_IP" -d "\$PRIVATE_IP" -j RETURN || break
         done
 
+        # Retira entradas UDP antiguas de la regla persistente antes de reconstruirla.
         while "\$IPTABLES" -C INPUT -p udp \
             -s "\$PUBLIC_IP" -d "\$PRIVATE_IP" -j RETURN >/dev/null 2>&1; do
             "\$IPTABLES" -D INPUT -p udp \
@@ -1802,6 +2090,7 @@ EOF
     return $?
 }
 
+# Selecciona el backend disponible y configura el logging de firewall correspondiente.
 configure_firewall() {
     local failed=0
 
@@ -1845,6 +2134,7 @@ configure_firewall() {
 # 3. Logging EL6: rsyslog
 # ---------------------------------------------------------------------------
 
+# Comprueba si la regla de encaminamiento OrangeBox ya existe en rsyslog.
 rsyslog_rule_exists() {
     [ -f "$RSYSLOG_FILE" ] && \
         grep -Fq ':msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log' "$RSYSLOG_FILE" && \
@@ -1853,6 +2143,7 @@ rsyslog_rule_exists() {
         grep -Fxq ':msg, contains, "LOG:ORANGEB" ~' "$RSYSLOG_FILE"
 }
 
+# Elimina una regla antigua conocida que duplicaría o desviaría el logging.
 remove_legacy_rsyslog_rule() {
     [ -f /etc/rsyslog.conf ] || return 1
 
@@ -1883,6 +2174,7 @@ remove_legacy_rsyslog_rule() {
     return 1
 }
 
+# Configura rsyslog para conservar el log de firewall en sistemas que lo requieren.
 configure_rsyslog() {
     has rsyslogd || fail "rsyslogd no está instalado."
     has logger || fail "logger no está instalado."
@@ -1963,6 +2255,7 @@ EOF
 # 4. Logging EL7+: journald
 # ---------------------------------------------------------------------------
 
+# Configura journald para recibir los eventos de firewall en versiones modernas.
 configure_journald() {
     has journalctl || fail "journalctl no está disponible; no se puede usar journald."
     has logger || fail "logger no está disponible para validar journald."
@@ -1980,6 +2273,7 @@ configure_journald() {
 # 5. logrotate
 # ---------------------------------------------------------------------------
 
+# Define rotación y retención del log de firewall cuando se utiliza rsyslog.
 configure_logrotate() {
     has logrotate || fail "logrotate no está instalado."
 
@@ -2018,6 +2312,7 @@ EOF
 # 6. Ejecución
 # ---------------------------------------------------------------------------
 
+# Selecciona y configura el backend de logging según la versión de Enterprise Linux.
 configure_logging() {
     case "$LOGGING_BACKEND" in
         rsyslog)
@@ -2128,8 +2423,10 @@ configure_exec_audit() {
     # OrangeBox procesa los eventos de ejecución directamente desde audit.log
     # mediante la integración nativa de Wazuh. No dependemos de audisp-af_unix.
     # En EL7 (audit 2.x) ese ejecutable no existe y no es necesario.
+    # Comprueba las herramientas audit necesarias para cargar reglas.
     for audit_tool in auditctl augenrules; do
         if ! has "$audit_tool"; then
+            # Busca cada herramienta audit en las rutas habituales de Enterprise Linux.
             for audit_tool_path in "/usr/sbin/$audit_tool" "/sbin/$audit_tool"; do
                 if [ -x "$audit_tool_path" ]; then
                     PATH="$(dirname "$audit_tool_path"):$PATH"
@@ -2176,6 +2473,7 @@ configure_exec_audit() {
 -a always,exit -F arch=b32 -S execve -F dir=/dev/shm -F auid>=0 -F auid!=4294967295 -k orangebox_exec
 EOF
 
+    # Agrega una regla auditd solo si no existe una regla equivalente.
     add_behavior_rule() {
         local command="$1"
         local path
@@ -2187,6 +2485,7 @@ EOF
             local rule="-w $path -p x -k audit-wazuh-c"
             grep -Fqx -- "$rule" "$desired_rules_tmp" || printf '%s\n' "$rule" >> "$desired_rules_tmp"
         else
+            # Genera reglas audit para ambas arquitecturas cuando el sistema las soporta.
             for arch in b64 b32; do
                 local rule="-a always,exit -F arch=$arch -S execve -F exe=$path -F auid>=0 -F auid!=4294967295 -k audit-wazuh-c"
                 grep -Fqx -- "$rule" "$desired_rules_tmp" ||
@@ -2206,6 +2505,7 @@ EOF
         find locate id groups getent route arp ifconfig nmcli
     )
 
+    # Agrega reglas para los comandos clasificados como scanners o reconocimiento.
     for command in "${SCANNER_COMMANDS[@]}" "${RECON_COMMANDS[@]}"; do
         add_behavior_rule "$command"
     done
@@ -2283,6 +2583,7 @@ PY
     local audit_runtime_ok=1
     local desired_rule normalized_rule
 
+    # Comprueba si una regla auditd está cargada en el kernel.
     audit_rule_loaded() {
         desired_rule="$1"
         normalized_rule="$desired_rule"
@@ -2296,6 +2597,7 @@ PY
         auditctl -l 2>/dev/null | grep -Fqx -- "$normalized_rule"
     }
 
+    # Compara cada regla persistente deseada con las reglas ya instaladas.
     while IFS= read -r desired_rule; do
         [[ -z "$desired_rule" || "$desired_rule" =~ ^[[:space:]]*# ]] && continue
         if ! audit_rule_loaded "$desired_rule"; then
@@ -2337,9 +2639,11 @@ PY
     ok "auditd reconciliado: persistencia y runtime comparados."
 }
 
+# Instala el runtime YARA, las reglas y el actualizador del ruleset.
 configure_yara() {
     ensure_python3 || return 1
 
+    # Construye el mapa entre firmas YARA hijas y su raíz lógica para evitar doble conteo.
     build_yara_correlation() {
         local rules_dir="$1"
         local output_file="$2"
@@ -2363,7 +2667,9 @@ string_re = re.compile(r'"(?:\\.|[^"\\])*"')
 rule_names = set()
 conditions = {}
 
+# Recorre el árbol descargado de YARA para localizar archivos de reglas.
 for root, _dirs, files in os.walk(rules_dir):
+    # Procesa los archivos YARA en orden estable para que la correlación sea reproducible.
     for filename in sorted(files):
         if not filename.endswith(('.yar', '.yara')):
             continue
@@ -2374,6 +2680,7 @@ for root, _dirs, files in os.walk(rules_dir):
             collecting = False
             condition_lines = []
 
+            # Lee cada línea de la regla para identificar su condición.
             for raw_line in source:
                 line = raw_line.rstrip('\n')
                 match = rule_re.match(line)
@@ -2414,11 +2721,13 @@ for root, _dirs, files in os.walk(rules_dir):
 
 children = {name: set() for name in rule_names}
 
+# Analiza las condiciones de las firmas para encontrar referencias a otras reglas.
 for rule_name, condition in conditions.items():
     condition = re.sub(r'/\*.*?\*/', ' ', condition, flags=re.S)
     condition = re.sub(r'//.*$', ' ', condition, flags=re.M)
     condition = string_re.sub(' ', condition)
 
+    # Identifica nombres de reglas referenciados dentro de cada condición.
     for identifier in identifier_re.findall(condition):
         if identifier in rule_names and identifier != rule_name:
             children[rule_name].add(identifier)
@@ -2428,7 +2737,9 @@ for rule_name, condition in conditions.items():
 # so a match of "WarpStrings" plus its parent "Warp" counts as one
 # logical signature, not two different signatures.
 parents_of = {name: set() for name in rule_names}
+# Construye las relaciones entre reglas padre e hijas.
 for parent, child_rules in children.items():
+    # Registra cada relación padre-hija para resolver la raíz lógica.
     for child in child_rules:
         parents_of[child].add(parent)
 
@@ -2447,6 +2758,7 @@ def roots(rule_name, visiting):
     else:
         result = set()
         next_visiting = visiting | {rule_name}
+        # Sigue los padres directos para encontrar la raíz de correlación.
         for parent in direct:
             result.update(roots(parent, next_visiting))
 
@@ -2454,6 +2766,7 @@ def roots(rule_name, visiting):
     return result
 
 with open(output_file, 'w', encoding='utf-8') as destination:
+    # Escribe el mapa de correlación en orden determinista.
     for child in sorted(rule_names):
         root_set = roots(child, set())
 
@@ -2507,10 +2820,12 @@ CORRELATION_FILE="${RULES_DIR}/YARA-RULE-CORRELATION"
 MAX_FILE_SIZE='5242880'
 YARA_TIMEOUT='15'
 
+# Escribe un mensaje informativo en el log propio del runtime YARA.
 log_info() {
     printf 'wazuh-yara: INFO - %s\n' "$*" >> "${YARA_LOG}"
 }
 
+# Escribe un error en el log propio del runtime YARA.
 log_error() {
     printf 'wazuh-yara: ERROR - %s\n' "$*" >> "${YARA_LOG}"
 }
@@ -2578,6 +2893,7 @@ fi
 
 YARA_BIN="${ORANGEBOX_YARA_BIN:-}"
 if [[ -z "${YARA_BIN}" ]]; then
+    # Busca el binario YARA en las ubicaciones estándar.
     for candidate in /usr/local/bin/yara /usr/bin/yara /usr/local/sbin/yara; do
         [[ -x "${candidate}" ]] && { YARA_BIN="${candidate}"; break; }
     done
@@ -2595,12 +2911,14 @@ fi
 
 declare -A YARA_CORRELATIONS=()
 if [[ -r "${CORRELATION_FILE}" ]]; then
+    # Carga cada relación hija-raíz desde el archivo de correlación.
     while IFS='|' read -r child root; do
         [[ -z "${child}" || -z "${root}" ]] && continue
         YARA_CORRELATIONS["${child}"]="${root}"
     done < "${CORRELATION_FILE}"
 fi
 
+# Normaliza una firma YARA usando el mapa de correlación cuando existe una raíz única.
 correlation_for_rule() {
     local rule_name="$1"
     local correlation="${rule_name}"
@@ -2617,6 +2935,7 @@ command -v timeout >/dev/null 2>&1 || {
     exit 1
 }
 
+# Ejecuta YARA sobre el archivo reportado por FIM y registra únicamente los matches.
 run_scan() {
     local category="$1"
     local index_file="$2"
@@ -2661,6 +2980,7 @@ run_scan() {
             ;;
     esac
 
+    # Procesa cada línea de salida YARA para separar coincidencias válidas.
     while IFS= read -r line; do
         [[ -z "${line}" ]] && continue
 
@@ -2728,6 +3048,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 echo "==> Usando instalador: ${SCRIPT_DIR}"
 echo "==> Wazuh home: ${WAZUH_HOME}"
 
+# Instala las dependencias de sistema que falten para completar el runtime.
 install_missing_packages() {
     local manager=""
     local -a packages=()
@@ -2748,6 +3069,7 @@ install_missing_packages() {
 
 
     local yara_found="no"
+    # Busca el binario YARA en las ubicaciones estándar.
     for candidate in /usr/local/bin/yara /usr/bin/yara /usr/local/sbin/yara; do
         if [[ -x "${candidate}" ]]; then
             yara_found="yes"
@@ -2841,6 +3163,7 @@ install_missing_packages() {
                 # restante por separado.
                 local remaining_packages=()
                 local pkg=""
+                # Instala cada dependencia que falta sin reinstalar paquetes presentes.
                 for pkg in "${packages[@]}"; do
                     [ "${pkg}" = "yara" ] && continue
                     if ! rpm -q "${pkg}" >/dev/null 2>&1; then
@@ -2882,6 +3205,7 @@ if [[ -n "${YARA_BIN}" ]]; then
         return 1
     }
 else
+    # Busca el binario YARA en las ubicaciones estándar.
     for candidate in /usr/local/bin/yara /usr/bin/yara /usr/local/sbin/yara; do
         if [[ -x "${candidate}" ]]; then
             YARA_BIN="${candidate}"
@@ -2927,6 +3251,7 @@ fi
 
 OLD_YARA_COMMIT="$(cat "$DEST_RULES/YARA-RULES-COMMIT" 2>/dev/null || true)"
 REMOTE_YARA_COMMIT="$(git ls-remote --heads "$YARA_RULES_REPO" "refs/heads/$YARA_RULES_BRANCH" 2>/dev/null | awk 'NR==1 {print $1}' || true)"
+# Comprueba si el ruleset local coincide con el commit, origen y manifiesto publicados.
 yara_local_state_matches() {
     [ -n "$OLD_YARA_COMMIT" ] || return 1
     [ -n "$REMOTE_YARA_COMMIT" ] || return 1
@@ -2940,6 +3265,7 @@ yara_local_state_matches() {
     (cd "$DEST_RULES" && sha256sum -c "YARA-RULES-MANIFEST" >/dev/null 2>&1)
 }
 
+# Valida que el ruleset local tenga archivos, hashes y metadatos utilizables.
 yara_local_state_usable() {
     [ -n "$OLD_YARA_COMMIT" ] || return 1
     [ -s "$RULESET_DIR/webshells_index.yar" ] || return 1
@@ -2981,6 +3307,7 @@ if ! "${YARA_BIN}" -w "${CUCKOO_TEST}" /dev/null >/dev/null 2>&1; then
 fi
 
 # Validar el ruleset completo antes de reemplazar el instalado.
+# Valida individualmente los índices oficiales antes de activarlos.
 for index in webshells_index.yar malware_index.yar; do
     INDEX_PATH="${TMP_DIR}/rules/${index}"
 
@@ -3115,6 +3442,7 @@ git clone --depth 1 --branch "${YARA_RULES_BRANCH}" \
     "${YARA_RULES_REPO}" "${TMP_DIR}/rules"
 
 NEW_COMMIT="$(cd "${TMP_DIR}/rules" && git rev-parse HEAD)"
+# Construye el mapa entre firmas YARA hijas y su raíz lógica para evitar doble conteo.
 build_yara_correlation() {
     local rules_dir="$1"
     local output_file="$2"
@@ -3138,7 +3466,9 @@ string_re = re.compile(r'"(?:\\.|[^"\\])*"')
 rule_names = set()
 conditions = {}
 
+# Recorre el árbol descargado de YARA para localizar archivos de reglas.
 for root, _dirs, files in os.walk(rules_dir):
+    # Procesa los archivos YARA en orden estable para que la correlación sea reproducible.
     for filename in sorted(files):
         if not filename.endswith(('.yar', '.yara')):
             continue
@@ -3149,6 +3479,7 @@ for root, _dirs, files in os.walk(rules_dir):
             collecting = False
             condition_lines = []
 
+            # Lee cada línea de la regla para identificar su condición.
             for raw_line in source:
                 line = raw_line.rstrip('\n')
                 match = rule_re.match(line)
@@ -3189,11 +3520,13 @@ for root, _dirs, files in os.walk(rules_dir):
 
 children = {name: set() for name in rule_names}
 
+# Analiza las condiciones de las firmas para encontrar referencias a otras reglas.
 for rule_name, condition in conditions.items():
     condition = re.sub(r'/\*.*?\*/', ' ', condition, flags=re.S)
     condition = re.sub(r'//.*$', ' ', condition, flags=re.M)
     condition = string_re.sub(' ', condition)
 
+    # Identifica nombres de reglas referenciados dentro de cada condición.
     for identifier in identifier_re.findall(condition):
         if identifier in rule_names and identifier != rule_name:
             children[rule_name].add(identifier)
@@ -3203,7 +3536,9 @@ for rule_name, condition in conditions.items():
 # so a match of "WarpStrings" plus its parent "Warp" counts as one
 # logical signature, not two different signatures.
 parents_of = {name: set() for name in rule_names}
+# Construye las relaciones entre reglas padre e hijas.
 for parent, child_rules in children.items():
+    # Registra cada relación padre-hija para resolver la raíz lógica.
     for child in child_rules:
         parents_of[child].add(parent)
 
@@ -3222,6 +3557,7 @@ def roots(rule_name, visiting):
     else:
         result = set()
         next_visiting = visiting | {rule_name}
+        # Sigue los padres directos para encontrar la raíz de correlación.
         for parent in direct:
             result.update(roots(parent, next_visiting))
 
@@ -3229,6 +3565,7 @@ def roots(rule_name, visiting):
     return result
 
 with open(output_file, 'w', encoding='utf-8') as destination:
+    # Escribe el mapa de correlación en orden determinista.
     for child in sorted(rule_names):
         root_set = roots(child, set())
 
@@ -3269,6 +3606,7 @@ if [[ -n "${OLD_COMMIT}" && "${OLD_COMMIT}" == "${NEW_COMMIT}" && -f "${RULESET_
     exit 0
 fi
 
+# Valida individualmente los índices oficiales antes de activarlos.
 for index in webshells_index.yar malware_index.yar; do
     INDEX_PATH="${TMP_DIR}/rules/${index}"
     [[ -s "${INDEX_PATH}" ]] || {
@@ -3380,6 +3718,7 @@ echo "No se reinicio el agente durante este paso."
 
 }
 
+# Instala el Active Response de cuarentena para hashes confirmados.
 configure_quarantine() {
     ensure_python3 || return 1
     local SCRIPT_SRC="$WAZUH_HOME/active-response/bin/orangebox-quarantine.py"
@@ -3477,6 +3816,7 @@ def main():
 
         os.lseek(source_fd, 0, os.SEEK_SET)
         source_digest = hashlib.sha256()
+        # Prueba cada alternativa de búsqueda de servicios hasta resolver el estado requerido.
         while True:
             chunk = os.read(source_fd, 1024 * 1024)
             if not chunk:
@@ -3506,6 +3846,7 @@ def main():
         try:
             copied_hash = hashlib.sha256()
             with os.fdopen(os.dup(source_fd), "rb") as source_file, os.fdopen(temp_fd, "wb") as target_file:
+                # Prueba cada alternativa de búsqueda de servicios hasta resolver el estado requerido.
                 while True:
                     chunk = source_file.read(1024 * 1024)
                     if not chunk:
@@ -3616,10 +3957,12 @@ PY
 }
 
 run_step "Auditd / monitoreo de ejecución" configure_exec_audit
+run_step "Telemetría local / remote_commands desactivado" configure_local_telemetry
 run_step "YARA" configure_yara
 run_step "Cuarentena Active Response" configure_quarantine
 run_step "Activación final del agente" activate_agent_final
 
+# Comprueba que agente, telemetría, auditd, YARA, cuarentena y logging quedaron disponibles.
 final_verification() {
     local failed=0
 
@@ -3642,6 +3985,34 @@ final_verification() {
     else
         echo "ERROR: Verificación final: orangebox-quarantine.py ausente." >&2
         failed=1
+    fi
+
+    if [ -f "$WAZUH_HOME/etc/ossec.conf" ]; then
+        # Verifica que cada fuente de telemetría local esté definida una sola vez.
+        for alias in orangebox-synrecv orangebox-synrecv-total orangebox-ksoftirq orangebox-load; do
+            count="$(grep -Fxc "    <alias>$alias</alias>" "$WAZUH_HOME/etc/ossec.conf" || true)"
+            if [ "$count" = "1" ]; then
+                ok "Verificación: fuente local $alias presente."
+            else
+                echo "ERROR: Verificación final: fuente local $alias aparece $count veces." >&2
+                failed=1
+            fi
+        done
+        if [ "$IS_CPANEL" = "yes" ]; then
+            grep -Eq '<alias>[[:space:]]*orangebox-phpfpm[[:space:]]*</alias>' "$WAZUH_HOME/etc/ossec.conf" &&
+                ok "Verificación: fuente PHP-FPM cPanel presente." ||
+                { echo "ERROR: Verificación final: falta fuente PHP-FPM cPanel." >&2; failed=1; }
+        elif grep -Eq '<alias>[[:space:]]*orangebox-phpfpm[[:space:]]*</alias>' "$WAZUH_HOME/etc/ossec.conf"; then
+            echo "ERROR: Verificación final: fuente PHP-FPM quedó configurada fuera de cPanel." >&2
+            failed=1
+        fi
+        grep -Fq '<location>/var/log/audit/audit.log</location>' "$WAZUH_HOME/etc/ossec.conf" &&
+            ok "Verificación: lectura local de audit.log presente." ||
+            { echo "ERROR: Verificación final: no se configura lectura de audit.log." >&2; failed=1; }
+        if ! grep -Eq '^[[:space:]]*logcollector[.]remote_commands[[:space:]]*=[[:space:]]*0([[:space:]]*(#.*)?)?$' "$WAZUH_HOME/etc/local_internal_options.conf"; then
+            echo "ERROR: Verificación final: logcollector.remote_commands no está explícitamente desactivado." >&2
+            failed=1
+        fi
     fi
 
     case "$LOGGING_BACKEND" in
@@ -3680,6 +4051,7 @@ echo "============================================================"
 if [ "${#STEP_OK[@]}" -gt 0 ]; then
     echo
     echo "OK - PASOS COMPLETADOS:"
+    # Imprime las etapas completadas en el resumen final.
     for step in "${STEP_OK[@]}"; do
         echo "  [OK] ${step}"
     done
@@ -3688,6 +4060,7 @@ fi
 if [ "${#STEP_FAILED[@]}" -gt 0 ]; then
     echo
     echo "ERROR - PASOS CON FALLAS:"
+    # Imprime las etapas que terminaron con error en el resumen final.
     for step in "${STEP_FAILED[@]}"; do
         echo "  [ERROR] ${step}"
     done
