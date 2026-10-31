@@ -23,7 +23,7 @@
 
 ## Reglas de seguridad
 
-Los 17 archivos XML del ruleset tienen documentación Markdown adyacente. Los principales son:
+Los archivos XML de reglas tienen documentación Markdown adyacente. Los principales son:
 
 - `orangebox-auth.xml`: autenticación, SUDO, SSH y excepciones por perfil.
 - `orangebox-hardening.xml`: modificaciones/eliminaciones FIM, persistencia y excepciones operacionales.
