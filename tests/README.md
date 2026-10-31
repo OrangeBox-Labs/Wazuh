@@ -11,6 +11,7 @@ Las pruebas protegen contratos funcionales que han causado regresiones antes: po
 | `test_orangebox_active_response.py` | Unitarias | Interpretación de los bloques `active-response`, selectores por SID/grupo/nivel, timeouts, reglas deshabilitadas y parcheo idempotente de `ossec.conf`. |
 | `test_ioc_updater_contract.py` | Contrato | Parser de fuentes IOC, validación de listas, combinación de IP confirmadas, protección de secretos y autorización de la migración inicial. |
 | `test_orangebox_php2shell.py` | Unitarias | Patrones positivos y negativos de PHP2Shell, límites de detección, relación con reglas IOC y política de respuesta. |
+| `test_orangebox_hardening.py` | Regresión estructural | Comprueba perfil CDB, nivel, regla padre y rutas exactas de las excepciones FIM `20059`/`20060`. |
 | `test-ioc-active-response.sh` | Integración | Ejecuta la suite Python, consulta la política configurada en el Manager y utiliza `wazuh-logtest` para validar muestras reales de reglas. |
 | `fixtures/web-ioc-99906.log` | Fixture | Muestras de access log anonimizadas para reproducir una detección HTTP IOC/PHP2Shell. |
 
