@@ -15,11 +15,13 @@ class CloudLinuxCronExceptionTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        """Carga una sola vez las reglas FIM para reutilizarlas en todos los casos."""
         content = RULE_FILE.read_text(encoding="utf-8")
         cls.root = ET.fromstring("<rules-root>" + content + "</rules-root>")
         cls.rules = {rule.get("id"): rule for rule in cls.root.iter("rule")}
 
     def assert_cpanel_profile(self, rule):
+        """Comprueba que la excepción esté limitada a la CDB dinámica del perfil cPanel."""
         profile = rule.find("list")
         self.assertIsNotNone(profile)
         self.assertEqual(profile.get("field"), "hostname")
