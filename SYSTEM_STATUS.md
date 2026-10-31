@@ -107,3 +107,10 @@ La integración `sudo bash tests/test-ioc-active-response.sh` requiere un Manage
 ## Diferencias intencionales frente al repositorio privado
 
 El repositorio público conserva las mismas capacidades, pero usa CDB SFTP genérica, cron de reporte de ejemplo, lista curada IOC vacía, emails de ejemplo, hostname de Manager configurable y RPM OPT 4.14.8. No incluye los crons de clientes, CDB SFTP de cliente, IOC reales ni RPM privado 4.14.9.
+
+## Validación del código versionado
+
+- Los 15 XML de reglas contienen 143 bloques `<rule>`; todos incluyen `<description>` y un comentario explicativo.
+- Los XML de reglas y decoders tienen documentación Markdown adyacente.
+- El workflow `OrangeBox regression tests` compila todos los Python, valida la sintaxis Bash, parsea los XML y ejecuta las dos suites unitarias.
+- La prueba de integración con `wazuh-logtest` queda manual porque requiere un Manager real.
