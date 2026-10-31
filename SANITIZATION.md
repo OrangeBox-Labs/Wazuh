@@ -41,10 +41,10 @@ Cuando la implementación privada contiene varias IPs con la misma función, la 
 Ejemplo:
 
 ```text
-etc/lists/orangebox-backuppc
+etc/lists/orangebox-backuppc-static y etc/lists/orangebox-backuppc-dynamic
 ```
 
-La CDB pública contiene una IP de documentación como ejemplo. En una implementación real se reemplaza por una entrada por cada servidor autorizado.
+Las CDB públicas `orangebox-backuppc-static` y `orangebox-backuppc-dynamic` contienen únicamente direcciones de documentación (rangos TEST-NET). En una implementación real se reemplaza por una entrada por cada servidor autorizado.
 
 Esta estrategia evita que la sanitización convierta varios servidores reales en reglas idénticas con el mismo placeholder y deja claro cómo ampliar la configuración sin duplicar SIDs.
 
