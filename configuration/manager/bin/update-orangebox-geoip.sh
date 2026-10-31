@@ -22,6 +22,7 @@ ASN_PREFIX="dbip-asn-lite"
 TMP_DIR="$(mktemp -d /var/tmp/orangebox-geoip.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+# Detiene el proceso con un error claro cuando falta una dependencia.
 need_cmd() {
     command -v "$1" >/dev/null 2>&1 || {
         echo "ERROR: falta el comando '$1'." >&2
@@ -29,6 +30,7 @@ need_cmd() {
     }
 }
 
+# Comprueba todas las herramientas antes de descargar o reemplazar bases.
 for cmd in curl gzip mmdblookup install flock mv date awk sed head stat; do
     need_cmd "$cmd"
 done
@@ -51,6 +53,7 @@ fi
 current_release="$(date -u +%Y-%m)"
 previous_release="$(date -u -d '1 month ago' +%Y-%m)"
 
+# Descarga una URL a un archivo temporal sin modificar aún la base instalada.
 download_text() {
     local url="$1"
     local destination="$2"
@@ -58,6 +61,7 @@ download_text() {
         "$url" -o "$destination"
 }
 
+# Consulta un campo de MMDB y devuelve solo el primer valor de texto.
 lookup_text() {
     local db="$1"
     local ip="$2"
@@ -68,6 +72,7 @@ lookup_text() {
         head -n 1
 }
 
+# Comprueba que la base City responda país y ciudad para una IP de referencia.
 validate_city_db() {
     local db="$1"
     local country city
@@ -80,6 +85,7 @@ validate_city_db() {
     fi
 }
 
+# Comprueba que la base ASN devuelva un número de sistema autónomo.
 validate_asn_db() {
     local db="$1"
     local asn
@@ -93,6 +99,7 @@ validate_asn_db() {
     fi
 }
 
+# Intenta la release mensual actual y la anterior; valida antes de reemplazar.
 update_db() {
     local kind="$1"
     local prefix="$2"
@@ -102,6 +109,7 @@ update_db() {
 
     local release url archive db_file
 
+    # Si la versión del mes no está publicada todavía, intenta la anterior.
     for release in "$current_release" "$previous_release"; do
         url="$BASE_URL/${prefix}-${release}.mmdb.gz"
 
