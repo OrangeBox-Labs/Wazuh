@@ -18,6 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 # CONFIGURACION - EDITAR SOLO ESTA SECCION
 # ---------------------------------------------------------------------------
 IS_CPANEL=''
+# Versión alineada con el RPM OPT distribuido en este repositorio.
 WAZUH_VERSION='4.14.8'
 WAZUH_MANAGER='TU_HOSTNAME'
 WAZUH_AGENT_GROUP='default'
