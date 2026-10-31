@@ -19,7 +19,7 @@ configuration/lists/orangebox-agent-profiles
 Ejemplo:
 
 ```text
-srv27.example.invalid:cpanel
+srv27.cloudlatam.cl:cpanel
 srv27.example.invalid:cpanel
 ```
 
