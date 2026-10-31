@@ -28,6 +28,8 @@
         <group>execution,discovery,network_service_scanning,attack,orangebox_behavior,orangebox_scanner,orangebox_immediate,</group>
     </rule>
 
+    <!-- Regla 10611: Registra la ejecución de un comando incluido en la lista de utilidades de reconocimiento de red. -->
+
     <rule id="10611" level="5">
         <if_sid>80792</if_sid>
         <list field="audit.command" lookup="match_key_value" check_value="recon">etc/lists/orangebox-recon-programs</list>
@@ -54,6 +56,8 @@
         <group>discovery,network_service_scanning,orangebox_behavior,orangebox_recon,</group>
     </rule>
 
+    <!-- Regla 10612: Correlaciona varios comandos de reconocimiento de red desde un endpoint en una ventana de cinco minutos. -->
+
     <rule id="10612" level="14" frequency="3" timeframe="300">
         <if_matched_sid>10620</if_matched_sid>
         <same_location/>
@@ -75,6 +79,8 @@
         <mitre><id>T1068</id><id>T1046</id></mitre>
         <group>privilege_escalation,discovery,attack,orangebox_behavior,orangebox_killchain,orangebox_immediate,</group>
     </rule>
+
+    <!-- Regla 10614: Detecta una secuencia de reconocimiento de red ejecutada después de una elevación de privilegios. -->
 
     <rule id="10614" level="15" frequency="3" timeframe="600">
         <if_matched_sid>10613</if_matched_sid>
