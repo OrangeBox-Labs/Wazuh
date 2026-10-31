@@ -6,12 +6,17 @@ Estos scripts mantienen listas CDB y datos locales consumidos por reglas, report
 
 | Script | Función | Actualiza | Comportamiento seguro |
 |---|---|---|---|
+| `orangebox-log-rotation` | Comprime logs internos auxiliares y aplica una retención de 7 días. | `/var/ossec/logs/wazuh` y `/var/ossec/logs/firewall`. | Omite archivos recientes/abiertos; no toca `alerts/`, `active-responses.log` ni `ossec.log`. |
 | `update-orangebox-backuppc.sh` | Resuelve las direcciones IPv4 de BackupPC mediante DNS. | CDB dinámica `orangebox-backuppc-dynamic`. | No toca la CDB estática; omite la ejecución si no obtiene direcciones. |
 | `update-orangebox-cpanel-agents.sh` | Consulta la pertenencia al grupo Wazuh `cpanel` y genera los nombres admitidos. | CDB `orangebox-cpanel-agents`. | No vacía la lista si falla la consulta; reemplaza el archivo atómicamente cuando cambia. |
 | `update-orangebox-dns-agents.sh` | Consulta la pertenencia al grupo Wazuh `dns`. | CDB `orangebox-dns-agents`. | Conserva la lista anterior ante errores o una respuesta vacía no válida. |
 | `update-orangebox-zimbra-agents.sh` | Consulta la pertenencia al grupo Wazuh `zimbra`. | CDB `orangebox-zimbra-agents`. | Genera FQDN y nombre corto; evita mantener una whitelist manual de agentes. |
 | `update-orangebox-geoip.sh` | Descarga y valida las bases DB-IP City Lite y ASN Lite. | Archivos MMDB de GeoIP. | Valida gzip y lectura MMDB antes de reemplazar; usa reemplazo atómico y no reinicia Wazuh. |
 | `update-orangebox-ioc-lists.sh` | Descarga, normaliza y valida fuentes IOC de Emerging Threats, URLhaus y MalwareBazaar. | CDB de IP maliciosas, dominios, IPs que alojan malware y hashes. | Separa IP atacante de IP de hosting, protege la Auth-Key, rechaza entradas inválidas y exige aprobación única para la primera reclasificación de IP de origen. |
+
+## Rotación de logs internos
+
+`orangebox-log-rotation` se ejecuta a diario mediante `etc/cron.d/orangebox-log-rotation`. Su alcance, exclusiones y validación están documentados en `orangebox-log-rotation.md`.
 
 ## Ciclo común de los sincronizadores de agentes
 
