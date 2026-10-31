@@ -14,6 +14,7 @@ set -euo pipefail
 # Requirements: Docker and Git
 # Output: one official Wazuh RPM for x86_64, installed under /opt/ossec.
 
+# Mantener la versión por defecto alineada con el RPM OPT incluido y el instalador unificado.
 WAZUH_VERSION="${WAZUH_VERSION:-4.14.8}"
 JOBS="${JOBS:-2}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
