@@ -10,6 +10,9 @@
 # La ventana de medianoche se evita para no coincidir con la rotacion diaria
 # de logs y cualquier operacion de ciclo de vida del wazuh-manager.
 #
+# Sincroniza el grupo cPanel cada 10 minutos entre 01:00 y 22:50.
 */10 1-22 * * * root /var/ossec/bin/update-orangebox-cpanel-agents.sh >/dev/null 2>>/var/ossec/logs/orangebox-cpanel-agents.log
+# Mantiene la sincronización cada 10 minutos entre 23:05 y 23:45.
 5-45/10 23 * * * root /var/ossec/bin/update-orangebox-cpanel-agents.sh >/dev/null 2>>/var/ossec/logs/orangebox-cpanel-agents.log
+# Reanuda cada 10 minutos entre 00:15 y 00:55.
 15-55/10 0 * * * root /var/ossec/bin/update-orangebox-cpanel-agents.sh >/dev/null 2>>/var/ossec/logs/orangebox-cpanel-agents.log
