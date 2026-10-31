@@ -124,7 +124,7 @@ Ejemplo:
 
 ```text
 srv27:cpanel
-srv27.example.invalid:cpanel
+srv27.cloudlatam.cl:cpanel
 ```
 
 `20031` contiene comandos directos conocidos de WP Toolkit/cPanel.
@@ -161,10 +161,10 @@ Los árboles reconocidos son:
 Hosts actualmente registrados en la CDB:
 
 ```text
-mail.example.invalid:zimbra
-zimbra10.example.invalid:zimbra
-mail2.example.invalid:zimbra
-mail3.example.invalid:zimbra
+mail.orangebox.cl:zimbra
+zimbra10.orangebox.cl:zimbra
+mail2.jhg.cl:zimbra
+mail.appnexit.cl:zimbra
 ```
 
 ### 110100 — Comandos Zimbra/Carbonio autorizados
@@ -196,7 +196,7 @@ Ambas excepciones producen `level 0` y no alteran la alerta base `10001`.
 
 ### SFTP sftp-service
 
-`20004` valida el usuario `sftp-service` y consulta las IP de origen en `etc/lists/orangebox-sftp-authorized`.
+`20004` valida el usuario `sftp-service` y consulta las IP de origen en `etc/lists/orangebox-sftp-sftp-service`.
 
 Para agregar otro origen autorizado, agregar una nueva línea `<IP>:` a la CDB y reiniciar el Manager. No se crea una regla adicional por cada IP.
 
@@ -260,7 +260,7 @@ Cada nuevo wrapper debe probarse también con una variante que agregue `;`, `&&`
 - CDB `etc/lists/orangebox-agent-profiles`;
 - CDB `etc/lists/orangebox-backuppc-static`;
 - CDB `etc/lists/orangebox-backuppc-dynamic`;
-- CDB `etc/lists/orangebox-sftp-authorized`;
+- CDB `etc/lists/orangebox-sftp-sftp-service`;
 - CDB `etc/lists/orangebox-web-auth-proxies`;
 - CDB `etc/lists/orangebox-web-discovery-proxies`;
 - entrada de las CDB declarada en `manager/ossec.conf`;
