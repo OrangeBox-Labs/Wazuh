@@ -2253,6 +2253,7 @@ wazuh_url = (
 
 # Fila de datos normal para alertas con respuesta activa configurada.
 def format_timeout(seconds):
+    """Convierte el timeout de Active Response a una duración legible para el correo."""
     if seconds is None:
         return "no especificado"
     if seconds <= 0:
