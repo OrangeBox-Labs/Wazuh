@@ -74,6 +74,20 @@ configuration/manager/etc/cron.d/orangebox-ioc
 La procedencia y el uso de las IP se separan deliberadamente:
 
 - `malicious-ip`: IP comprometidas de Emerging Threats. Es la CDB usada para correlacionar **IP de origen** y disparar bloqueos.
+### `orangebox-confirmed-source-ip`
+
+Es una lista estática administrada por OrangeBox que contiene indicadores de origen confirmados manualmente. No es una CDB consumida directamente por las reglas: `update-orangebox-ioc-lists.sh` valida sus entradas y las mezcla con Emerging Threats para generar la CDB efectiva `malicious-ip`.
+
+Formato:
+
+```text
+<IP>:
+```
+
+El archivo debe existir en el Manager, pertenecer a `root` y no ser escribible por grupo/otros. El actualizador aborta sin reemplazar las listas IOC si falta o si los permisos no son seguros.
+
+**Privacidad:** los indicadores confirmados de producción son información operacional privada. El repositorio público conserva solamente un archivo semilla sin IP reales; cada instalación debe poblarlo localmente con indicadores revisados. No copiar la lista privada al repositorio público.
+
 - `malware-host-ip`: IP extraídas de URLs recientes de URLhaus. Identifican infraestructura que aloja malware; no se mezclan con `malicious-ip` ni se usan como IP atacante de origen.
 - `malicious-domains`: dominios de URLhaus.
 - `malware-hashes`: SHA256 de MalwareBazaar, cuando la API está configurada.
