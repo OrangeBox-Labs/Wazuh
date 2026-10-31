@@ -20,7 +20,7 @@ Ejemplo:
 
 ```text
 srv27.example.invalid:cpanel
-srv27.example.invalid:cpanel
+srv28.example.invalid:cpanel
 ```
 
 La pertenencia al grupo y la entrada CDB deben mantenerse sincronizadas.
@@ -38,6 +38,48 @@ Actualmente condiciona:
 
 No existe una whitelist genérica de `/bin/sh -c`. Cada wrapper se valida por operación completa para impedir que una excepción legítima sea reutilizada para ejecutar un segundo comando.
 
+## Dos CDB distintas para dos funciones
+
+El perfil cPanel utiliza dos listas con responsabilidades distintas. No son intercambiables:
+
+- `orangebox-agent-profiles` (`configuration/lists/orangebox-agent-profiles`) asocia `hostname:cpanel` y la consultan las reglas de autenticación/SUDO que validan el perfil funcional.
+- `orangebox-cpanel-agents` (`configuration/manager/etc/lists/orangebox-cpanel-agents`) se genera desde el grupo Wazuh `cpanel` mediante `update-orangebox-cpanel-agents.sh`. La usan las excepciones FIM del ruleset `orangebox-hardening.xml`.
+
+Para que funcionen las excepciones CRON, el agente debe pertenecer al grupo Wazuh `cpanel` y aparecer en la CDB dinámica `orangebox-cpanel-agents`. La etiqueta `orangebox.profile=cpanel` ayuda a identificar el perfil en los eventos, pero no reemplaza la condición CDB del Manager.
+
+## Cobertura FIM del perfil
+
+El `agent.conf` de cPanel mantiene los controles base de identidad, SSH, SUDO, PAM, SYSTEMD, CRON, firewall, red y persistencia. Para hosting compartido añade controles de Apache/EasyApache, PHP/PHP-FPM, Exim, CSF e Imunify360.
+
+No monitoriza recursivamente todo `/home/*/public_html`. El webroot se limita a los puntos de entrada de alto valor documentados en este archivo; el instalador mantiene además telemetría local de SYN-RECV, CPU, carga y PHP-FPM cuando corresponde.
+
+## Excepciones FIM CRON de cPanel / CloudLinux
+
+Las reglas del Manager aplican solo a agentes que coinciden con `orangebox-cpanel-agents` y con las rutas exactas:
+
+| SID | Evento padre | Ruta | Resultado |
+|---|---:|---|---|
+| `20032` | `10035` modificación | `/etc/cron.d/cpanel_ssl_reissue` | Nivel 0: regeneración conocida de cPanel. |
+| `20059` | `10045` eliminación | `/etc/cron.d/cpanel_php_sessions_cron` | Nivel 3: se conserva evidencia en Wazuh sin correo crítico. |
+| `20060` | `10035` modificación | `lvemanager-cron`, `lvemanager-selector`, `cloudlinux-cron` bajo `/etc/cron.d/` | Nivel 3: se conserva evidencia en Wazuh sin correo crítico. |
+
+`20060` no cubre eliminaciones de los tres archivos LVE; siguen generando la alerta `10045`. Ninguna excepción ignora el directorio completo `/etc/cron.d/`.
+
+## Telemetría del agente
+
+El instalador `tools/agent/install.sh` crea localmente las fuentes de estado SYN-RECV, uso de `ksoftirqd`, carga y PHP-FPM. No deben duplicarse como comandos remotos en `agent.conf`: la instalación conserva `logcollector.remote_commands=0`.
+
+## Validación
+
+Después de asignar el agente al grupo `cpanel`, ejecutar el sincronizador dinámico y comprobar la CDB:
+
+```bash
+/var/ossec/bin/update-orangebox-cpanel-agents.sh
+grep -F '<hostname-del-agente>:' /var/ossec/etc/lists/orangebox-cpanel-agents
+/var/ossec/bin/wazuh-analysisd -t
+```
+
+Probar los SIDs `20032`, `20059` y `20060` con `wazuh-logtest` usando muestras positivas y rutas CRON ajenas como casos negativos.
 ## Validación del perfil
 
 ```text
