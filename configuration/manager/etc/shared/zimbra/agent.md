@@ -1,114 +1,82 @@
-# Perfil Zimbra / Carbonio CE
+# Perfil FIM Zimbra / Carbonio CE
 
-Este perfil agrupa funcionalmente los servidores **Zimbra** y **Carbonio CE** que comparten la politica OrangeBox de `sudo -> root`.
+Este perfil agrupa Zimbra y Carbonio CE como una misma familia operacional para FIM y para la política validada de `sudo -> root`. Carbonio utiliza `/opt/zextras`; Zimbra utiliza `/opt/zimbra`.
 
-## Objetivo
+## Identificación del perfil
 
-La etiqueta:
+La etiqueta `orangebox.profile=zimbra` identifica el perfil en los eventos. Las reglas de SUDO consultan la CDB `orangebox-agent-profiles` (`hostname:zimbra`); la sincronización del grupo funcional también se mantiene mediante `update-orangebox-zimbra-agents.sh` y `orangebox-zimbra-agents`.
 
-```text
-orangebox.profile=zimbra
-```
+## Alcance FIM
 
-permite identificar el perfil funcional del agente.
+El archivo `agent.conf` incluye el conjunto de controles base que se necesita en este perfil y agrega las rutas específicas del servicio. El límite de FIM es de 175000 entradas y `alert_new_files` permanece activo.
 
-La whitelist de `sudo` no depende solamente de esta etiqueta. Las reglas del Manager utilizan la CDB:
+### Temporales
 
-```text
-configuration/lists/orangebox-agent-profiles
-```
-
-con el formato:
+Se vigilan en tiempo real, con profundidad recursiva limitada:
 
 ```text
-hostname:perfil
+/opt/zimbra/data/tmp
+/opt/zextras/data/tmp
 ```
 
-## Por qué el perfil se llama `zimbra`
+No se guarda diff de todos los archivos temporales. Los eventos sirven para que las reglas OrangeBox y la integración YARA puedan analizar candidatos sin almacenar contenido de forma indiscriminada.
 
-OrangeBox trata Zimbra y Carbonio CE como una **familia operacional de servidor de correo** para esta politica concreta.
+### Jetty / webapps
 
-Los árboles de instalación son distintos:
+En los árboles de aplicaciones Jetty se vigilan en tiempo real únicamente extensiones de interés para ejecución o despliegue:
 
 ```text
-Zimbra     -> /opt/zimbra
-Carbonio   -> /opt/zextras
+/opt/zimbra/jetty/webapps
+/opt/zextras/jetty/webapps
 ```
 
-La regla `110100` reconoce ambas rutas, pero solamente cuando el hostname pertenece al perfil `zimbra`.
+El filtro se limita a `jsp`, `jspx`, `war` y `class`. No se recorre indiscriminadamente cada archivo del producto.
 
-## Comandos autorizados
+### Configuración y certificados
 
-La politica se basa en la allowlist historicamente validada en `orangebox-auth.xml`.
-
-- `zmstat-fd`, con argumentos;
-- `postfix`;
-- `postalias`;
-- `qshape.pl`;
-- `postconf`, con argumentos;
-- `postsuper`;
-- `postcat`;
-- `zmqstat`;
-- `zmmtastatus`;
-- `zmmailboxdmgr status`.
-
-No se autoriza todo `/opt/zimbra` ni todo `/opt/zextras`.
-
-## Seguridad
-
-El mecanismo tiene tres capas:
+Se vigilan en tiempo real con Who-Data:
 
 ```text
-sudo -> root
-   |
-   v
-10005
-   |
-   +-- hostname con perfil zimbra
-   |       +
-   |      comando autorizado
-   |          |
-   |          v
-   |       110100 / level 0
-   |
-   +-- cualquier otra combinacion
-           |
-           v
-        alerta 10005
+/opt/zimbra/conf
+/opt/zextras/conf
+/opt/zimbra/ssl
+/opt/zextras/ssl
 ```
 
-La ventaja es que un comando que puede ser legítimo en un servidor Zimbra/Carbonio no queda globalmente autorizado en los demás agentes.
+Los árboles SSL usan `nodiff`: se registra que hubo un cambio y quién/proceso lo realizó, pero no se copia el contenido de certificados o claves a las alertas.
 
-## Asignación
+### Binarios privilegiados
 
-1. Agregar el hostname real del evento a `orangebox-agent-profiles`.
-2. Asignar el agente al grupo Wazuh `zimbra`.
-3. Distribuir este `agent.conf`.
-4. Reiniciar el Manager despues de modificar la CDB.
+El perfil limita la vigilancia de binarios a los comandos que forman parte de la allowlist `sudo -> root` de `orangebox-auth.xml`:
 
-Ejemplo:
+- `zmstat-fd`, `zmqstat`, `zmmtastatus` y `zmmailboxdmgr` bajo `libexec`;
+- `postfix`, `postalias`, `qshape.pl`, `postconf`, `postsuper` y `postcat` bajo `common/sbin`.
 
-```text
-zimbra03.example.invalid:zimbra
-zimbra05.example.invalid:zimbra
-mail2.example.invalid:zimbra
-mail.example.invalid:zimbra
-```
+Se vigilan en tiempo real con Who-Data y con filtros `restrict`. No se monitoriza completo `/opt/zimbra` ni `/opt/zextras`.
 
-## Carbonio CE
+## Política SUDO
 
-Para un servidor Carbonio, registrar el hostname observado en los eventos y utilizar el mismo perfil:
+La regla `10005` es el detector general de `sudo -> root`. La regla `110100` solo la lleva a nivel 0 cuando se cumplen simultáneamente:
 
-```text
-<hostname>:zimbra
-```
+1. el hostname está registrado con perfil `zimbra` en `orangebox-agent-profiles`;
+2. el ejecutable y sus argumentos pertenecen a la allowlist de operaciones conocidas.
 
-Esto permite reutilizar la misma regla `110100` sin duplicar una segunda familia de reglas.
+Cualquier otro comando o servidor sigue generando `10005`. El perfil por sí solo no autoriza comandos.
 
-## Validacion
+## Dependencias
 
-Antes de usar el perfil en producción, probar como minimo:
+- Grupo Wazuh `zimbra` y CDB `orangebox-zimbra-agents` sincronizada.
+- CDB `orangebox-agent-profiles` con `hostname:zimbra` para la regla de SUDO.
+- Wazuh Agent / Syscheck.
+- Who-Data/Audit habilitado para las rutas donde se requiere atribución.
+- Reglas `orangebox-auth.xml` y `orangebox-hardening.xml` en el Manager.
 
-- un comando autorizado en un hostname con perfil `zimbra` -> `110100`, nivel 0;
-- el mismo comando en un hostname sin perfil -> `10005`, nivel 13;
-- un comando no autorizado en un hostname con perfil -> `10005`, nivel 13.
+## Validación
+
+1. Confirmar el grupo `zimbra`, la etiqueta del perfil y ambas CDB.
+2. Comprobar la configuración efectiva con `wazuh-analysisd -t` en el Manager y revisar el grupo compartido recibido por el agente.
+3. En laboratorio, crear un archivo temporal y una muestra JSP inocua bajo webapps; verificar eventos FIM.
+4. Modificar una configuración no sensible en `/opt/zimbra/conf` o `/opt/zextras/conf` y verificar Who-Data.
+5. Probar `110100` con un comando permitido, el mismo comando fuera del perfil y un comando no permitido.
+
+No realizar estas pruebas con comandos ejecutables ni archivos de aplicación reales en producción.
