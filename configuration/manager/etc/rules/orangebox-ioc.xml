@@ -7,7 +7,7 @@
   - This file adds OrangeBox context to attack detections.
   - It does not create a second IOC database and does not replace
     the Wazuh rules that already detect malicious IOCs.
-  - IOC-specific source-IP containment is owned by rules 10460, 10461, 10462 and 10463.
+  - Source-IP IOC rules 10460-10463 trigger immediate notification and use 7-day containment.
 -->
 
 <group name="orangebox,ioc,threat_intel,">
@@ -16,25 +16,25 @@
       SSH brute force + known malicious source IP.
 
       This IOC child raises the detection context/severity and is
-      independently attached to the 720-hour / 30-day firewall-drop Active Response.
+      independently attached to the 168-hour / 7-day firewall-drop Active Response.
   -->
   <rule id="10460" level="14">
     <if_sid>5720</if_sid>
     <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
     <description>ALERTA IOC: FUERZA BRUTA SSH DESDE IP MALICIOSA CONOCIDA $(srcip).</description>
-    <group>authentication_failed,brute_force,attack,orangebox_ioc,orangebox_ssh,orangebox_behavior,</group>
+    <group>authentication_failed,brute_force,attack,orangebox_ioc,orangebox_ssh,orangebox_behavior,orangebox_immediate,</group>
   </rule>
 
   <!--
       Public TCP port scan + known malicious source IP.
 
-      This IOC child is independently attached to the 30-day firewall-drop Active Response.
+      This IOC child is independently attached to the 7-day firewall-drop Active Response.
   -->
   <rule id="10462" level="14">
     <if_sid>10456</if_sid>
     <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
     <description>ALERTA IOC: ESCANEO DE PUERTOS DESDE IP MALICIOSA CONOCIDA $(srcip).</description>
-    <group>attack,network,scan,orangebox_ioc,orangebox_firewall,orangebox_behavior,</group>
+    <group>attack,network,scan,orangebox_ioc,orangebox_firewall,orangebox_behavior,orangebox_immediate,</group>
   </rule>
 
   <!--
@@ -82,7 +82,7 @@
     <if_sid>10454</if_sid>
     <list field="srcip" lookup="address_match_key">etc/lists/malicious-ioc/malicious-ip</list>
     <description>ALERTA IOC: SYN FLOOD DESDE IP MALICIOSA CONOCIDA $(srcip).</description>
-    <group>attack,network,dos,orangebox_ioc,orangebox_firewall,orangebox_behavior,</group>
+    <group>attack,network,dos,orangebox_ioc,orangebox_firewall,orangebox_behavior,orangebox_immediate,</group>
   </rule>
 
 </group>
