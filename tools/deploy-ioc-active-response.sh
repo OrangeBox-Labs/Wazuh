@@ -63,6 +63,7 @@ fi
 
 # Comprueba todos los archivos versionados antes de tocar el Manager.
 # Instala reglas, integración y updater con propietario y modos definidos.
+# Comprueba la presencia de cada archivo fuente que el instalador necesita desplegar.
 for i in "${!SOURCE_FILES[@]}"; do
     src="$ROOT/${SOURCE_FILES[$i]}"
     [[ -f "$src" ]] || {
@@ -73,6 +74,7 @@ done
 
 # Back up existing files and remember paths that did not exist before deploy.
 # Guarda cada destino existente y registra cuáles deben borrarse durante rollback.
+# Respalda cada destino existente y registra los que deberán eliminarse en un rollback.
 for rel in "${ROLLBACK_FILES[@]}"; do
     dst="$WAZUH_HOME/$rel"
     saved="$BACKUP_DIR/$rel"
@@ -101,6 +103,7 @@ cleanup() {
         echo
         echo "ERROR: falló el despliegue. Restaurando archivos desde $BACKUP_DIR..."
         # Restaura los archivos respaldados y elimina los que antes no existían.
+        # Respalda cada destino existente y registra los que deberán eliminarse en un rollback.
         for rel in "${ROLLBACK_FILES[@]}"; do
             target="$WAZUH_HOME/$rel"
             saved="$BACKUP_DIR/$rel"
@@ -124,6 +127,7 @@ echo "Backup: $BACKUP_DIR"
 
 echo
 echo "========== DEPLOY FILES =========="
+# Comprueba la presencia de cada archivo fuente que el instalador necesita desplegar.
 for i in "${!SOURCE_FILES[@]}"; do
     src="$ROOT/${SOURCE_FILES[$i]}"
     dst="$WAZUH_HOME/${TARGET_FILES[$i]}"
@@ -145,10 +149,12 @@ seed_path, live_path, output_path = map(Path, sys.argv[1:4])
 addresses = set()
 
 # Combina la semilla versionada con la lista local sin retirar IOC existentes.
+# Combina la semilla versionada con la lista local sin retirar IOC confirmadas ya instaladas.
 for path in (seed_path, live_path):
     if not path.is_file():
         continue
 # Valida cada entrada: acepta comentarios/vacíos y solo IPv4 en formato CDB.
+    # Valida cada línea de la CDB y rechaza direcciones que no sean IPv4 en formato clave:valor.
     for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
@@ -178,6 +184,7 @@ echo "INSTALLED/MERGED: etc/lists/malicious-ioc/orangebox-confirmed-source-ip"
 echo
 echo "========== REMOVE OBSOLETE IOC HELPERS =========="
 # Retira helpers de versiones antiguas que ya no forman parte del instalador.
+# Retira únicamente los archivos legacy que el despliegue actual reemplaza.
 for rel in "${OBSOLETE_TARGETS[@]}"; do
     if [[ -e "$WAZUH_HOME/$rel" ]]; then
         rm -f "$WAZUH_HOME/$rel"
@@ -210,6 +217,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 # Valida sintaxis de cada archivo XML después del parcheo.
+# Valida la sintaxis de todos los XML modificados antes de reiniciar el Manager.
 for path in sys.argv[1:]:
     content = open(path, encoding="utf-8").read()
     content = re.sub(r"<\?xml[^?]*\?>", "", content, flags=re.IGNORECASE)
