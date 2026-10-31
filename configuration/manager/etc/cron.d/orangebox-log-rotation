@@ -1,2 +1,4 @@
-# Rotación de logs internos OrangeBox
+# Rotación de logs internos OrangeBox.
+# A las 00:30 comprime logs auxiliares antiguos y elimina gzip con más de 7 días.
+# No toca alerts/, active-responses.log ni ossec.log.
 30 0 * * * root /var/ossec/bin/orangebox-log-rotation
