@@ -16,11 +16,13 @@ CONFIRMED_SOURCE_LIST = (
 class IOCUpdaterContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        """Prepara rutas y carga el actualizador una sola vez para ejecutar pruebas aisladas."""
         cls.source = UPDATER.read_text(encoding="utf-8")
         cls.deploy_source = DEPLOY.read_text(encoding="utf-8")
 
     # Extrae el parser CSV incrustado sin ejecutar descargas externas.
     def embedded_parser(self):
+        """Extrae el parser CSV incrustado en el script para probarlo sin descargar feeds."""
         marker = """python3 - "$TMP_DIR/urlhaus-recent.csv" "$TMP_DIR/malware-host-ip" <<'PY'
 """
         self.assertIn(marker, self.source, "No se encontró el parser CSV embebido.")
@@ -30,6 +32,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
 
     # Extrae el validador de la CDB curada para probarlo de forma aislada.
     def embedded_confirmed_source_parser(self):
+        """Extrae el parser de la CDB curada para validar sus entradas sin modificar el Manager."""
         marker = """python3 - "$CONFIRMED_SOURCE_LIST" "$TMP_DIR/orangebox-confirmed-source-ip" <<'PY'
 """
         self.assertIn(marker, self.source, "No se encontró el validador de IOC confirmados.")
@@ -39,6 +42,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
 
     # Evita que reaparezcan wrappers o parsers secundarios obsoletos.
     def test_single_script_contains_real_implementation(self):
+        """Comprueba que el actualizador sea el único punto de implementación y no delegue en wrappers legacy."""
         self.assertGreater(len(self.source.splitlines()), 500)
         self.assertIn("urlhaus-api.abuse.ch/v2/files/exports/$URLHAUS_AUTH_KEY/recent.csv", self.source)
         self.assertIn("urlhaus-api.abuse.ch/v2/files/exports/$URLHAUS_AUTH_KEY/hostfile.txt", self.source)
@@ -49,11 +53,13 @@ class IOCUpdaterContractTests(unittest.TestCase):
 
     # Comprueba que los secretos nunca se lean con xtrace activo.
     def test_xtrace_is_disabled_before_secrets_are_loaded(self):
+        """Garantiza que la depuración de shell quede desactivada antes de leer secretos."""
         self.assertLess(self.source.index("set +x"), self.source.index('source "$SECRETS_FILE"'))
         self.assertLess(self.source.index("umask 077"), self.source.index('source "$SECRETS_FILE"'))
 
     # Verifica que la configuración de la Auth-Key pertenezca al mismo actualizador.
     def test_key_setup_is_a_mode_of_the_same_script(self):
+        """Verifica que la configuración de la Auth-Key esté integrada en el actualizador principal."""
         self.assertIn("--configure-key", self.source)
         self.assertIn("read -r -s", self.source)
         self.assertIn("root:root", self.source)
@@ -63,6 +69,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
 
     # Comprueba que las URLs autenticadas no aparezcan en argv ni en archivos legibles por otros.
     def test_authenticated_curl_config_files_are_private(self):
+        """Comprueba que las credenciales de descarga no queden expuestas en argv ni en archivos públicos."""
         self.assertIn('chmod 0600 "$TMP_DIR/urlhaus-recent.curl" "$TMP_DIR/urlhaus-hostfile.curl"', self.source)
         self.assertIn('--config "$TMP_DIR/urlhaus-recent.curl"', self.source)
         self.assertIn('--config "$TMP_DIR/urlhaus-hostfile.curl"', self.source)
@@ -72,6 +79,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
 
     # Verifica extracción de IPs globales y exclusión de destinos reservados/IPv6.
     def test_inline_csv_parser_extracts_only_global_ipv4_hosts(self):
+        """Valida que el parser acepte solo hostnames con IPv4 pública."""
         parser = self.embedded_parser()
         csv_data = (
             '# URLhaus recent CSV\n'
@@ -101,6 +109,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
 
     # Comprueba el encabezado real de exportación URLhaus aunque venga comentado.
     def test_inline_csv_parser_accepts_comment_prefixed_urlhaus_header(self):
+        """Comprueba que se reconozca la cabecera URLhaus aunque venga precedida por comentarios."""
         parser = self.embedded_parser()
         csv_data = (
             "# URLhaus recent export\n"
@@ -129,6 +138,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
 
     # Evita publicar una CDB si cambia inesperadamente el formato del CSV.
     def test_csv_parser_rejects_unknown_header(self):
+        """Evita actualizar IOC si cambia el formato de columnas de una fuente."""
         parser = self.embedded_parser()
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = Path(tmp) / "recent.csv"
@@ -149,6 +159,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
 
     # El repositorio público no publica indicadores de producción: el seed debe estar vacío.
     def test_public_confirmed_source_list_contains_no_live_indicators(self):
+        # Construye el conjunto de entradas reales de la CDB curada, ignorando comentarios.
         entries = {
             line.strip()
             for line in CONFIRMED_SOURCE_LIST.read_text(encoding="utf-8").splitlines()
@@ -158,6 +169,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
 
     # Valida normalización, orden y deduplicación de IPv4 en formato CDB.
     def test_confirmed_source_parser_normalizes_ipv4_cdb_entries(self):
+        """Comprueba normalización, orden y deduplicación de IPv4 en formato CDB."""
         parser = self.embedded_confirmed_source_parser()
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "confirmed-source-ip"
@@ -182,6 +194,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
     # Rechaza entradas sin dos puntos, direcciones inválidas e IPv6.
     # Permite una lista curada vacía en repositorios nuevos; Emerging Threats sigue aportando IOC de origen.
     def test_confirmed_source_parser_accepts_comment_only_list(self):
+        """Permite que una distribución pública comience con la lista curada vacía."""
         parser = self.embedded_confirmed_source_parser()
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "confirmed-source-ip"
@@ -198,7 +211,9 @@ class IOCUpdaterContractTests(unittest.TestCase):
             self.assertEqual(output.read_text(encoding="ascii"), "")
 
     def test_confirmed_source_parser_rejects_non_cdb_or_non_ipv4_entries(self):
+        """Rechaza direcciones inválidas, IPv6 y entradas fuera del formato CDB."""
         parser = self.embedded_confirmed_source_parser()
+        # Prueba cada formato inválido para comprobar que el parser lo rechace.
         for invalid in ("198.51.100.23", "not-an-ip:", "2001:4860:4860::8888:"):
             with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as tmp:
                 source = Path(tmp) / "confirmed-source-ip"
@@ -216,6 +231,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
 
     # Asegura que solo IOC de origen alimenten malicious-ip.
     def test_active_source_cdb_is_union_of_emerging_threats_and_confirmed(self):
+        """Comprueba que malicious-ip combine el feed automático y las IOC de origen confirmadas."""
         self.assertIn('CONFIRMED_SOURCE_LIST="$LIST_DIR/orangebox-confirmed-source-ip"', self.source)
         self.assertIn('cat "$TMP_DIR/emerging-threats-source-ip" "$TMP_DIR/orangebox-confirmed-source-ip"', self.source)
         self.assertIn('sort -u > "$TMP_DIR/malicious-ip"', self.source)
@@ -226,6 +242,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
 
     # Comprueba que el deploy combine semilla y entradas locales sin borrar estas últimas.
     def test_deployment_merge_preserves_live_confirmed_ips_and_adds_seed(self):
+        """Evita que el despliegue borre IOC locales que ya fueron validadas."""
         self.assertIn("CONFIRMED_SOURCE_SEED", self.deploy_source)
         self.assertIn("CONFIRMED_SOURCE_TARGET", self.deploy_source)
         self.assertIn('"${OBSOLETE_TARGETS[@]}" "etc/lists/malicious-ioc/orangebox-confirmed-source-ip"', self.deploy_source)
@@ -256,6 +273,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
 
     # Impide que cron reclasifique fuentes de IOC sin DRY_RUN y aprobación inicial.
     def test_ioc_migration_gate_is_preserved(self):
+        """Exige simulación y aprobación explícita para la primera reclasificación de IOC."""
         self.assertIn("SOURCE_IP_MIGRATION_MARKER", self.source)
         self.assertIn("ORANGEBOX_IOC_DRY_RUN", self.source)
         self.assertIn("ORANGEBOX_IOC_ALLOW_SOURCE_RECLASSIFICATION", self.source)
