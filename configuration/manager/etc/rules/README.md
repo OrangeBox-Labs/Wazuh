@@ -73,7 +73,7 @@ Detecciones sobre archivos ejecutables creados en ubicaciones temporales o de al
 
 Integra FIM con YARA mediante Active Response. `10420/10421` envían a YARA todos los archivos nuevos o modificados de las zonas temporales delicadas, sin exigir extensión ni permiso de ejecución. `10501` alerta coincidencias YARA.
 
-Las firmas ejecutables se mantienen en los archivos `.yar` del mismo directorio y el decoder asociado vive en `configuration/decoders/orangebox-yara.xml`.
+Las firmas no se versionan en este directorio: `tools/agent/install.sh` descarga y valida el ruleset oficial desde `Yara-Rules/rules`, y registra el commit utilizado para trazabilidad. El decoder asociado vive en `configuration/manager/etc/decoders/orangebox-yara.xml`.
 
 ### `orangebox-web.xml`
 
