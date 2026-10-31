@@ -53,4 +53,4 @@ Una ejecución en un equipo sin Wazuh Manager debe limitarse a la suite Python; 
 
 ## Automatización CI
 
-`.github/workflows/vulnerability-alerts-tests.yml` valida compilación y pruebas unitarias del detector complementario de vulnerabilidades. Las pruebas que requieren un Manager real se ejecutan manualmente con `test-ioc-active-response.sh`; no deben simular un Manager ni aplicar bloqueos dentro de CI.
+`.github/workflows/vulnerability-alerts-tests.yml` valida la compilación de Python, la sintaxis de todos los scripts Bash, la estructura de los XML, las pruebas del detector de vulnerabilidades y esta suite `tests/`. Las pruebas que requieren un Manager real se ejecutan manualmente con `test-ioc-active-response.sh`; no deben simular un Manager ni aplicar bloqueos dentro de CI.
