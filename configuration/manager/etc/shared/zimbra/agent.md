@@ -4,7 +4,7 @@ Este perfil agrupa Zimbra y Carbonio CE como una misma familia operacional para 
 
 ## Identificación del perfil
 
-La etiqueta `orangebox.profile=zimbra` identifica el perfil en los eventos. Las reglas de SUDO consultan la CDB `orangebox-agent-profiles` (`hostname:zimbra`); la sincronización del grupo funcional también se mantiene mediante `update-orangebox-zimbra-agents.sh` y `orangebox-zimbra-agents`.
+La etiqueta `orangebox.profile=zimbra` identifica el perfil en los eventos. La regla `110100` consulta la CDB dinámica `orangebox-zimbra-agents`, generada desde la pertenencia al grupo Wazuh `zimbra` mediante `update-orangebox-zimbra-agents.sh`.
 
 ## Alcance FIM
 
@@ -58,7 +58,7 @@ Se vigilan en tiempo real con Who-Data y con filtros `restrict`. No se monitoriz
 
 La regla `10005` es el detector general de `sudo -> root`. La regla `110100` solo la lleva a nivel 0 cuando se cumplen simultáneamente:
 
-1. el hostname está registrado con perfil `zimbra` en `orangebox-agent-profiles`;
+el hostname está registrado en la CDB `orangebox-zimbra-agents` (generada desde el grupo Wazuh `zimbra`);
 2. el ejecutable y sus argumentos pertenecen a la allowlist de operaciones conocidas.
 
 Cualquier otro comando o servidor sigue generando `10005`. El perfil por sí solo no autoriza comandos.
@@ -66,7 +66,7 @@ Cualquier otro comando o servidor sigue generando `10005`. El perfil por sí sol
 ## Dependencias
 
 - Grupo Wazuh `zimbra` y CDB `orangebox-zimbra-agents` sincronizada.
-- CDB `orangebox-agent-profiles` con `hostname:zimbra` para la regla de SUDO.
+- CDB `orangebox-zimbra-agents` sincronizada con el grupo Wazuh `zimbra`.
 - Wazuh Agent / Syscheck.
 - Who-Data/Audit habilitado para las rutas donde se requiere atribución.
 - Reglas `orangebox-auth.xml` y `orangebox-hardening.xml` en el Manager.
