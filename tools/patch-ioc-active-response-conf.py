@@ -51,6 +51,7 @@ def _rules_ids(block: ET.Element) -> set[str]:
 def _firewall_blocks(root: ET.Element) -> list[ET.Element]:
     """Devuelve los bloques firewall-drop habilitados y descarta otras respuestas."""
     return [
+        # Filtra la configuración y conserva únicamente firewall-drop habilitados.
         block
         for block in root.iter("active-response")
         if (block.findtext("command") or "").strip() == "firewall-drop"
