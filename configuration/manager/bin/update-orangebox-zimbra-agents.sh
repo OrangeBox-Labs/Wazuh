@@ -27,6 +27,7 @@ GROUP_OUTPUT="${OUTPUT}.group.tmp.$$"
 TMP="${OUTPUT}.tmp.$$"
 AGENT_GROUPS="${OSSEC_HOME}/bin/agent_groups"
 
+# Elimina los archivos temporales del grupo y de la CDB al terminar.
 cleanup() {
     rm -f "$GROUP_OUTPUT" "$TMP"
 }
@@ -48,7 +49,7 @@ if ! "$AGENT_GROUPS" -l -g "$GROUP" >"$GROUP_OUTPUT" 2>&1; then
 fi
 
 # agent_groups devuelve lineas similares a:
-#   ID: 003  Name: zimbra01.example.invalid.
+#   ID: 003  Name: efa.nexit.cl.
 #
 # Extraemos solo el campo Name, sin depender de extensiones no portables
 # de awk ni de un formato exacto de la cabecera. Se toleran diferencias
@@ -71,6 +72,7 @@ if [[ "$ACTUAL_AGENTS" -eq 0 ]]; then
     exit 1
 fi
 
+# Emite el FQDN y, cuando existe, el nombre corto para Zimbra/Carbonio.
 while IFS= read -r hostname; do
     [[ -z "$hostname" ]] && continue
 
