@@ -16,10 +16,14 @@ OSSEC_CONF="${WAZUH_HOME}/etc/ossec.conf"
 INTEGRATION="${WAZUH_HOME}/integrations/custom-orangebox-email.py"
 ALERTS_JSON="${WAZUH_HOME}/logs/alerts/alerts.json"
 
+# Imprime una comprobación exitosa del estado de Wazuh.
 ok()   { echo "OK: $*"; }
+# Informa una condición que requiere atención sin marcarla como crítica.
 warn() { echo "ADVERTENCIA: $*"; WARN=1; }
+# Registra un fallo crítico en la revisión del Manager o sus servicios.
 crit() { echo "CRITICO: $*"; CRIT=1; }
 
+# Comprueba el estado systemd del servicio indicado y clasifica el resultado.
 check_service() {
     local service="$1"
     if ! systemctl list-unit-files "${service}.service" --no-legend 2>/dev/null | grep -q "${service}.service"; then
