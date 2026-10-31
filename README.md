@@ -2,7 +2,7 @@
 
 > Reglas, configuración y herramientas Wazuh para seguridad, FIM, YARA, Active Response y monitoreo de servidores Linux.
 
-[![OrangeBox IT Services](https://img.shields.io/badge/OrangeBox-IT%20Services-ff6a00?style=for-the-badge)](https://www.example.com/)
+[![OrangeBox IT Services](https://img.shields.io/badge/OrangeBox-IT%20Services-ff6a00?style=for-the-badge)](https://www.orangebox.cl/)
 [![Wazuh](https://img.shields.io/badge/Wazuh-security-0073c6?style=for-the-badge)](https://wazuh.com/)
 [![Bash](https://img.shields.io/badge/Bash-tooling-121011?style=for-the-badge&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 
@@ -16,10 +16,19 @@ El proyecto está orientado a operaciones reales de seguridad: detección de mal
 
 ```text
 configuration/
-├── manager/            # Configuración del Wazuh Manager
-└── agents/common/      # Configuración común de agentes
+└── manager/            # Árbol que se instala bajo /var/ossec
+    ├── bin/            # Actualizadores y utilidades del Manager
+    └── etc/
+        ├── cron.d/     # Tareas programadas
+        ├── decoders/   # Decoders propios
+        ├── lists/      # CDB y listas de contexto
+        ├── rules/      # Reglas OrangeBox
+        └── shared/     # Perfiles de agentes
 
+packages/agent/         # Builder del RPM OPT
 tools/                  # Instaladores y herramientas auxiliares
+tests/                  # Pruebas; nunca se despliega al Manager
+docs/                   # Documentación técnica transversal
 ```
 
 Los árboles `configuration/` mantienen la estructura de instalación de Wazuh para facilitar despliegues mediante `rsync`.
@@ -100,7 +109,7 @@ Las reglas y scripts deben poder revisarse, probarse y desplegarse sin depender 
 
 Enterprise Linux · Wazuh · Security · Monitoring · Zimbra · VMware · Infrastructure
 
-https://www.example.com/
+https://www.orangebox.cl/
 
 ### Keywords
 
@@ -109,6 +118,8 @@ Wazuh, Wazuh Manager, Wazuh Agent, Wazuh rules, Wazuh FIM, File Integrity Monito
 ## Documentación
 
 La documentación técnica se mantiene junto al componente que documenta, usando el mismo nombre base con extensión `.md`. Por ejemplo: `orangebox-auth.xml` + `orangebox-auth.md`, `agent.conf` + `agent.md` y `custom-orangebox-email.py` + `custom-orangebox-email.md`.
+
+La guía [Hardening web/DoS derivado de incidentes](docs/incident-derived-webdos-hardening.md) explica el origen, alcance y límites de las detecciones de disponibilidad y reconocimiento web.
 
 Los reportes de seguridad usan un único motor v4. El reporte ejecutivo y el detallado se generan en la misma ejecución; el detallado se entrega como ZIP. La implementación está en `configuration/manager/reports/orangebox-security-report.py` y la documentación en los archivos `.md` del mismo directorio.
 
