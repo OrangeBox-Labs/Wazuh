@@ -3,12 +3,12 @@
     ============================================================
 
     Objetivo
-    --------
+    ============
     Utilizar el decoder "kernel" de Wazuh para identificar intentos TCP
     entrantes y correlacionarlos como posible escaneo de puertos.
 
     Flujo
-    -----
+    ============
         firewall LOG
             |
             v
@@ -23,7 +23,7 @@
                   4 eventos en 5 segundos
 
     Importante
-    ----------
+    ============
     10450 tiene nivel 1 + no_log.
 
     No genera alertas visibles ni llena alerts.json, pero permanece
