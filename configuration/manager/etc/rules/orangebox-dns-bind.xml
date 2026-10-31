@@ -3,13 +3,13 @@
     ============================================================
 
     Dependencias
-    ------------
+    ============
     - Decoder nativo "kernel" para el trafico registrado por
       ORANGEBOX-FW.
     - Decoder/rules nativos "named" de Wazuh para eventos de BIND.
 
     Politica
-    --------
+    ============
     - Deteccion de flood DNS UDP hacia puerto 53 desde una sola IP.
     - Senal de observacion para flood DNS UDP distribuido.
     - Correlacion de flood DNS UDP distribuido persistente.
@@ -22,7 +22,7 @@
     - Caida fatal de BIND/named con prioridad critica.
 
     Importante
-    ----------
+    ============
     Las reglas de flood utilizan los eventos del firewall OrangeBox.
     UDP/53 genera un evento por paquete. TCP/53 genera un evento por
     SYN, porque el logger TCP de OrangeBox registra solamente nuevos
