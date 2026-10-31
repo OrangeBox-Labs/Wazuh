@@ -10,6 +10,9 @@
 # Los errores se conservan para poder detectar fallos de sincronizacion;
 # la salida normal permanece silenciosa.
 #
+# Sincroniza el grupo Zimbra/Carbonio cada 10 minutos entre 01:00 y 22:50.
 */10 1-22 * * * root /var/ossec/bin/update-orangebox-zimbra-agents.sh >/dev/null 2>>/var/ossec/logs/orangebox-zimbra-agents.log
+# Mantiene la sincronización cada 10 minutos entre 23:05 y 23:45.
 5-45/10 23 * * * root /var/ossec/bin/update-orangebox-zimbra-agents.sh >/dev/null 2>>/var/ossec/logs/orangebox-zimbra-agents.log
+# Reanuda cada 10 minutos entre 00:15 y 00:55.
 15-55/10 0 * * * root /var/ossec/bin/update-orangebox-zimbra-agents.sh >/dev/null 2>>/var/ossec/logs/orangebox-zimbra-agents.log
