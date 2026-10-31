@@ -113,7 +113,7 @@ La integración `sudo bash tests/test-ioc-active-response.sh` requiere un Manage
 
 ## Diferencias intencionales frente al repositorio privado
 
-El repositorio público conserva las mismas capacidades, pero usa CDB SFTP genérica, cron de reporte de ejemplo, lista curada IOC vacía, emails de ejemplo, hostname de Manager configurable y RPM OPT 4.14.8. No incluye los crons de clientes, CDB SFTP de cliente, IOC reales ni RPM privado 4.14.9.
+El repositorio público conserva las mismas capacidades, pero usa CDB SFTP genérica, cron de reporte de ejemplo, lista curada IOC vacía, emails de ejemplo, hostname de Manager configurable y RPM OPT 4.14.8. No incluye los crons de clientes, CDB SFTP de cliente, IOC reales ni el RPM OPT candidato mantenido en el repositorio privado.
 
 ## Validación del código versionado
 
