@@ -55,6 +55,7 @@ def cleanup_cache_artifacts():
     if not CACHE_DIR.exists():
         return
     temp_dir_re = re.compile(r"^\d{4}-\d{2}-\d{2}\.[A-Za-z0-9_-]+$")
+    # Recorre primero las rutas más profundas para no dejar directorios temporales huérfanos.
     for path in sorted(CACHE_DIR.rglob("*"), key=lambda p: len(p.parts), reverse=True):
         try:
             if path.is_dir() and temp_dir_re.fullmatch(path.name):
@@ -77,6 +78,7 @@ def cleanup_archive_artifacts():
     """Limpia temporales de HTML dejados por una ejecución interrumpida."""
     if not ARCHIVE_DIR.exists():
         return
+    # Elimina solo temporales abandonados; conserva los HTML y ZIP archivados.
     for path in list(ARCHIVE_DIR.glob("*.html.tmp")) + list(ARCHIVE_DIR.glob("*.zip.tmp")):
         try:
             path.unlink()
@@ -143,6 +145,7 @@ DETAIL = load_embedded(
 # ---------------------------------------------------------------------------
 
 def build_summary(events, allowed):
+    """Agrega eventos por agente y categoría, y prepara los contadores del resumen ejecutivo."""
     security_count = 0
     critical_count = 0
     source_ips = set()
@@ -150,6 +153,7 @@ def build_summary(events, allowed):
     agent_stats = defaultdict(
         lambda: {"events": 0, "high": 0, "ips": set(), "attacks": 0}
     )
+    # Inicializa las categorías que el resumen presenta por separado.
     categories = {
         name: {
             "count": 0,
@@ -387,6 +391,7 @@ def main():
         description="OrangeBox Security Report v4 - resumen + detallado ZIP"
     )
     modes = p.add_mutually_exclusive_group(required=True)
+    # Registra los períodos que acepta la interfaz de línea de comandos.
     for name in (
         "today",
         "yesterday",
@@ -466,6 +471,7 @@ def main():
     # - alimenta el resumen ejecutivo;
     # No se construye una lista de cientos de miles de eventos.
     def event_stream():
+        """Expone los eventos del cache como un flujo para procesar períodos grandes sin acumularlos en memoria."""
         full_closed_day = (
             start.time() == datetime.min.time()
             and end == start + timedelta(days=1)
