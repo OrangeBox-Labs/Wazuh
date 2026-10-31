@@ -90,9 +90,10 @@ Este repo distribuye el RPM OPT 4.14.8. El builder y el instalador públicos se 
 El directorio `tests/` es **desarrollo**, no configuración de Manager. Contiene pruebas unitarias/contractuales para Active Response, IOC updater, detector de vulnerabilidades y PHP2Shell, además de fixtures sanitizados. `test_orangebox_hardening.py` verifica el alcance y las condiciones exactas de las excepciones FIM CRON `20059`/`20060`. La CI ejecuta:
 
 ```bash
-python -m unittest discover -s configuration/manager/vulnerability-alerts -p 'test_*.py' -v
-python -m unittest discover -s tests -p 'test_*.py' -v
+python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
+
+La suite `test_vulnerability_alerts.py` también vive en `tests/`. El directorio `configuration/manager/vulnerability-alerts/` contiene el servicio y su configuración de runtime, no una suite separada; no se ejecuta un descubrimiento de pruebas vacío allí.
 
 El test `test_vulnerability_alerts.py` vive en `tests/`, no en `configuration/manager/`, para que no se copie al Manager durante el despliegue.
 
@@ -114,5 +115,5 @@ El repositorio público conserva las mismas capacidades, pero usa CDB SFTP gené
 
 - Los 15 XML de reglas contienen 143 bloques `<rule>`; todos incluyen `<description>` y un comentario explicativo.
 - Los XML de reglas y decoders tienen documentación Markdown adyacente.
-- El workflow `OrangeBox regression tests` compila todos los Python, valida la sintaxis Bash, parsea reglas/decoders XML, `ossec.conf` y perfiles `agent.conf`, y ejecuta las suites unitarias.
+- El workflow `OrangeBox regression tests` compila todos los Python, valida scripts Bash (incluido `orangebox-log-rotation`, que no usa extensión `.sh`), parsea reglas/decoders XML, `ossec.conf` y perfiles `agent.conf`, y ejecuta la suite Python de `tests/`.
 - La prueba de integración con `wazuh-logtest` queda manual porque requiere un Manager real.
