@@ -13,6 +13,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
     exit 1
 fi
 
+# Verifica que todas las herramientas necesarias estén disponibles antes de instalar o actualizar GeoIP.
 for cmd in install command curl gzip md5sum mmdblookup; do
     command -v "$cmd" >/dev/null 2>&1 || {
         echo "ERROR: falta el comando '$cmd'." >&2
