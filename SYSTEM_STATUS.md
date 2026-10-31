@@ -87,7 +87,7 @@ Este repo distribuye el RPM OPT 4.14.8. El builder y el instalador públicos se 
 
 ## Pruebas
 
-El directorio `tests/` es **desarrollo**, no configuración de Manager. Contiene pruebas unitarias/contractuales para Active Response, IOC updater y PHP2Shell, además de fixtures sanitizados. La CI ejecuta:
+El directorio `tests/` es **desarrollo**, no configuración de Manager. Contiene pruebas unitarias/contractuales para Active Response, IOC updater y PHP2Shell, además de fixtures sanitizados. `test_orangebox_hardening.py` verifica el alcance y las condiciones exactas de las excepciones FIM CRON `20059`/`20060`. La CI ejecuta:
 
 ```bash
 python -m unittest discover -s configuration/manager/vulnerability-alerts -p 'test_*.py' -v
@@ -112,5 +112,5 @@ El repositorio público conserva las mismas capacidades, pero usa CDB SFTP gené
 
 - Los 15 XML de reglas contienen 143 bloques `<rule>`; todos incluyen `<description>` y un comentario explicativo.
 - Los XML de reglas y decoders tienen documentación Markdown adyacente.
-- El workflow `OrangeBox regression tests` compila todos los Python, valida la sintaxis Bash, parsea los XML y ejecuta las dos suites unitarias.
+- El workflow `OrangeBox regression tests` compila todos los Python, valida la sintaxis Bash, parsea reglas/decoders XML, `ossec.conf` y perfiles `agent.conf`, y ejecuta las suites unitarias.
 - La prueba de integración con `wazuh-logtest` queda manual porque requiere un Manager real.
