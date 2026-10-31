@@ -8,6 +8,7 @@ esac
 umask 077
 SECRETS_FILE="${ORANGEBOX_IOC_SECRETS_FILE:-/etc/orangebox-ioc-secrets}"
 
+# Solicita y valida la Auth-Key de abuse.ch; la guarda en un archivo root-only sin exponerla por argv.
 configure_auth_key() {
     if [[ "${EUID}" -ne 0 ]]; then
         echo "ERROR: ejecutar como root." >&2
@@ -124,11 +125,13 @@ ABUSECH_AUTH_KEY="${ABUSECH_AUTH_KEY:-}"
 MB_AUTH_KEY="${MB_AUTH_KEY:-${ABUSECH_AUTH_KEY:-REPLACE_WITH_MALWAREBAZAAR_AUTH_KEY}}"
 URLHAUS_AUTH_KEY="${URLHAUS_AUTH_KEY:-${ABUSECH_AUTH_KEY:-$MB_AUTH_KEY}}"
 
+# Elimina el directorio temporal de descargas y listas al terminar, incluso ante errores.
 cleanup() {
     rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
 
+# Comprueba que una dependencia exista y detiene la actualización si falta.
 need_cmd() {
     command -v "$1" >/dev/null 2>&1 || {
         echo "ERROR: falta el comando '$1'." >&2
@@ -136,6 +139,7 @@ need_cmd() {
     }
 }
 
+# Devuelve el número de entradas de una lista para los controles de variación.
 count_lines() {
     wc -l < "$1"
 }
@@ -216,6 +220,7 @@ curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 \
 awk '
     /^[[:space:]]*#/ { next }
     {
+        # Revisa los campos de cada línea de Emerging Threats y extrae la primera IPv4.
         for (i=1; i<=NF; i++) {
             if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) {
                 print $i
@@ -244,6 +249,7 @@ source_path = Path(sys.argv[1])
 output_path = Path(sys.argv[2])
 addresses = set()
 
+# Valida la lista curada línea por línea; admite comentarios y exige IPv4 en formato CDB.
 for line_number, raw_line in enumerate(
     source_path.read_text(encoding="utf-8").splitlines(), start=1
 ):
@@ -308,6 +314,7 @@ raw_lines = csv_path.read_text(encoding="utf-8-sig").splitlines(keepends=True)
 header_index = None
 header_line = None
 
+# Busca la cabecera CSV real de URLhaus, que puede venir precedida por comentarios.
 for index, raw_line in enumerate(raw_lines):
     candidate = raw_line.strip()
     if not candidate:
@@ -321,7 +328,8 @@ for index, raw_line in enumerate(raw_lines):
 
     normalized_columns = {
         column.strip().lstrip("\ufeff").casefold()
-        for column in columns
+        # Normaliza los nombres de columna para localizar la columna URL sin depender del caso.
+for column in columns
     }
     if "url" in normalized_columns:
         header_index = index
@@ -356,6 +364,7 @@ if not url_column:
     )
 
 hosts = set()
+# Extrae de cada URLhaus row únicamente el hostname que contiene una IPv4 pública.
 for row in reader:
     raw_url = (row.get(url_column) or "").strip()
     if not raw_url:
@@ -449,6 +458,7 @@ fi
 # -------------------------
 # Safety check: reject >50% drops
 # -------------------------
+# Rechaza listas vacías o caídas inesperadas antes de reemplazar cualquier CDB.
 for name in malicious-ip malicious-domains malware-host-ip; do
     old="$LIST_DIR/$name"
     new="$TMP_DIR/$name"
@@ -587,6 +597,7 @@ fi
 # la nueva versión y se reinicia el manager para reconstruir las CDB.
 CHANGED=0
 
+# Reemplaza una CDB solo si el contenido validado cambió y marca que será necesario recargar Wazuh.
 install_if_changed() {
     local name="$1"
     local source="$TMP_DIR/$name"
