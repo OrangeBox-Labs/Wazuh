@@ -411,6 +411,7 @@
      10030/10037 para el resto de servidores ni para otras rutas.
 -->
 <group name="orangebox,hardening,fim,whitelist,cpanel,">
+    <!-- Regla 20050: Silencia cambios rutinarios de archivos de identidad realizados por operaciones normales de cPanel. -->
     <rule id="20050" level="0">
         <if_sid>10030</if_sid>
         <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
@@ -419,6 +420,8 @@
         <group>orangebox_exception,orangebox_whitelist,cpanel,identity,</group>
     </rule>
 
+    <!-- Regla 20051: Silencia actualizaciones de csf.deny generadas por CSF/LFD en agentes cPanel. -->
+
     <rule id="20051" level="0">
         <if_sid>10037</if_sid>
         <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
@@ -426,6 +429,8 @@
         <description>EXCEPCION: CSF/LFD actualiza csf.deny como parte de su operacion normal.</description>
         <group>orangebox_exception,orangebox_whitelist,cpanel,firewall,</group>
     </rule>
+
+    <!-- Regla 20052: Silencia la regeneración operacional de nftables.conf por cPanel/Imunify en agentes cPanel. -->
 
     <rule id="20052" level="0">
         <if_sid>10037</if_sid>
@@ -443,6 +448,7 @@
     en agentes incluidos en el grupo Wazuh "DNS".
 -->
 <group name="orangebox,hardening,fim,whitelist,dns,">
+    <!-- Regla 20057: Silencia la eliminación de unidades SocialBee/XOVI no utilizadas, solo en agentes DNSOnly autorizados. -->
     <rule id="20057" level="0">
         <if_sid>10044</if_sid>
         <list field="hostname" lookup="match_key_value" check_value="^DNS$">etc/lists/orangebox-dns-agents</list>
@@ -486,6 +492,7 @@
     snap-*.mount o sus temporales de reemplazo.
 -->
 <group name="orangebox,hardening,fim,whitelist,snap,systemd,">
+    <!-- Regla 20058: Silencia la limpieza de unidades snap-*.mount cuando la eliminación la realiza snapd. -->
     <rule id="20058" level="0">
         <if_sid>10044</if_sid>
         <field name="process_name" type="pcre2">^snapd$</field>
