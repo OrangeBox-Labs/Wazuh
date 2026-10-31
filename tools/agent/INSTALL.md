@@ -11,16 +11,16 @@ El instalador pregunta si el servidor es cPanel/CSF.
 
 ## Flujo
 
-1. Detecta si Wazuh ya está instalado.
-2. Si falta, instala el agente normal o el RPM OPT de cPanel.
-3. Configura el almacenamiento `/var/ossec` en Linux normal.
-4. Verifica/configura el firewall OrangeBox.
-5. Verifica/configura auditd.
-6. Verifica/configura YARA y sus dependencias.
-7. Genera `orangebox-yara.sh` y `orangebox-quarantine.py` directamente en el cliente.
-8. Descarga y valida el ruleset oficial Yara-Rules.
-9. Reinicia/valida el agente.
-10. Ejecuta las validaciones finales.
+1. Detecta distribución, versión de Enterprise Linux y presencia/versión del Wazuh Agent.
+2. Instala o reconcilia el agente estándar o el RPM OPT de cPanel.
+3. Prepara y valida el almacenamiento dedicado de `/var/ossec` en Linux normal; el perfil OPT conserva `/opt/ossec`.
+4. Detecta el backend de firewall y reconcilia el logging OrangeBox sin duplicar reglas.
+5. Instala y valida auditd, sus reglas persistentes y la lectura local de `/var/log/audit/audit.log`.
+6. Reconcilia telemetría local de SYN-RECV, CPU de `ksoftirqd` y carga; agrega PHP-FPM solo en cPanel.
+7. Mantiene `logcollector.remote_commands=0` en `local_internal_options.conf`; la telemetría se ejecuta localmente y no requiere comandos remotos.
+8. Instala/valida YARA, genera el runtime y el actualizador del ruleset, y verifica sus índices.
+9. Instala el Active Response de cuarentena para hashes confirmados.
+10. Activa el agente una sola vez si hubo cambios y realiza las verificaciones finales.
 
 El proceso es idempotente. Las etapas importantes están aisladas: si una etapa falla, se registra el error y el instalador continúa con las siguientes. Al final muestra un resumen de pasos OK y pasos con error y devuelve código `1` si quedó alguna etapa fallida.
 
@@ -74,15 +74,17 @@ Las instalaciones antiguas que todavía tengan `99-orangebox-exec.rules` con reg
 
 En Enterprise Linux 10 se instala `audit-rules` cuando corresponde. El instalador también comprueba `audispd-plugins`, necesario para que Wazuh pueda usar Whodata mediante `audisp-af_unix`. Wazuh utiliza su propio plugin `/etc/audit/plugins.d/af_wazuh.conf`; el `af_unix.conf` genérico de `audispd-plugins` no se activa ni se modifica. Después de cargar las reglas, se valida que las claves OrangeBox estén activas y se reinicia Wazuh para consumir `/var/log/audit/audit.log`.
 
-## cPanel
+## Telemetría local y ejecución remota
 
-El RPM OPT está en el mismo directorio:
+Las fuentes OrangeBox de comandos para SYN-RECV, CPU de `ksoftirqd` y carga se mantienen en el `ossec.conf` de cada agente. PHP-FPM se configura únicamente en los agentes cPanel/OPT. El instalador reconcilia los bloques marcados, detecta definiciones manuales duplicadas y conserva un respaldo antes de modificar el archivo.
+
+El instalador fija `logcollector.remote_commands=0` en `local_internal_options.conf`. Las fuentes `command`/`full_command` de esta telemetría no se distribuyen desde `agent.conf`; por tanto, el manager no puede cambiarlas remotamente a través de esa configuración. La configuración central de cPanel conserva FIM y las fuentes de logs específicas de cPanel, pero no la telemetría de comandos ni una segunda entrada para `audit.log`.
+
+El RPM OPT se utiliza únicamente cuando se selecciona cPanel:
 
 ```text
 tools/agent/wazuh-agent_4.14.8-0_x86_64_OPT.rpm
 ```
-
-El instalador lo utiliza únicamente cuando se selecciona cPanel.
 
 ## YARA
 
