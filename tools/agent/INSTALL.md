@@ -16,11 +16,12 @@ El instalador pregunta si el servidor es cPanel/CSF.
 3. Prepara y valida el almacenamiento dedicado de `/var/ossec` en Linux normal; el perfil OPT conserva `/opt/ossec`.
 4. Detecta el backend de firewall y reconcilia el logging OrangeBox sin duplicar reglas.
 5. Instala y valida auditd, sus reglas persistentes y la lectura local de `/var/log/audit/audit.log`.
-6. Reconcilia telemetría local de SYN-RECV, CPU de `ksoftirqd` y carga; agrega PHP-FPM solo en cPanel.
-7. Mantiene `logcollector.remote_commands=0` en `local_internal_options.conf`; la telemetría se ejecuta localmente y no requiere comandos remotos.
-8. Instala/valida YARA, genera el runtime y el actualizador del ruleset, y verifica sus índices.
-9. Instala el Active Response de cuarentena para hashes confirmados.
-10. Activa el agente una sola vez si hubo cambios y realiza las verificaciones finales.
+6. Verifica conflictos e instala la rotación diaria de auditd, compresión gzip y retención local de siete días.
+7. Reconcilia telemetría local de SYN-RECV, CPU de `ksoftirqd` y carga; agrega PHP-FPM solo en cPanel.
+8. Mantiene `logcollector.remote_commands=0` en `local_internal_options.conf`; la telemetría se ejecuta localmente y no requiere comandos remotos.
+9. Instala/valida YARA, genera el runtime y el actualizador del ruleset, y verifica sus índices.
+10. Instala el Active Response de cuarentena para hashes confirmados.
+11. Activa el agente una sola vez si hubo cambios y realiza las verificaciones finales.
 
 El proceso es idempotente. Las etapas importantes están aisladas: si una etapa falla, se registra el error y el instalador continúa con las siguientes. Al final muestra un resumen de pasos OK y pasos con error y devuelve código `1` si quedó alguna etapa fallida.
 
@@ -73,6 +74,12 @@ Las reglas cubren:
 Las instalaciones antiguas que todavía tengan `99-orangebox-exec.rules` con reglas OrangeBox se respaldan y migran al archivo canónico para evitar el error de reglas duplicadas de `augenrules`.
 
 En Enterprise Linux 10 se instala `audit-rules` cuando corresponde. El instalador también comprueba `audispd-plugins`, necesario para que Wazuh pueda usar Whodata mediante `audisp-af_unix`. Wazuh utiliza su propio plugin `/etc/audit/plugins.d/af_wazuh.conf`; el `af_unix.conf` genérico de `audispd-plugins` no se activa ni se modifica. Después de cargar las reglas, se valida que las claves OrangeBox estén activas y se reinicia Wazuh para consumir `/var/log/audit/audit.log`.
+
+## Rotación/compresión de auditd
+
+La política se instala en `/etc/cron.daily/orangebox-audit-logrotate`. Auditd rota el archivo activo mediante `service auditd rotate`; los archivos cerrados se comprimen con gzip y las generaciones OrangeBox con más de siete días se eliminan. El instalador desactiva la rotación por tamaño con `max_log_file_action = ignore` y recarga auditd con SIGHUP cuando cambia el parámetro.
+
+Antes de modificar, busca referencias activas a `/var/log/audit` en `/etc/logrotate.conf` y `/etc/logrotate.d`, además de otros cron que ya roten auditd. Las configuraciones externas se conservan; si hay conflicto no se instala una segunda política y el paso se marca con error.
 
 ## Telemetría local y ejecución remota
 
