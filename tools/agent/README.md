@@ -121,7 +121,7 @@ El instalador verifica e instala la política diaria de auditd en `/etc/cron.dai
 - conserva siete días locales y elimina únicamente los archivos comprimidos identificados como OrangeBox;
 - establece `max_log_file_action = ignore` para que la rotación diaria no se duplique con la rotación automática por tamaño.
 
-Antes de escribir, busca reglas logrotate que cubran `/var/log/audit` y cron existentes que soliciten una rotación de auditd. Si detecta una política externa, la conserva y marca el paso como error para revisión; no crea una segunda rotación.
+Antes de escribir, busca reglas logrotate que cubran `/var/log/audit` y cron existentes que soliciten una rotación de auditd. Si detecta una política externa, la conserva y marca el paso como error para revisión; no crea una segunda rotación. También verifica que `crond` esté activo y habilitado; si no lo está, no instala la tarea ni desactiva la rotación por tamaño.
 
 El helper se mantiene en `tools/agent/auditd-logrotate.sh` y lo despliega el instalador único. No debe ejecutarse como script de instalación independiente.
 
