@@ -53,6 +53,7 @@ class PHP2ShellRuleTests(unittest.TestCase):
         """Protege los indicadores de comportamiento PHP2Shell conocidos."""
         samples = (
             '192.0.2.10 - - [30/Oct/2026:10:00:00 -0300] "GET /?probe=php2shell HTTP/1.1" 404 0 "-" "scanner"',
+            '192.0.2.10 - - [01/Nov/2026:18:19:40 -0300] "GET /%ff%fe/..%00.php HTTP/1.1" 500 - "-" "php2shell-scan/2.0 (authorized-security-assessment)"',
             '192.0.2.10 - - [30/Oct/2026:10:00:00 -0300] "GET /icons/zz.php HTTP/1.1" 404 0 "-" "wide-cve-2026-109618/1.0"',
             '192.0.2.10 - - [30/Oct/2026:10:00:00 -0300] "GET /?id=CVE-2026-109619 HTTP/1.1" 404 0 "-" "scanner"',
         )
