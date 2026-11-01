@@ -132,6 +132,7 @@ class PHP2ShellRuleTests(unittest.TestCase):
 
     def test_repeated_non_ioc_php2shell_scan_uses_existing_24_hour_local_block(self):
         """Comprueba que la correlación 10051 active el bloqueo web existente por 24 horas."""
+        sys.path.insert(0, str(REPO_ROOT / "configuration" / "manager" / "integrations"))
         from orangebox_active_response import firewall_drop_policy_for_alert
         rule = self.rules["10051"]
         groups = [item.strip() for item in rule.findtext("group", "").split(",") if item.strip()]
