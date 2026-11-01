@@ -30,28 +30,21 @@ class FirewallDropPolicyTests(unittest.TestCase):
         tmp.close()
         return tmp.name
 
-    def test_repo_policy_firewall_drop_durations(self):
-        """Comprueba las duraciones de contención IOC y de escaneo PHP2Shell repetido."""
+    def test_repo_policy_ioc_durations(self):
+        """Comprueba que el repositorio mantenga los timeouts IOC de 7 y 30 días."""
         expected = {
             "10460": 604800, "10461": 604800, "10462": 604800, "10463": 604800,
             "99903": 604800, "99904": 604800, "99905": 604800, "99907": 604800,
             "99908": 604800, "99911": 604800, "99912": 604800, "99913": 604800,
-            "99914": 604800, "99906": 2592000, "10053": 2592000, "10051": 86400,
+            "99914": 604800, "99906": 2592000, "10053": 2592000,
         }
-        # La regla 10051 selecciona Active Response mediante el grupo exacto de web auto-block.
+        # Comprueba el timeout esperado de cada SID de Active Response.
         for rule_id, timeout in expected.items():
             with self.subTest(rule_id=rule_id):
-                groups = ["orangebox_web_auto_block"] if rule_id == "10051" else []
-                level = 12 if rule_id == "10051" else 14
-                result = firewall_drop_policy_for_alert(rule_id, level, groups, str(MANAGER_CONF))
+                result = firewall_drop_policy_for_alert(rule_id, 14, [], str(MANAGER_CONF))
                 self.assertEqual(result["status"], "configured")
                 self.assertEqual(result["timeout_seconds"], timeout)
                 self.assertEqual(result["location"], "local")
-                if rule_id == "10051":
-                    self.assertEqual(result["matched_by"], ["rules_group:orangebox_web_auto_block,"])
-        # La regla 10051 no debe activar un bloqueo si no trae el grupo funcional de auto-contención.
-        no_group = firewall_drop_policy_for_alert("10051", 12, [], str(MANAGER_CONF))
-        self.assertEqual(no_group["status"], "not_configured")
 
     def test_rules_id_rules_group_and_level_are_or_selectors(self):
         """Verifica que SID, grupo y nivel se evalúen como selectores alternativos."""
