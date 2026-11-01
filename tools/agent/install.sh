@@ -2366,6 +2366,21 @@ run_step "Logging" configure_logging
 # El agente se activa una sola vez al final, si alguna etapa lo requiere.
 
 # ---------------------------------------------------------------------------
+# Verifica que el scheduler de cron esté activo y habilitado antes de desactivar
+# la rotación automática por tamaño de auditd. No habilita ni inicia servicios por sí solo.
+orangebox_cron_scheduler_ready() {
+    if has systemctl; then
+        systemctl is-active --quiet crond.service &&
+            systemctl is-enabled crond.service >/dev/null 2>&1
+        return $?
+    fi
+
+    has service || return 1
+    service crond status >/dev/null 2>&1 || return 1
+    has chkconfig || return 1
+    chkconfig --list crond 2>/dev/null | grep -Eq '3:on.*5:on'
+}
+
 # Instala y verifica la rotación diaria de auditd, compresión gzip y retención de siete días.
 configure_audit_log_rotation() {
     local audit_conf="/etc/audit/auditd.conf"
@@ -2378,6 +2393,8 @@ configure_audit_log_rotation() {
     grep -Fq '# ORANGEBOX_AUDIT_LOG_ROTATION' "$rotation_source" || fail "El helper de auditd no tiene el marcador OrangeBox."
     has gzip || fail "gzip no está disponible."
     has service || fail "service no está disponible."
+    orangebox_cron_scheduler_ready ||
+        fail "crond no está activo y habilitado; no se instalará la rotación diaria ni se cambiará auditd.conf."
 
     # No duplicar una regla logrotate ni un cron que ya rote auditd.
     for candidate in /etc/logrotate.conf /etc/logrotate.d/*; do
@@ -4119,7 +4136,8 @@ final_verification() {
             ok "Verificación: lectura local de audit.log presente." ||
             { echo "ERROR: Verificación final: no se configura lectura de audit.log." >&2; failed=1; }
 
-        if [[ -x /etc/cron.daily/orangebox-audit-logrotate ]] &&
+        if orangebox_cron_scheduler_ready &&
+           [[ -x /etc/cron.daily/orangebox-audit-logrotate ]] &&
            grep -Fq '# ORANGEBOX_AUDIT_LOG_ROTATION' /etc/cron.daily/orangebox-audit-logrotate &&
            grep -Eq '^KEEP_DAYS=7$' /etc/cron.daily/orangebox-audit-logrotate &&
            grep -Eq '^[[:space:]]*max_log_file_action[[:space:]]*=[[:space:]]*ignore([[:space:]]*(#.*)?)?$' /etc/audit/auditd.conf; then
