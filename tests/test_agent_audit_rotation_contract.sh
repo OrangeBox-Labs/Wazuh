@@ -11,6 +11,7 @@ pass() { printf '[PASS] %s\n' "$*"; }
 bash -n "$INSTALLER" || fail "el instalador no tiene sintaxis Bash válida"
 
 grep -Fq 'configure_audit_log_rotation()' "$INSTALLER" || fail "falta configure_audit_log_rotation"
+grep -Fq 'orangebox_cron_scheduler_ready()' "$INSTALLER" || fail "el instalador debe comprobar crond activo y habilitado antes de cambiar auditd.conf"
 grep -Fq '/etc/logrotate.d/*' "$INSTALLER" || fail "el instalador debe buscar reglas logrotate externas"
 grep -Fq '/etc/cron.daily/orangebox-audit-logrotate' "$INSTALLER" || fail "falta la tarea diaria administrada"
 ROTATOR="$ROOT_DIR/tools/agent/auditd-logrotate.sh"
