@@ -2366,6 +2366,102 @@ run_step "Logging" configure_logging
 # El agente se activa una sola vez al final, si alguna etapa lo requiere.
 
 # ---------------------------------------------------------------------------
+# Instala y verifica la rotación diaria de auditd, compresión gzip y retención de siete días.
+configure_audit_log_rotation() {
+    local audit_conf="/etc/audit/auditd.conf"
+    local rotation_script="/etc/cron.daily/orangebox-audit-logrotate"
+    local rotation_source="$SCRIPT_DIR/auditd-logrotate.sh"
+    local current_action="" tmp="" action_tmp="" changed=0 auditd_pid=""
+
+    [[ -f "$audit_conf" && ! -L "$audit_conf" && -d /var/log/audit ]] || fail "No se encontró auditd.conf o /var/log/audit."
+    [[ -f "$rotation_source" && ! -L "$rotation_source" ]] || fail "Falta tools/agent/auditd-logrotate.sh."
+    grep -Fq '# ORANGEBOX_AUDIT_LOG_ROTATION' "$rotation_source" || fail "El helper de auditd no tiene el marcador OrangeBox."
+    has gzip || fail "gzip no está disponible."
+    has service || fail "service no está disponible."
+
+    # No duplicar una regla logrotate ni un cron que ya rote auditd.
+    for candidate in /etc/logrotate.conf /etc/logrotate.d/*; do
+        [[ -f "$candidate" ]] || continue
+        if awk '!/^[[:space:]]*#/ && /\\/var\\/log\\/audit/' "$candidate"; then
+            fail "Ya existe una regla logrotate para audit en $candidate; se conserva sin cambios."
+        fi
+    done
+    for candidate in /etc/cron.daily/* /etc/cron.hourly/* /etc/cron.weekly/* /etc/cron.d/*; do
+        [[ -f "$candidate" ]] || continue
+        [[ "$candidate" = "$rotation_script" ]] && continue
+        if awk '!/^[[:space:]]*#/ && (/service[[:space:]]+auditd[[:space:]]+rotate/ || /auditctl[[:space:]]+--signal[[:space:]]+rotate/)' "$candidate"; then
+            fail "Ya existe una tarea de rotación auditd en $candidate; se conserva sin duplicar."
+        fi
+    done
+
+    [[ ! -L "$rotation_script" ]] || fail "$rotation_script es un enlace simbólico."
+    if [[ -e "$rotation_script" ]] && ! grep -Fq '# ORANGEBOX_AUDIT_LOG_ROTATION' "$rotation_script"; then
+        fail "$rotation_script ya existe y no pertenece a OrangeBox; se conserva."
+    fi
+
+    current_action="$(awk -F= '
+        /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+        {
+            key=$1; gsub(/[[:space:]]/, "", key)
+            if (key == "max_log_file_action") {
+                value=$2; sub(/[[:space:]]*#.*/, "", value)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+                current=tolower(value)
+            }
+        }
+        END { print current }
+    ' "$audit_conf")"
+    case "$current_action" in
+        ""|rotate|ignore) ;;
+        *) fail "max_log_file_action=$current_action es una política personalizada; no se reemplaza." ;;
+    esac
+
+    # Copia el helper de origen y valida su sintaxis antes de instalarlo en cron.daily.
+    tmp="$(mktemp)" || fail "No se pudo crear temporal del rotador auditd."
+    cp -p "$rotation_source" "$tmp" || { rm -f "$tmp"; fail "No se pudo copiar el rotador auditd."; }
+    bash -n "$tmp" || { rm -f "$tmp"; fail "El rotador auditd tiene errores de sintaxis."; }
+    if sync_managed_file "$tmp" "$rotation_script" 750 root root; then
+        ok "Rotador diario auditd instalado/actualizado."
+    else
+        ok "Rotador diario auditd ya coincide."
+    fi
+
+    # La rotación diaria manual requiere desactivar la rotación automática por tamaño.
+    if [[ "$current_action" != "ignore" ]]; then
+        action_tmp="$(mktemp /etc/audit/.auditd.conf.orangebox.XXXXXX)" || fail "No se pudo crear temporal para auditd.conf."
+        awk '
+            function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+            /^[ \t]*#/ || /^[ \t]*$/ { print; next }
+            {
+                line=$0; sub(/[ \t]+#.*/, "", line); equal=index(line, "=")
+                key=equal ? trim(substr(line, 1, equal-1)) : ""
+                if (key == "max_log_file_action") {
+                    if (!written) print "max_log_file_action = ignore"
+                    written=1; next
+                }
+                print
+            }
+            END { if (!written) print "max_log_file_action = ignore" }
+        ' "$audit_conf" > "$action_tmp" || { rm -f "$action_tmp"; fail "No se pudo preparar auditd.conf."; }
+        if sync_managed_file "$action_tmp" "$audit_conf" 640 root root; then
+            changed=1
+        fi
+    fi
+
+    if [[ "$changed" -eq 1 ]]; then
+        auditd_pid="$(pidof auditd 2>/dev/null || true)"
+        [[ -z "$auditd_pid" ]] || kill -HUP $auditd_pid || fail "No se pudo recargar auditd.conf."
+    fi
+
+    [[ -x "$rotation_script" ]] || fail "El rotador auditd no quedó ejecutable."
+    grep -Fq '# ORANGEBOX_AUDIT_LOG_ROTATION' "$rotation_script" || fail "Falta el marcador del rotador auditd."
+    grep -Eq '^KEEP_DAYS=7$' "$rotation_script" || fail "La retención no es de siete días."
+    grep -Fq 'auditd rotate' "$rotation_script" || fail "El rotador no solicita rotación a auditd."
+    grep -Fq 'gzip' "$rotation_script" || fail "El rotador no comprime los logs."
+    grep -Eq '^[[:space:]]*max_log_file_action[[:space:]]*=[[:space:]]*ignore([[:space:]]*(#.*)?)?$' "$audit_conf" || fail "max_log_file_action no quedó en ignore."
+    ok "auditd validado: rotación diaria, gzip y retención local de siete días."
+}
+
 # 7. Componentes OrangeBox integrados: auditd + YARA
 # ---------------------------------------------------------------------------
 # Genera y carga reglas auditd de ejecución y prepara la atribución Who-Data que usa FIM.
@@ -3969,6 +4065,7 @@ PY
 }
 
 run_step "Auditd / monitoreo de ejecución" configure_exec_audit
+run_step "Auditd / rotación, compresión y retención 7 días" configure_audit_log_rotation
 run_step "Telemetría local / remote_commands desactivado" configure_local_telemetry
 run_step "YARA" configure_yara
 run_step "Cuarentena Active Response" configure_quarantine
@@ -4021,6 +4118,154 @@ final_verification() {
         grep -Fq '<location>/var/log/audit/audit.log</location>' "$WAZUH_HOME/etc/ossec.conf" &&
             ok "Verificación: lectura local de audit.log presente." ||
             { echo "ERROR: Verificación final: no se configura lectura de audit.log." >&2; failed=1; }
+
+        if [[ -x /etc/cron.daily/orangebox-audit-logrotate ]] &&
+           grep -Fq '# ORANGEBOX_AUDIT_LOG_ROTATION' /etc/cron.daily/orangebox-audit-logrotate &&
+           grep -Eq '^KEEP_DAYS=7
+        if ! grep -Eq '^[[:space:]]*logcollector[.]remote_commands[[:space:]]*=[[:space:]]*0([[:space:]]*(#.*)?)?$' "$WAZUH_HOME/etc/local_internal_options.conf"; then
+            echo "ERROR: Verificación final: logcollector.remote_commands no está explícitamente desactivado." >&2
+            failed=1
+        fi
+    fi
+
+    case "$LOGGING_BACKEND" in
+        rsyslog)
+            if [ -f "$FIREWALL_LOG" ] && [ -f "$LOGROTATE_FILE" ]; then
+                ok "Verificación: log y logrotate disponibles para EL6."
+            else
+                echo "ERROR: Verificación final: falta log o logrotate para EL6." >&2
+                failed=1
+            fi
+            ;;
+        journald)
+            if journalctl -n 1 --no-pager >/dev/null 2>&1; then
+                ok "Verificación: journald disponible."
+            else
+                echo "ERROR: Verificación final: journald no está disponible." >&2
+                failed=1
+            fi
+            ;;
+        *)
+            echo "ERROR: Verificación final: backend de logging no definido." >&2
+            failed=1
+            ;;
+    esac
+
+    return "$failed"
+}
+
+run_step "Verificación final" final_verification
+
+echo
+echo "============================================================"
+echo " RESUMEN DE INSTALACIÓN"
+echo "============================================================"
+
+if [ "${#STEP_OK[@]}" -gt 0 ]; then
+    echo
+    echo "OK - PASOS COMPLETADOS:"
+    # Imprime las etapas completadas en el resumen final.
+    for step in "${STEP_OK[@]}"; do
+        echo "  [OK] ${step}"
+    done
+fi
+
+if [ "${#STEP_FAILED[@]}" -gt 0 ]; then
+    echo
+    echo "ERROR - PASOS CON FALLAS:"
+    # Imprime las etapas que terminaron con error en el resumen final.
+    for step in "${STEP_FAILED[@]}"; do
+        echo "  [ERROR] ${step}"
+    done
+fi
+
+echo
+echo "Totales: ${#STEP_OK[@]} OK / ${#STEP_FAILED[@]} con errores."
+
+if [ "${#STEP_FAILED[@]}" -gt 0 ]; then
+    echo
+    echo "OrangeBox terminó con errores. Los pasos posteriores al fallo fueron ejecutados igualmente."
+    exit 1
+fi
+
+echo
+ok "Configuración OrangeBox completada."
+ /etc/cron.daily/orangebox-audit-logrotate &&
+           grep -Eq '^[[:space:]]*max_log_file_action[[:space:]]*=[[:space:]]*ignore([[:space:]]*(#.*)?)?
+        if ! grep -Eq '^[[:space:]]*logcollector[.]remote_commands[[:space:]]*=[[:space:]]*0([[:space:]]*(#.*)?)?$' "$WAZUH_HOME/etc/local_internal_options.conf"; then
+            echo "ERROR: Verificación final: logcollector.remote_commands no está explícitamente desactivado." >&2
+            failed=1
+        fi
+    fi
+
+    case "$LOGGING_BACKEND" in
+        rsyslog)
+            if [ -f "$FIREWALL_LOG" ] && [ -f "$LOGROTATE_FILE" ]; then
+                ok "Verificación: log y logrotate disponibles para EL6."
+            else
+                echo "ERROR: Verificación final: falta log o logrotate para EL6." >&2
+                failed=1
+            fi
+            ;;
+        journald)
+            if journalctl -n 1 --no-pager >/dev/null 2>&1; then
+                ok "Verificación: journald disponible."
+            else
+                echo "ERROR: Verificación final: journald no está disponible." >&2
+                failed=1
+            fi
+            ;;
+        *)
+            echo "ERROR: Verificación final: backend de logging no definido." >&2
+            failed=1
+            ;;
+    esac
+
+    return "$failed"
+}
+
+run_step "Verificación final" final_verification
+
+echo
+echo "============================================================"
+echo " RESUMEN DE INSTALACIÓN"
+echo "============================================================"
+
+if [ "${#STEP_OK[@]}" -gt 0 ]; then
+    echo
+    echo "OK - PASOS COMPLETADOS:"
+    # Imprime las etapas completadas en el resumen final.
+    for step in "${STEP_OK[@]}"; do
+        echo "  [OK] ${step}"
+    done
+fi
+
+if [ "${#STEP_FAILED[@]}" -gt 0 ]; then
+    echo
+    echo "ERROR - PASOS CON FALLAS:"
+    # Imprime las etapas que terminaron con error en el resumen final.
+    for step in "${STEP_FAILED[@]}"; do
+        echo "  [ERROR] ${step}"
+    done
+fi
+
+echo
+echo "Totales: ${#STEP_OK[@]} OK / ${#STEP_FAILED[@]} con errores."
+
+if [ "${#STEP_FAILED[@]}" -gt 0 ]; then
+    echo
+    echo "OrangeBox terminó con errores. Los pasos posteriores al fallo fueron ejecutados igualmente."
+    exit 1
+fi
+
+echo
+ok "Configuración OrangeBox completada."
+ /etc/audit/auditd.conf; then
+            ok "Verificación: auditd rota diariamente, comprime y retiene siete días."
+        else
+            echo "ERROR: Verificación final: política de rotación/compresión de auditd ausente o incompleta." >&2
+            failed=1
+        fi
         if ! grep -Eq '^[[:space:]]*logcollector[.]remote_commands[[:space:]]*=[[:space:]]*0([[:space:]]*(#.*)?)?$' "$WAZUH_HOME/etc/local_internal_options.conf"; then
             echo "ERROR: Verificación final: logcollector.remote_commands no está explícitamente desactivado." >&2
             failed=1
