@@ -8,9 +8,13 @@
     the dedicated 30-day firewall-drop policy. A source not in the IOC CDB
     becomes 10054 and is logged without automatic blocking.
 
-    10051 correlates repeated alertable 10054 matches from non-IOC sources.
-    10052 detects selected auditd
-    post-exploitation behavior. Neither 10051 nor 10052 has Active Response.
+    10051 correlates repeated 10054 probes from the same non-IOC source.
+    It excludes trusted web-discovery proxies and joins the existing
+    orangebox_web_auto_block group, which applies firewall-drop locally
+    on the reporting agent for 24 hours. This confirms repeated scanning,
+    not successful remote-code execution.
+    10052 detects selected auditd post-exploitation behavior and has no
+    automatic firewall response.
 -->
 <group name="orangebox,web,php2shell,attack,">
 
@@ -66,17 +70,24 @@
         <group>web,attack,reconnaissance,exploit_attempt,orangebox_php2shell,orangebox_php2shell_probe,</group>
     </rule>
 
-    <!-- Repeticion de sondeos no IOC: cuenta alertas previas 10054 del mismo origen. -->
+    <!--
+        Repeated PHP2Shell/PEAR probes from one non-IOC source in five minutes.
+        The trusted reverse-proxy CDB is checked again at correlation time:
+        a proxy address must never be blocked as if it were the remote client.
+        orangebox_web_auto_block selects the existing 24-hour firewall-drop
+        policy, executed locally on the agent that reported the web access log.
+    -->
     <rule id="10051" level="12" frequency="3" timeframe="300" ignore="300">
         <if_matched_sid>10054</if_matched_sid>
         <same_srcip />
         <list field="srcip" lookup="not_match_key">etc/lists/malicious-ioc/malicious-ip</list>
-        <description>ALERTA: Tres o mas sondeos PHP2Shell/PEAR desde la misma IP no IOC en 5 minutos ($(srcip)). Investigar actividad repetida; sin bloqueo automatico.</description>
+        <list field="srcip" lookup="not_address_match_key">etc/lists/orangebox-web-discovery-proxies</list>
+        <description>ALERTA: Tres o mas sondeos PHP2Shell/PEAR desde la misma IP no IOC ni proxy autorizado en 5 minutos ($(srcip)). Escaneo repetido confirmado; firewall-drop durante 24 horas en el agente que registro el evento.</description>
         <mitre>
             <id>T1595</id>
             <id>T1190</id>
         </mitre>
-        <group>web,attack,reconnaissance,exploit_attempt,orangebox_php2shell,orangebox_php2shell_probe,orangebox_immediate,</group>
+        <group>web,attack,reconnaissance,exploit_attempt,orangebox_php2shell,orangebox_php2shell_probe,orangebox_web_auto_block,orangebox_immediate,</group>
     </rule>
 
 
