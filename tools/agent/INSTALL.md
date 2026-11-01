@@ -79,7 +79,7 @@ En Enterprise Linux 10 se instala `audit-rules` cuando corresponde. El instalado
 
 La política se instala en `/etc/cron.daily/orangebox-audit-logrotate`. Auditd rota el archivo activo mediante `service auditd rotate`; los archivos cerrados se comprimen con gzip y las generaciones OrangeBox con más de siete días se eliminan. El instalador desactiva la rotación por tamaño con `max_log_file_action = ignore` y recarga auditd con SIGHUP cuando cambia el parámetro.
 
-Antes de modificar, busca referencias activas a `/var/log/audit` en `/etc/logrotate.conf` y `/etc/logrotate.d`, además de otros cron que ya roten auditd. Las configuraciones externas se conservan; si hay conflicto no se instala una segunda política y el paso se marca con error.
+Antes de modificar, busca referencias activas a `/var/log/audit` en `/etc/logrotate.conf` y `/etc/logrotate.d`, además de otros cron que ya roten auditd. Las configuraciones externas se conservan; si hay conflicto no se instala una segunda política y el paso se marca con error. También exige `crond` activo y habilitado. Si no lo está, el instalador no instala la tarea diaria ni cambia `max_log_file_action`.
 
 ## Telemetría local y ejecución remota
 
