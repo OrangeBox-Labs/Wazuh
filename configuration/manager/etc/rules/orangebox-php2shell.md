@@ -9,7 +9,7 @@ Detectar indicadores PHP2Shell (CVE-2026-109618 / CVE-2026-109619) y el patrón 
 | Regla | Nivel | Función |
 |---|---:|---|
 | 10050 | 8, atributo noalert="1" | Clasificador intermedio: marcador PHP2Shell/CVE o combinación PEAR pearcmd + config-create + destino bajo /tmp/, /var/tmp/ o /dev/shm/. Permite que Wazuh continúe evaluando el árbol de reglas. |
-| 10051 | 12 | Tres o más eventos 10054 de la misma IP no IOC en 300 segundos. Vuelve a excluir la CDB de proxies web autorizados y entra en `orangebox_web_auto_block`: `firewall-drop` local durante 24 horas. Confirma escaneo repetido, no RCE. |
+| 10051 | 12 | Tres o más alertas previas 10054 desde la misma IP no IOC en 300 segundos. Alerta de sondeo repetido; no confirma RCE y no bloquea. |
 | 10052 | 12 | Señales de ejecución post-explotación observadas por auditd. Puede haber usos administrativos legítimos. |
 | 10053 | 14 | Evento 10050 cuyo srcip aparece en la CDB malicious-ip. Alerta IOC dedicada y firewall-drop durante 30 días. |
 | 10054 | 8 | Evento 10050 cuyo srcip no aparece en la CDB malicious-ip. Genera alerta de sondeo y no bloquea automáticamente. |
@@ -19,8 +19,7 @@ La regla 10050 exige los tres indicadores PEAR en el mismo registro para la dete
 ## Active Response
 
 - 10053 comparte la política de contención de 30 días con 99906.
-- 10051 hereda la política existente del grupo exacto `orangebox_web_auto_block`: `firewall-drop` durante 24 horas en el agente que generó el evento. La regla exige tres coincidencias 10054 de la misma IP en 300 segundos, que no esté en la CDB IOC y que tampoco pertenezca a la CDB de proxies web autorizados.
-- 10054 registra cada sondeo no IOC, pero no bloquea por sí solo. 10050 es un clasificador silencioso y 10052 es una señal auditd que permanece sin respuesta automática.
+- 10054, 10050, 10051 y 10052 no tienen Active Response. La regla 10051 es hija de 10054 y correlaciona alertas previas 10054 del mismo origen no IOC; no depende del clasificador silencioso 10050.
 - Un origen no presente en la CDB IOC no se considera benigno; simplemente no está clasificado actualmente como IOC de origen.
 - El evento HTTP no prueba que PHP haya ejecutado el exploit. La respuesta HTTP 200 tampoco demuestra ejecución de código.
 - Un comando auditd sospechoso no identifica por sí solo la IP HTTP que lo originó.
