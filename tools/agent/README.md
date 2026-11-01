@@ -112,6 +112,19 @@ El instalador mantiene el mismo objetivo de logging OrangeBox cuando el servidor
 
 ---
 
+## Rotación, compresión y retención de auditd
+
+El instalador verifica e instala la política diaria de auditd en `/etc/cron.daily/orangebox-audit-logrotate`:
+
+- solicita la rotación al propio daemon con `service auditd rotate`;
+- comprime con gzip solo las generaciones cerradas;
+- conserva siete días locales y elimina únicamente los archivos comprimidos identificados como OrangeBox;
+- establece `max_log_file_action = ignore` para que la rotación diaria no se duplique con la rotación automática por tamaño.
+
+Antes de escribir, busca reglas logrotate que cubran `/var/log/audit` y cron existentes que soliciten una rotación de auditd. Si detecta una política externa, la conserva y marca el paso como error para revisión; no crea una segunda rotación.
+
+El helper se mantiene en `tools/agent/auditd-logrotate.sh` y lo despliega el instalador único. No debe ejecutarse como script de instalación independiente.
+
 ## auditd
 
 El instalador normaliza la configuración de auditd en:
