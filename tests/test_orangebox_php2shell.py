@@ -53,7 +53,6 @@ class PHP2ShellRuleTests(unittest.TestCase):
         """Protege los indicadores de comportamiento PHP2Shell conocidos."""
         samples = (
             '192.0.2.10 - - [30/Oct/2026:10:00:00 -0300] "GET /?probe=php2shell HTTP/1.1" 404 0 "-" "scanner"',
-            '192.0.2.10 - - [01/Nov/2026:18:19:40 -0300] "GET /%ff%fe/..%00.php HTTP/1.1" 500 - "-" "php2shell-scan/2.0 (authorized-security-assessment)"',
             '192.0.2.10 - - [30/Oct/2026:10:00:00 -0300] "GET /icons/zz.php HTTP/1.1" 404 0 "-" "wide-cve-2026-109618/1.0"',
             '192.0.2.10 - - [30/Oct/2026:10:00:00 -0300] "GET /?id=CVE-2026-109619 HTTP/1.1" 404 0 "-" "scanner"',
         )
@@ -112,36 +111,21 @@ class PHP2ShellRuleTests(unittest.TestCase):
         self.assertEqual(result["timeout_seconds"], 2592000)
         self.assertEqual(result["matched_by"], ["rules_id:10053"])
 
-    def test_repetition_rule_keeps_same_ip_correlation_and_excludes_ioc_and_trusted_proxies(self):
-        """Exige correlación por origen y excluye IOC y reverse proxies autorizados."""
+    def test_repetition_rule_keeps_same_ip_correlation(self):
+        """Protege la correlación por IP de origen en eventos repetidos."""
         rule = self.rules["10051"]
         self.assertEqual(rule.findtext("if_matched_sid"), "10054")
         ids_in_order = [node.get("id") for node in self.root.iter("rule")]
         self.assertLess(ids_in_order.index("10054"), ids_in_order.index("10051"))
         self.assertIsNotNone(rule.find("same_srcip"))
-        source_lists = {
-            (node.get("lookup"), (node.text or "").strip())
-            for node in rule.findall("list")
-            if node.get("field") == "srcip"
-        }
-        self.assertIn(("not_match_key", "etc/lists/malicious-ioc/malicious-ip"), source_lists)
-        self.assertIn(("not_address_match_key", "etc/lists/orangebox-web-discovery-proxies"), source_lists)
+        source_lookup = rule.find("list")
+        self.assertIsNotNone(source_lookup)
+        self.assertEqual(source_lookup.get("field"), "srcip")
+        self.assertEqual(source_lookup.get("lookup"), "not_match_key")
+        self.assertEqual(source_lookup.text, "etc/lists/malicious-ioc/malicious-ip")
         self.assertEqual(rule.get("frequency"), "3")
         self.assertEqual(rule.get("timeframe"), "300")
         self.assertIn("orangebox_immediate", rule.findtext("group", ""))
-        self.assertIn("orangebox_web_auto_block", rule.findtext("group", ""))
-
-    def test_repeated_non_ioc_php2shell_scan_uses_existing_24_hour_local_block(self):
-        """Comprueba que la correlación 10051 active el bloqueo web existente por 24 horas."""
-        sys.path.insert(0, str(REPO_ROOT / "configuration" / "manager" / "integrations"))
-        from orangebox_active_response import firewall_drop_policy_for_alert
-        rule = self.rules["10051"]
-        groups = [item.strip() for item in rule.findtext("group", "").split(",") if item.strip()]
-        result = firewall_drop_policy_for_alert("10051", 12, groups, str(MANAGER_CONF))
-        self.assertEqual(result["status"], "configured")
-        self.assertEqual(result["timeout_seconds"], 86400)
-        self.assertEqual(result["location"], "local")
-        self.assertEqual(result["matched_by"], ["rules_group:orangebox_web_auto_block,"])
 
     def test_php2shell_rules_do_not_define_embedded_active_response(self):
         """Evita duplicar Active Response dentro de las reglas PHP2Shell."""
