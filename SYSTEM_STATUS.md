@@ -51,7 +51,7 @@ La política vigente en `ossec.conf` separa las duraciones según la confianza d
 |---|---:|---|
 | IOC de IP de origen confirmadas y reglas nativas relacionadas | 604800 s (7 días) | `firewall-drop` |
 | Explotación web de alta confianza con IOC/PHP2Shell (99906, 10053) | 2592000 s (30 días) | `firewall-drop` |
-| Grupo `orangebox_web_auto_block` | 86400 s (24 horas) | Bloqueo de origen de reconocimiento web validado |
+| Grupo `orangebox_web_auto_block` | 86400 s (24 horas) | Bloqueo local de reconocimiento web de alta confianza; incluye la regla 10051 para escaneo PHP2Shell repetido tras excluir proxies autorizados |
 | Grupo `orangebox_syn_flood_block` | 3600 s (1 hora) | Bloqueo ante presión SYN-RECV persistente de una sola IP |
 
 El DoS distribuido sin una única IP responsable se detecta, pero no se bloquea de forma indiscriminada. `orangebox-yara` analiza candidatos FIM; `orangebox-quarantine` se reserva para hashes confirmados. El integrador de correo lee la política real de `ossec.conf`; no debe inferir acciones a partir del nivel de alerta.
