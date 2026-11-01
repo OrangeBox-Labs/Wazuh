@@ -42,7 +42,8 @@ class FirewallDropPolicyTests(unittest.TestCase):
         for rule_id, timeout in expected.items():
             with self.subTest(rule_id=rule_id):
                 groups = ["orangebox_web_auto_block"] if rule_id == "10051" else []
-                result = firewall_drop_policy_for_alert(rule_id, 14, groups, str(MANAGER_CONF))
+                level = 12 if rule_id == "10051" else 14
+                result = firewall_drop_policy_for_alert(rule_id, level, groups, str(MANAGER_CONF))
                 self.assertEqual(result["status"], "configured")
                 self.assertEqual(result["timeout_seconds"], timeout)
                 self.assertEqual(result["location"], "local")
