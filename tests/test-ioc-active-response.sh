@@ -24,12 +24,13 @@ expected = {
     "99903": 604800, "99904": 604800, "99905": 604800,
     "99907": 604800, "99908": 604800, "99911": 604800,
     "99912": 604800, "99913": 604800, "99914": 604800,
-    "99906": 2592000, "10053": 2592000,
+    "99906": 2592000, "10053": 2592000, "10051": 86400,
 }
 # Comprueba que cada SID IOC y PHP2Shell coincida con la duración configurada.
 for rule_id, seconds in expected.items():
+    groups = ["orangebox_web_auto_block"] if rule_id == "10051" else ["web", "accesslog"]
     result = firewall_drop_policy_for_alert(
-        rule_id, 14, ["web", "accesslog"], "/var/ossec/etc/ossec.conf"
+        rule_id, 14, groups, "/var/ossec/etc/ossec.conf"
     )
     if result["status"] != "configured" or result["timeout_seconds"] != seconds:
         raise SystemExit(f"FAIL rule={rule_id}: {result}")
