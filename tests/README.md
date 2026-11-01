@@ -16,6 +16,10 @@ Las pruebas protegen contratos funcionales que han causado regresiones antes: po
 | `test-ioc-active-response.sh` | Integración | Ejecuta la suite Python, consulta la política configurada en el Manager y utiliza `wazuh-logtest` para validar muestras reales de reglas. |
 | `fixtures/web-ioc-99906.log` | Fixture | Muestras de access log anonimizadas para reproducir una detección HTTP IOC/PHP2Shell. |
 
+## Contrato del instalador del agente
+
+`test_agent_audit_rotation_contract.sh` valida que el instalador integre la política diaria de auditd y compruebe conflictos antes de escribir. `test_agent_audit_rotation.sh` ejecuta el helper con un servicio simulado y archivos temporales para validar gzip y retención selectiva de siete días. Estas pruebas no requieren un Manager real.
+
 ## Requisitos
 
 Para ejecutar las pruebas unitarias se necesita Python 3 y la biblioteca estándar. No requieren conexión al Indexer ni envían correos.
