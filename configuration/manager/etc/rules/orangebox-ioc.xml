@@ -86,3 +86,18 @@
   </rule>
 
 </group>
+
+<!--
+    Excepcion operacional para archivos efimeros del escaner ClamAV.
+    Se silencia la regla nativa 99901 solo cuando el archivo esta dentro
+    del directorio scantem y usa el nombre temporal clamav-<32 hex>.tmp.
+    Cualquier hash conocido fuera de este patron mantiene la alerta IOC.
+-->
+<group name="orangebox,ioc,whitelist,mail,clamav,">
+  <rule id="20068" level="0">
+    <if_sid>99901</if_sid>
+    <field name="file" type="pcre2">^/tmp/[0-9]{8}_[0-9]{6}-scantem\.[0-9a-f]{10}/clamav-[0-9a-f]{32}\.tmp$</field>
+    <description>EXCEPCION: archivo temporal de ClamAV durante el escaneo de correo; no alertar por su hash en esta ruta efimera.</description>
+    <group>orangebox_exception,orangebox_whitelist,mail,clamav,</group>
+  </rule>
+</group>

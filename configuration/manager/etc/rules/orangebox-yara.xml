@@ -5,9 +5,11 @@
     Politica:
         - YARA se ejecuta sobre archivos nuevos o modificados dentro de
           los directorios delicados definidos por OrangeBox.
-        - En /tmp, /var/tmp, /dev/shm y temporales de Zimbra/Carbonio
-          se analiza cualquier archivo nuevo o modificado, sin exigir
-          extension ni permiso de ejecucion.
+        - En /tmp, /var/tmp y /dev/shm se analiza cualquier archivo nuevo
+          o modificado, sin exigir extension ni permiso de ejecucion.
+        - Los temporales internos de Zimbra/Carbonio quedan excluidos:
+          sus blobs y archivos de procesamiento son efimeros y FIM no
+          permite atribuirlos de forma fiable a un mensaje de correo.
         - En webroots se mantienen extensiones de alto interes para evitar
           analizar innecesariamente archivos estaticos o multimedia.
         - Las firmas son EXCLUSIVAMENTE las oficiales de Yara-Rules/rules.
@@ -44,17 +46,18 @@
 <group name="orangebox,yara,syscheck,">
 
     <!--
-        Archivos nuevos en zonas temporales globales y de producto.
+        Archivos nuevos en las zonas temporales generales del sistema.
 
-        En estos directorios no exigimos permiso de ejecucion ni extension:
-        un payload puede estar recien creado, tener otro nombre o haber
-        sido descargado antes de recibir chmod +x. Todo archivo nuevo o
-        modificado en estas zonas pasa por el analisis YARA, respetando
-        el limite de tamano del runtime (5 MiB por defecto).
+        No exigimos permiso de ejecucion ni extension: un payload puede
+        estar recien creado, usar un nombre inesperado o no tener chmod +x.
+        Todo archivo nuevo o modificado en estas zonas pasa por YARA,
+        respetando el limite de tamano del runtime (5 MiB por defecto).
+        Los temporales internos de Zimbra/Carbonio no forman parte de
+        este alcance.
     -->
     <rule id="10420" level="3">
         <if_sid>554</if_sid>
-        <field name="file" type="pcre2">^/(?:tmp|var/tmp|dev/shm)/.+$|^/opt/(?:zimbra|zextras)/data/tmp/.+$</field>
+        <field name="file" type="pcre2">^/(?:tmp|var/tmp|dev/shm)/.+$</field>
         <description>ORANGEBOX: Archivo nuevo en zona temporal critica candidato para YARA.</description>
         <group>orangebox_yara,</group>
     </rule>
@@ -62,7 +65,7 @@
     <!-- Archivos modificados en las mismas zonas. -->
     <rule id="10421" level="3">
         <if_sid>550</if_sid>
-        <field name="file" type="pcre2">^/(?:tmp|var/tmp|dev/shm)/.+$|^/opt/(?:zimbra|zextras)/data/tmp/.+$</field>
+        <field name="file" type="pcre2">^/(?:tmp|var/tmp|dev/shm)/.+$</field>
         <description>ORANGEBOX: Archivo modificado en zona temporal critica candidato para YARA.</description>
         <group>orangebox_yara,</group>
     </rule>

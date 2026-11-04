@@ -52,3 +52,112 @@
         <group>mail,spam,orangebox_mail,orangebox_review,</group>
     </rule>
 </group>
+
+
+<!-- Intentos de inyeccion por SMTP y veredictos emitidos por Amavis. -->
+<group name="orangebox,mail,inspection,">
+
+    <!--
+        Solo alerta cuando Postfix rechaza un RCPT que contiene un payload
+        de shell codificado (subshell/IFS + Base64 + pipe a sh/bash).
+        No demuestra ejecucion: la propia linea exige "NOQUEUE: reject".
+        Se oculta el full_log para no duplicar payloads extensos en alerts.json.
+        No tiene Active Response.
+    -->
+    <rule id="10702" level="14">
+        <program_name type="pcre2">^postfix/(?:submission/|smtps/)?smtpd$</program_name>
+        <match type="pcre2">(?i)NOQUEUE:\s*reject:\s*RCPT\b.*(?:\$\(|\$\{IFS\}).*base64.*\|\s*(?:sh|bash)\b</match>
+        <options>no_full_log</options>
+        <description>ALERTA: Postfix rechazo un destinatario SMTP con un payload de ejecucion shell codificado. Intento de explotacion, no evidencia de ejecucion. Origen=$(srcip) Servicio=$(program_name).</description>
+        <mitre>
+            <id>T1059.004</id>
+            <id>T1132.001</id>
+        </mitre>
+        <group>mail,smtp,attack,orangebox_mail,orangebox_immediate,</group>
+    </rule>
+
+    <!-- Nodo base sin alerta para clasificar los veredictos reales de Amavis. -->
+    <rule id="10703" level="0">
+        <program_name type="pcre2">^amavis$</program_name>
+        <match type="pcre2">(?:Passed|Blocked)\s+(?:CLEAN|INFECTED|BANNED|SPAM)\b</match>
+        <description>ORANGEBOX: Amavis emitio un veredicto de inspeccion de correo.</description>
+        <group>mail,amavis,orangebox_mail,</group>
+    </rule>
+
+    <!-- INFECTED es una deteccion explicita del motor de inspeccion. -->
+    <rule id="10704" level="14">
+        <if_sid>10703</if_sid>
+        <match type="pcre2">\bINFECTED\b</match>
+        <description>ALERTA: Amavis clasifico un mensaje como INFECTED. Revisar full_log para Queue-ID, Message-ID, remitente, destinatarios y firma.</description>
+        <mitre>
+            <id>T1204.002</id>
+        </mitre>
+        <group>mail,malware,attack,orangebox_mail,orangebox_immediate,</group>
+    </rule>
+
+    <!--
+        EXCEPCION: Amavis marca PDFs cifrados como INFECTED por heuristica.
+        Solo se silencia el veredicto exacto observado; otros INFECTED
+        mantienen el nivel 14 y siguen generando alerta inmediata.
+    -->
+    <rule id="20067" level="0">
+        <if_sid>10704</if_sid>
+        <match type="pcre2">(?i)Blocked\s+INFECTED\s+\(Heuristics\.Encrypted\.PDF\)</match>
+        <description>EXCEPCION: Amavis bloqueo un PDF cifrado por heuristica; no constituye una firma confirmada de malware.</description>
+        <group>orangebox_exception,orangebox_whitelist,mail,amavis,encrypted_pdf,</group>
+    </rule>
+
+    <!-- BANNED indica una politica de adjunto prohibido; no equivale por si solo a malware. -->
+    <rule id="10705" level="11">
+        <if_sid>10703</if_sid>
+        <match type="pcre2">\bBANNED\b</match>
+        <description>REVISION: Amavis bloqueo un mensaje por contener un adjunto prohibido. Revisar full_log para identificar tipo, remitente y Queue-ID.</description>
+        <group>mail,attachment,orangebox_mail,orangebox_review,</group>
+    </rule>
+
+    <!-- SPAM puede haber sido entregado o bloqueado: el veredicto no implica rechazo. -->
+    <rule id="10706" level="8">
+        <if_sid>10703</if_sid>
+        <match type="pcre2">\bSPAM\b</match>
+        <description>REVISION: Amavis clasifico un mensaje como SPAM. Verificar si fue Passed o Blocked y revisar full_log.</description>
+        <group>mail,spam,orangebox_mail,orangebox_review,</group>
+    </rule>
+
+
+
+    <!-- ClamAV: el archivo de log dedicado solo se recoge para detecciones y errores. -->
+    <rule id="10707" level="13">
+        <location type="pcre2">/clamd\.log$</location>
+        <match type="pcre2">(?i)\bFOUND\b</match>
+        <description>ALERTA: ClamAV encontro una firma de malware en un archivo. Revisar full_log y correlacionar con el veredicto Amavis, si existe.</description>
+        <mitre>
+            <id>T1204.002</id>
+        </mitre>
+        <group>mail,malware,orangebox_mail,orangebox_review,</group>
+    </rule>
+
+    <!-- PDF cifrado: la heuristica no confirma malware; se suprime el evento de ClamAV. -->
+    <rule id="10710" level="0">
+        <if_sid>10707</if_sid>
+        <match type="pcre2">(?i)Heuristics\.Encrypted\.PDF\s+FOUND</match>
+        <description>EXCEPCION: ClamAV no pudo inspeccionar un PDF cifrado; no generar alerta SOC por esta heuristica.</description>
+        <group>orangebox_exception,orangebox_whitelist,mail,antivirus,encrypted_pdf,</group>
+    </rule>
+
+    <!-- ClamAV daemon: errores o advertencias operativas en su log dedicado. -->
+    <rule id="10708" level="9">
+        <location type="pcre2">/clamd\.log$</location>
+        <match type="pcre2">(?i)\b(?:ERROR|WARNING)\b</match>
+        <description>REVISION: ClamAV reporto un error o advertencia operativa. Revisar full_log y estado del servicio.</description>
+        <group>mail,antivirus,orangebox_mail,orangebox_review,</group>
+    </rule>
+
+    <!-- Freshclam: solo alerta por errores finales o instalacion desactualizada; no por fallback incremental recuperable. -->
+    <rule id="10709" level="9">
+        <location type="pcre2">/freshclam\.log$</location>
+        <match type="pcre2">(?i)(?:\bERROR:|WARNING:.*(?:OUTDATED|update process failed|database.*(?:failed|not updated)))</match>
+        <description>REVISION: Freshclam reporto un error de actualizacion o una instalacion desactualizada. Verificar que las bases antivirus esten vigentes.</description>
+        <group>mail,antivirus,orangebox_mail,orangebox_review,</group>
+    </rule>
+
+</group>
