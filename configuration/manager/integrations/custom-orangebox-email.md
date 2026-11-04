@@ -136,7 +136,11 @@ Además mantiene algunos campos individuales por compatibilidad:
 - tamaño;
 - propietario;
 - hashes;
-- atributos modificados.
+- atributos modificados;
+- modo y tipo de evento FIM;
+- atribución Who-Data disponible: usuario/UID, grupo, proceso/PID, proceso padre/PPID y directorio de trabajo.
+
+El HTML muestra estos datos únicamente cuando vienen en el evento. Un evento `scheduled` sin auditoría no se presenta como si tuviera un proceso identificado.
 
 Esto se hizo porque una versión anterior guardaba solamente algunos campos y podía perder información entregada por Wazuh.
 
@@ -168,7 +172,7 @@ Los datos variables pasan por `html.escape()` antes de insertarse en el HTML. Es
 
 ### Estado de Active Response
 
-El módulo `orangebox_active_response.py` inspecciona el `ossec.conf` efectivo y reproduce los selectores Wazuh de `rules_id`, `rules_group` y `level`. Estos selectores son alternativos (OR), no filtros acumulativos. El correo muestra la acción, selector, ubicación y timeout configurados. Para alertas críticas con una IP de origen, también muestra explícitamente cuando ningún selector coincide: `NO BLOQUEADA`. Los eventos que usan campos de IP distintos de `srcip` se muestran para investigación, pero no se asocian al `firewall-drop` estándar. El estado se expresa como **configurado; ejecución pendiente de confirmar**: la configuración por sí sola no demuestra que el bloqueo se ejecutó. Para verificar la ejecución real se debe revisar el evento nativo `651`, la correlación OrangeBox `10458` cuando corresponda y `/var/ossec/logs/active-responses.log` en el agente.
+El módulo `orangebox_active_response.py` inspecciona el `ossec.conf` efectivo y reproduce los selectores Wazuh de `rules_id`, `rules_group` y `level`. Estos selectores son alternativos (OR), no filtros acumulativos. El correo muestra la acción, selector, ubicación y timeout configurados. Para alertas críticas con IP de origen, también muestra explícitamente cuando ningún selector coincide: `NO BLOQUEADA`, excepto para logins exitosos SSH (`5715`/`10001`) sin una política `firewall-drop`: una IP de origen en un login exitoso no significa ataque ni bloqueo pendiente. Los eventos que usan campos de IP distintos de `srcip` se muestran para investigación, pero no se asocian al `firewall-drop` estándar. El estado se expresa como **configurado; ejecución pendiente de confirmar**: la configuración por sí sola no demuestra que el bloqueo se ejecutó. Para verificar la ejecución real se debe revisar el evento nativo `651`, la correlación OrangeBox `10458` cuando corresponda y `/var/ossec/logs/active-responses.log` en el agente.
 
 Las reglas IOC críticas `10460`-`10463` y `99903`, `99906`, `99910`, `99912`, `99913`, `99920` conservan el correo inmediato aunque tengan Active Response. `10455` continúa excluida explícitamente mediante `NO_EMAIL_RULES`. Las reglas nativas fuente `99903`, `99904`, `99905`, `99907`, `99908`, `99911`-`99914` también activan contención de 7 días cuando Wazuh entrega el origen en `srcip`; su envío por correo continúa sujeto al umbral/configuración funcional de notificación.
 
@@ -195,7 +199,7 @@ El relay SMTP local se encarga de la entrega posterior.
 El remitente usado por el HTML es:
 
 ```text
-Wazuh SOC <security@example.com>
+Wazuh SOC <wazuh@example.com>
 ```
 
 ## Integración con `ossec.conf`
@@ -275,7 +279,7 @@ Cada evento contiene una sola CVE con la lista completa de agentes afectados, IP
 
 Para este tipo de evento, la alerta nace técnicamente del manager (agente 000), pero `data.affected_agents` contiene los endpoints afectados. La integración usa los grupos efectivos de cada agente para calcular destinatarios con `CLIENT_GROUPS`:
 
-- `security@example.com` recibe un correo consolidado con todos los agentes afectados.
+- `soporte@example.com` recibe un correo consolidado con todos los agentes afectados.
 - Cada contacto de cliente con `enabled: 1` recibe una copia filtrada que incluye solamente los agentes de su grupo.
 - Si una IP no viene en el documento del inventario, la integración intenta recuperarla desde el manager.
 - La misma CVE no genera un correo individual por cada agente.

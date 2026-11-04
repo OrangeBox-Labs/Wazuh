@@ -13,7 +13,10 @@ import subprocess
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from orangebox_active_response import firewall_drop_policy_for_alert
+from orangebox_active_response import (
+    firewall_drop_policy_for_alert,
+    should_render_firewall_drop_status,
+)
 
 
 # ============================================================
@@ -34,7 +37,7 @@ SSH_STATE_FILE = os.path.join(STATE_DIR, "ssh_notifications.json")
 # Destinatario obligatorio de todas las alertas.
 DEFAULT_ALERT_RECIPIENT = "soporte@example.com"
 
-# Tipo de evento sintético y directorio donde el detector guarda su detalle completo.
+# Identifica el evento sintético y la ruta donde el detector guarda su detalle completo.
 VULNERABILITY_EVENT_TYPE = "orangebox_vulnerability_alert"
 VULNERABILITY_DETAILS_DIR = "/var/ossec/logs/vulnerability-alerts/details"
 
@@ -47,7 +50,7 @@ VULNERABILITY_DETAILS_DIR = "/var/ossec/logs/vulnerability-alerts/details"
 # Estas opciones solamente controlan destinatarios adicionales.
 #
 # La comparacion de grupos es CASE-INSENSITIVE:
-#   CLIENTE_01 == CLIENTE_01 == CLIENTE_01
+#   CLIENTE_REDACTADO == CLIENTE_REDACTADO == CLIENTE_REDACTADO
 #
 # Para agregar un cliente nuevo solamente hay que agregar una entrada
 # aqui. No es necesario modificar ninguna otra parte del script.
@@ -301,9 +304,9 @@ def get_agent_groups_from_manager(agent_id):
     output = result.stdout or ""
 
     # Formato habitual:
-    #   has the group: '[u'Nexit', u'default']'
+    #   has the group: '[u'CLIENTE_REDACTADO', u'default']'
     # y versiones:
-    #   belongs to groups: default, Nexit
+    #   belongs to groups: default, CLIENTE_REDACTADO
     import re
 
     match = re.search(r"\[([^\]]*)\]", output)
@@ -314,7 +317,7 @@ def get_agent_groups_from_manager(agent_id):
             match.group(1)
         )
         # Algunas versiones muestran el nombre del grupo con puntuación
-        # de cierre (por ejemplo, "JHG." o "default.").
+        # de cierre (por ejemplo, "CLIENTE_REDACTADO." o "default.").
         return normalize_group_list(
             [group.strip().rstrip(".,;:") for group in raw_groups]
         )
@@ -425,14 +428,14 @@ def build_recipients(default_recipient, agent_groups):
     # para no romper una configuracion externa existente.
     add_recipient(default_recipient)
 
-    # Busca el perfil de cada grupo del agente para agregar sus destinatarios autorizados.
+    # Busca el perfil de cada grupo para agregar los destinatarios autorizados.
     for group in agent_groups:
         config = CLIENT_GROUPS.get(normalize_group_name(group))
 
         if not config or not config.get("enabled"):
             continue
 
-        # Incorpora las direcciones configuradas para ese grupo, sin repetir destinatarios.
+        # Incorpora las direcciones configuradas para ese grupo sin repetir destinatarios.
         for address in config.get("emails", []):
             add_recipient(address)
 
@@ -557,11 +560,11 @@ def send_aggregated_vulnerability_emails(alert_json, default_recipient):
             return
         rows = []
         desktop_rows = []
-        # Construye las filas HTML y texto del correo con cada agente de la audiencia.
+        # Construye las filas HTML y texto con cada agente de la audiencia.
         for agent in subset:
             pkg_details = []
             desktop_pkg_details = []
-            # Añade al detalle solo los paquetes informados para este agente y CVE.
+            # Añade al detalle los paquetes informados para este agente y CVE.
             for package in agent["packages"]:
                 name = esc(package.get("name") or "Paquete no informado")
                 version = esc(package.get("version") or "Versión no informada")
@@ -772,7 +775,7 @@ def extract_ssh_source_ip(full_log):
     no entrega data.srcip al decoder.
 
     Ejemplo esperado:
-        Accepted password for root from 192.0.2.22 port 60943 ssh2
+        Accepted password for root from 10.8.0.22 port 60943 ssh2
 
     Esta ruta de respaldo es necesaria porque algunos eventos
     provenientes de journald llegan al integrador sin srcip aunque
@@ -936,7 +939,7 @@ def ssh_already_notified(agent_id, srcip, event_timestamp, ssh_identity="", full
         # Esta es la politica principal. Es la que debe resolver
         # exactamente el caso:
         #
-        #   Accepted password ... from 192.0.2.22
+        #   Accepted password ... from 10.8.0.22
         #
         # cinco veces durante el dia en el mismo agente -> un solo correo.
         #
@@ -1432,12 +1435,15 @@ if not source_ip:
     if source_match:
         source_ip = source_match.group(1)
 
-# Las alertas críticas con IP de origen deben indicar también cuando
-# no existe una asociación firewall-drop. Nunca inferimos ejecución.
-is_blocked_alert = (
-    firewall_drop_configured
-    or firewall_drop_unknown
-    or (rule_level >= 12 and bool(source_ip))
+# Solo mostramos el estado firewall-drop si existe una política,
+# la configuración no se puede verificar o el evento crítico requiere
+# revisión de contención. Un login SSH exitoso no se etiqueta como ataque
+# por el simple hecho de contener una IP de origen.
+is_blocked_alert = should_render_firewall_drop_status(
+    rule_id,
+    rule_level,
+    source_ip,
+    firewall_drop_policy.get("status"),
 )
 
 # rule.groups pertenece a la REGLA. El routing usa grupos del AGENTE.
@@ -2040,6 +2046,29 @@ for idx, ev in enumerate(
         )
     )
 
+    # Captura el modo, tipo de evento y atribucion Who-Data entregados por FIM.
+    fim_mode = syscheck.get("mode", "N/A")
+    fim_event = syscheck.get("event", "N/A")
+    audit_data = syscheck.get("audit", {})
+    if not isinstance(audit_data, dict):
+        audit_data = {}
+
+    audit_user = audit_data.get("user", {})
+    if not isinstance(audit_user, dict):
+        audit_user = {}
+
+    audit_process = audit_data.get("process", {})
+    if not isinstance(audit_process, dict):
+        audit_process = {}
+
+    audit_group = audit_data.get("group", {})
+    if not isinstance(audit_group, dict):
+        audit_group = {}
+
+    audit_effective_user = audit_data.get("effective_user", {})
+    if not isinstance(audit_effective_user, dict):
+        audit_effective_user = {}
+
     # --------------------------------------------------------
     # Algunos eventos FIM pueden traer informacion de hashes
     # aunque no tengan diff de contenido.
@@ -2098,6 +2127,98 @@ for idx, ev in enumerate(
                 overflow-wrap:anywhere;">
                 <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#475569;">Atributos modificados:</strong>
                 <span style="display:inline-block;width:58%;vertical-align:top;font-family:monospace;word-break:normal;">{esc(changed_text)}</span>
+            </td>
+        </tr>
+        """
+
+    # --------------------------------------------------------
+    # Modo FIM y atribucion Who-Data.
+    # Solo se muestran datos que realmente vinieron en el evento.
+    # --------------------------------------------------------
+
+    audit_rows = f"""
+    <tr class="ob-detail-row">
+        <td colspan="2" style="padding:7px 10px;
+            border-bottom:1px solid #e2e8f0;
+            font-size:12px;line-height:1.45;color:#0f172a;
+            overflow-wrap:anywhere;">
+            <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#475569;">Modo / evento FIM:</strong>
+            <span style="display:inline-block;width:58%;vertical-align:top;font-family:monospace;">{esc(fim_mode)} / {esc(fim_event)}</span>
+        </td>
+    </tr>
+    """
+
+    audit_process_name = audit_process.get("name")
+    audit_process_id = audit_process.get("id")
+    audit_process_cwd = audit_process.get("cwd")
+    audit_parent_name = audit_process.get("parent_name")
+    audit_parent_pid = audit_process.get("ppid")
+    audit_user_name = audit_user.get("name")
+    audit_user_id = audit_user.get("id")
+    audit_group_name = audit_group.get("name")
+    audit_effective_user_name = audit_effective_user.get("name")
+
+    if audit_user_name or audit_user_id:
+        audit_rows += f"""
+        <tr class="ob-detail-row">
+            <td colspan="2" style="padding:7px 10px;
+                border-bottom:1px solid #e2e8f0;
+                font-size:12px;line-height:1.45;color:#0f172a;
+                overflow-wrap:anywhere;">
+                <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#475569;">Usuario / UID:</strong>
+                <span style="display:inline-block;width:58%;vertical-align:top;">{esc(audit_user_name or "N/A")} ({esc(audit_user_id or "N/A")})</span>
+            </td>
+        </tr>
+        """
+
+    if audit_group_name or audit_effective_user_name:
+        audit_rows += f"""
+        <tr class="ob-detail-row">
+            <td colspan="2" style="padding:7px 10px;
+                border-bottom:1px solid #e2e8f0;
+                font-size:12px;line-height:1.45;color:#0f172a;
+                overflow-wrap:anywhere;">
+                <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#475569;">Grupo / usuario efectivo:</strong>
+                <span style="display:inline-block;width:58%;vertical-align:top;">{esc(audit_group_name or "N/A")} / {esc(audit_effective_user_name or "N/A")}</span>
+            </td>
+        </tr>
+        """
+
+    if audit_process_name or audit_process_id:
+        audit_rows += f"""
+        <tr class="ob-detail-row">
+            <td colspan="2" style="padding:7px 10px;
+                border-bottom:1px solid #e2e8f0;
+                font-size:12px;line-height:1.45;color:#0f172a;
+                overflow-wrap:anywhere;">
+                <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#475569;">Proceso / PID:</strong>
+                <span style="display:inline-block;width:58%;vertical-align:top;font-family:monospace;word-break:break-all;">{esc(audit_process_name or "N/A")} ({esc(audit_process_id or "N/A")})</span>
+            </td>
+        </tr>
+        """
+
+    if audit_parent_name or audit_parent_pid:
+        audit_rows += f"""
+        <tr class="ob-detail-row">
+            <td colspan="2" style="padding:7px 10px;
+                border-bottom:1px solid #e2e8f0;
+                font-size:12px;line-height:1.45;color:#0f172a;
+                overflow-wrap:anywhere;">
+                <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#475569;">Proceso padre / PPID:</strong>
+                <span style="display:inline-block;width:58%;vertical-align:top;font-family:monospace;word-break:break-all;">{esc(audit_parent_name or "N/A")} ({esc(audit_parent_pid or "N/A")})</span>
+            </td>
+        </tr>
+        """
+
+    if audit_process_cwd:
+        audit_rows += f"""
+        <tr class="ob-detail-row">
+            <td colspan="2" style="padding:7px 10px;
+                border-bottom:1px solid #e2e8f0;
+                font-size:12px;line-height:1.45;color:#0f172a;
+                overflow-wrap:anywhere;">
+                <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#475569;">Directorio de trabajo:</strong>
+                <span style="display:inline-block;width:58%;vertical-align:top;font-family:monospace;">{esc(audit_process_cwd)}</span>
             </td>
         </tr>
         """
@@ -2169,6 +2290,8 @@ for idx, ev in enumerate(
             <span style="display:inline-block;width:58%;vertical-align:top;">{esc(file_uname)} ({esc(file_size)} bytes)</span>
         </td>
     </tr>
+
+    {audit_rows}
 
     {changed_html}
 
@@ -2309,73 +2432,17 @@ if is_blocked_alert:
         location_detail = "no aplica"
         selector_detail = "No coincide con ningún selector rules_id, rules_group o level"
 
-    # Renderiza Active Response como una tabla de una columna para evitar offsets
-    # y anchos porcentuales que se desbordan en clientes móviles como Gmail.
     blocked_ip_html = f"""
                             <tr class="ob-detail-row">
                                 <td colspan="2" style="padding:8px 10px;
                                     border-bottom:1px solid #cbd5e1;
                                     color:#0f172a;font-size:12px;line-height:1.45;
                                     overflow-wrap:anywhere;">
-                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
-                                           style="width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse;">
-                                        <tr>
-                                            <td style="padding:2px 0 8px;font-size:12px;line-height:1.4;
-                                                       overflow-wrap:anywhere;word-break:break-word;">
-                                                <strong style="color:#334155;">Active Response</strong>
-                                                <div style="padding-top:3px;font-size:14px;line-height:1.45;
-                                                            font-weight:700;overflow-wrap:anywhere;word-break:break-word;">
-                                                    {esc(source_ip or 'IP no disponible en el evento')}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding:7px 0;border-top:1px solid #cbd5e1;
-                                                       line-height:1.45;overflow-wrap:anywhere;word-break:break-word;">
-                                                <strong style="color:#334155;">Estado:</strong>
-                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
-                                                    {esc(status_detail)}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding:7px 0;border-top:1px solid #cbd5e1;
-                                                       line-height:1.45;overflow-wrap:anywhere;word-break:break-word;">
-                                                <strong style="color:#334155;">Acción:</strong>
-                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
-                                                    firewall-drop
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding:7px 0;border-top:1px solid #cbd5e1;
-                                                       line-height:1.45;overflow-wrap:anywhere;word-break:break-word;">
-                                                <strong style="color:#334155;">Tiempo:</strong>
-                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
-                                                    {esc(timeout_label)}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding:7px 0;border-top:1px solid #cbd5e1;
-                                                       line-height:1.45;overflow-wrap:anywhere;word-break:break-word;">
-                                                <strong style="color:#334155;">Ejecución en:</strong>
-                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
-                                                    {esc(location_detail)}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding:7px 0 2px;border-top:1px solid #cbd5e1;
-                                                       color:#475569;font-size:11px;line-height:1.45;
-                                                       overflow-wrap:anywhere;word-break:break-word;">
-                                                <strong>Selector:</strong>
-                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
-                                                    {esc(selector_detail)}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    </table>
+                                    <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#334155;">Active Response:</strong>
+                                    <span style="display:inline-block;width:58%;vertical-align:top;font-weight:700;">{esc(source_ip or 'IP no disponible en el evento')}</span>
+                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;">{esc(status_detail)}</span>
+                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;">Acción: firewall-drop · Tiempo: {esc(timeout_label)} · Ejecución en: {esc(location_detail)}</span>
+                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;font-size:11px;color:#475569;">Selector: {esc(selector_detail)}</span>
                                 </td>
                             </tr>
                             """

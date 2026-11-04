@@ -48,6 +48,33 @@ def _matches_group_selector(selector: str, alert_groups: list[str]) -> bool:
 
 
 # Resuelve qué bloques firewall-drop coinciden; no ejecuta ni altera Active Response.
+def should_render_firewall_drop_status(
+    alert_rule_id: str,
+    alert_rule_level: int,
+    source_ip: str,
+    policy_status: str,
+) -> bool:
+    """Decide whether the email should show a firewall-drop status row.
+
+    Explicitly matched or unverifiable firewall-drop policies are always
+    shown. High-severity IP events without a matching policy keep the warning,
+    except successful SSH authentication (5715/10001), which is not an attack.
+    """
+    status = str(policy_status or "").strip().lower()
+    if status in {"configured", "unknown"}:
+        return True
+
+    try:
+        level = int(alert_rule_level or 0)
+    except (TypeError, ValueError):
+        level = 0
+
+    if str(alert_rule_id or "").strip() in {"5715", "10001"}:
+        return False
+
+    return level >= 12 and bool(str(source_ip or "").strip())
+
+
 def firewall_drop_policy_for_alert(
     alert_rule_id: str,
     alert_rule_level: int,
