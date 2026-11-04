@@ -451,8 +451,8 @@
     <!-- Regla 20057: Silencia la eliminación de unidades SocialBee/XOVI no utilizadas, solo en agentes DNSOnly autorizados. -->
     <rule id="20057" level="0">
         <if_sid>10044</if_sid>
-        <list field="hostname" lookup="match_key_value" check_value="^DNS$">etc/lists/orangebox-dns-agents</list>
-        <field name="file" type="pcre2">^/etc/systemd/system/initialize_(?:socialbee|xovi)_plugin\.(?:service|timer)$</field>
+        <list field="hostname" lookup="match_key_value" check_value="^dns$">etc/lists/orangebox-dns-agents</list>
+        <field name="file" type="pcre2">^/etc/systemd/system/initialize_(?:socialbee|xovi)_plugin\.(?:service|timer)(?:;[0-9A-Fa-f]{8})?$</field>
         <description>EXCEPCION: Limpieza de plugins SocialBee/XOVI no utilizados en DNSOnly.</description>
         <group>orangebox_exception,orangebox_whitelist,dns,systemd,</group>
     </rule>
