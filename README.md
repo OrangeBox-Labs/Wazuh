@@ -134,3 +134,11 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
 La prueba `tests/test-ioc-active-response.sh` requiere un Wazuh Manager real y `wazuh-logtest`; es una integración manual de solo lectura. El workflow `OrangeBox regression tests` valida automáticamente sintaxis Python, Bash, XML y las suites unitarias.
+
+
+## Documentación técnica
+
+- [Wazuh OrangeBox: arquitectura, reglas y operación](articles/wazuh-orangebox-security.md)
+- [Estado del repositorio público](SYSTEM_STATUS.md)
+- [Política de sanitización y publicación](SANITIZATION.md)
+- [Documentación de reglas](configuration/manager/etc/rules/README.md)
