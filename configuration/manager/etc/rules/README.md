@@ -71,7 +71,7 @@ Detecciones sobre archivos ejecutables creados en ubicaciones temporales o de al
 
 ### `orangebox-yara.xml`
 
-Integra FIM con YARA mediante Active Response. `10420/10421` envían a YARA todos los archivos nuevos o modificados de las zonas temporales delicadas, sin exigir extensión ni permiso de ejecución. `10501` alerta coincidencias YARA.
+Integra FIM con YARA mediante Active Response. `10420/10421` envían a YARA los archivos nuevos o modificados de `/tmp`, `/var/tmp` y `/dev/shm`, sin exigir extensión ni permiso de ejecución. Los temporales internos de Zimbra/Carbonio (`/opt/zimbra/data/tmp` y `/opt/zextras/data/tmp`) están excluidos de FIM en el perfil compartido y no activan estas reglas. `10501` clasifica las coincidencias YARA; las reglas por categoría determinan la severidad.
 
 Las firmas no se versionan en este directorio: `tools/agent/install.sh` descarga y valida el ruleset oficial desde `Yara-Rules/rules`, y registra el commit utilizado para trazabilidad. El decoder asociado vive en `configuration/manager/etc/decoders/orangebox-yara.xml`.
 
@@ -81,7 +81,7 @@ Detecciones HTTP/Apache orientadas a reconocimiento, autenticación web y abuso 
 
 ### `orangebox-php2shell.xml`
 
-Detección de PHP2Shell/CVE-2026-109618/CVE-2026-109619 desde dos fuentes: `10050/10051` identifican sondeos explícitos en access logs; `10052` detecta patrones sospechosos de ejecución a partir de auditd (`80792`). Ninguna de estas reglas demuestra por sí sola explotación ni tiene Active Response asociado. No se añade FIM masivo a `public_html`; ver `orangebox-php2shell.md` para cobertura, limitaciones y pruebas.
+Detección de PHP2Shell/CVE-2026-109618/CVE-2026-109619 desde access logs y auditd. `10050` clasifica patrones; `10054` registra sondeos desde fuentes no IOC; `10051` correlaciona tres o más sondeos de la misma IP en 300 segundos y activa el grupo `orangebox_web_auto_block` (bloqueo local de 24 horas), después de excluir IOC y proxies web autorizados. `10052` detecta patrones sospechosos de ejecución a partir de auditd (`80792`) y permanece como señal de investigación, no como prueba aislada de PHP2Shell. La correlación 10051 confirma escaneo repetido, no ejecución remota de código. No se añade FIM masivo a `public_html`; ver `orangebox-php2shell.md` para cobertura, limitaciones y pruebas.
 
 ### `orangebox-firewall.xml`
 
@@ -115,7 +115,7 @@ No convertir una excepción puntual en una whitelist de directorio, usuario o sh
 
 ### `orangebox-mail.xml`
 
-Detecta fuerza bruta contra autenticación de correo usando correlaciones nativas de Wazuh. `10700` cubre Postfix y `10701` cubre Exim/Dovecot. Ambas disparan `firewall-drop` durante 24 horas y no generan correo individual.
+Detecta fuerza bruta de correo (`10700` Postfix, `10701` Exim/Dovecot), payloads shell codificados en RCPT SMTP rechazados por Postfix (`10702`) y veredictos Amavis (`10703`–`10706`: base silenciosa, INFECTED, BANNED y SPAM). Solo `10700`/`10701` conservan la política de `firewall-drop` existente; `10702`–`10706` no tienen Active Response.
 
 
 ### Reconocimiento de red

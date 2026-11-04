@@ -1,8 +1,8 @@
-# Integración FIM → YARA
+# Integración FIM → YARA (temporales generales)
 
 ## Qué hace
 
-YARA analiza los archivos nuevos o modificados que Wazuh FIM identifica dentro de las zonas delicadas de OrangeBox.
+YARA analiza archivos nuevos o modificados que Wazuh FIM identifica en las zonas temporales generales del sistema. No inspecciona los temporales internos de Zimbra/Carbonio.
 
 En estas zonas no se exige:
 
@@ -17,8 +17,13 @@ Esto evita perder un payload que todavía no tenga chmod +x, use un nombre inesp
 - /tmp
 - /var/tmp
 - /dev/shm
+
+Quedan expresamente excluidos:
+
 - /opt/zimbra/data/tmp
 - /opt/zextras/data/tmp
+
+Estos árboles contienen archivos de procesamiento, cachés y blobs transitorios. Sus eventos FIM no ofrecen una correlación fiable con un mensaje, remitente o conexión SMTP; por eso no deben disparar el análisis YARA genérico.
 
 ## Flujo
 
@@ -46,7 +51,7 @@ Una coincidencia real llega a `10501` (nivel 3), que clasifica el resultado sin 
 
 ## Motivo del cambio
 
-La versión anterior asociaba la selección a extensiones de script/webshell. La nueva política da prioridad a las zonas delicadas: cualquier archivo nuevo o modificado allí se analiza, independientemente de sus permisos.
+La selección se limita deliberadamente a las zonas temporales generales del sistema. Los directorios temporales internos de Zimbra/Carbonio se excluyen tanto del perfil FIM compartido como de las reglas 10420/10421 para evitar analizar archivos efímeros que no pueden atribuirse a un correo.
 
 YARA sigue siendo solo detección. No elimina ni mueve archivos.
 

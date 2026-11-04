@@ -21,6 +21,16 @@ No se asocian automáticamente a `firewall-drop` reglas cuyo IOC aparece en camp
 
 Las detecciones de dominio por HTTP o DNS (`10464`/`10465`) solo elevan la alerta. No se bloquean automáticamente porque el destino no es una IP de origen segura para `firewall-drop`.
 
+## Excepción del temporal de ClamAV (regla 20068)
+
+La regla nativa `99901` detecta hashes conocidos de malware y mantiene su severidad para archivos normales del sistema. La excepción `20068` silencia ese evento únicamente cuando la ruta coincide con el temporal generado por el escáner de correo:
+
+```text
+/tmp/YYYYMMDD_HHMMSS-scantem.<10 hex>/clamav-<32 hex>.tmp
+```
+
+No se excluye `/tmp`, no se desactiva FIM ni se altera la detección de hashes conocidos fuera de ese patrón. Archivos como scripts, webshells o binarios en otras rutas siguen sujetos a sus reglas originales.
+
 ## Regla de diseño
 
 La respuesta automática debe coincidir con el tipo de IOC. No se debe bloquear una IP de origen cuando el IOC detectado es un dominio de destino.
