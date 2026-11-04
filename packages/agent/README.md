@@ -28,7 +28,7 @@ Ejecuta:
 También puedes cambiar la versión y la cantidad de trabajos:
 
 ```bash
-WAZUH_VERSION=4.14.8 JOBS=4 ./build.sh
+WAZUH_VERSION=4.14.9 JOBS=4 ./build.sh
 ```
 
 El RPM queda en `output/`.
@@ -49,7 +49,7 @@ El RPM instala directamente en `/opt/ossec`.
 
 El RPM sale del empaquetado oficial de Wazuh. Así mantenemos los scripts del servicio, dependencias, SELinux y estructura del agente alineados con la versión de Wazuh que estamos construyendo.
 
-La versión por defecto del builder es **4.14.8**. Primero se prueba. Después se manda a producción. No al revés. 😈
+La versión por defecto del builder es **4.14.9**. Primero se prueba. Después se manda a producción. No al revés. 😈
 
 ## Ciclo interno de `build.sh`
 
@@ -70,7 +70,7 @@ Variables admitidas:
 
 | Variable | Valor por defecto | Uso |
 |---|---|---|
-| `WAZUH_VERSION` | `4.14.8` | Tag oficial de Wazuh que se compila. |
+| `WAZUH_VERSION` | `4.14.9` | Tag oficial de Wazuh que se compila. |
 | `JOBS` | `2` | Trabajos paralelos del generador. |
 | `OUTDIR` | `packages/agent/output` | Directorio de RPM generados; se limpia al inicio. |
 | `SOURCE_DIR` | `/tmp/wazuh-<versión>` | Checkout temporal de la fuente oficial. |

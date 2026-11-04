@@ -203,6 +203,12 @@ Se aplica a múltiples intentos contra rutas sensibles como `.env`, credenciales
 
 No se confía en User-Agent para permitir crawlers. Se puede falsificar demasiado fácilmente.
 
+### Sondeo PHP2Shell repetido
+
+La regla `10051` correlaciona tres o más eventos `10054` de la misma IP no IOC en 300 segundos. Antes de actuar, vuelve a excluir las direcciones de la CDB `orangebox-web-discovery-proxies`, para no bloquear un reverse proxy confiable. La regla incorpora el grupo exacto `orangebox_web_auto_block`, cuyo bloque Active Response aplica `firewall-drop` durante 24 horas en el agente que registró el access log.
+
+Esta respuesta contiene un escaneo repetido de un vector de explotación concreto; no afirma que PHP haya ejecutado código. Los eventos aislados `10054` siguen siendo observacionales y `10053` conserva su contención de 30 días cuando el origen está en la CDB IOC.
+
 ## 16B. Port scan OrangeBox
 
 La regla OrangeBox `10453` detecta una secuencia corta de reconocimiento: 4 intentos TCP SYN en 5 segundos desde la misma IP, hacia el mismo destino, manteniendo el mismo puerto origen y buscando diversidad de puertos destino.
@@ -524,7 +530,7 @@ Los bloques `<active-response>` de `ossec.conf` conectan las reglas con `firewal
 |---|---:|---|
 | `10460–10463`, `99903–99905`, `99907–99914` | 7 días | IOC confirmado de IP de origen y correlaciones nativas de origen malicioso. |
 | `99906`, `10053` | 30 días | Explotación web de alta confianza relacionada con IOC, incluido PHP2Shell. |
-| Grupo `orangebox_web_auto_block` | 24 horas | Reconocimiento web de alta confianza que supera los filtros de proxy autorizado. |
+| Grupo `orangebox_web_auto_block` | 24 horas | Reconocimiento web de alta confianza que supera los filtros de proxy autorizado, incluido el escaneo PHP2Shell repetido de la regla `10051`. |
 | Grupo `orangebox_syn_flood_block` | 1 hora | Presión persistente SYN-RECV atribuida a una única IP de origen. |
 
 El DoS distribuido no se bloquea como conjunto: al no existir una única IP responsable, la detección queda para investigación. Tampoco se debe inferir un bloqueo a partir del nivel de alerta: la política se confirma leyendo los bloques Active Response configurados y, para acreditar una ejecución real, revisando el evento 651 y el firewall del agente.

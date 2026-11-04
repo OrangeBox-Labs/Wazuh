@@ -37,7 +37,7 @@ Para servidores Linux sin cPanel:
 - normaliza auditd;
 - instala y valida YARA;
 - descarga y valida el ruleset oficial **Yara-Rules**;
-- instala la integración FIM -> YARA;
+- instala el runtime FIM -> YARA; la selección de rutas queda definida por el Manager y cubre `/tmp`, `/var/tmp` y `/dev/shm`;
 - instala la cuarentena Active Response;
 - instala la actualización automática del ruleset;
 - ejecuta las verificaciones finales.
@@ -114,16 +114,17 @@ El instalador mantiene el mismo objetivo de logging OrangeBox cuando el servidor
 
 ## Rotación, compresión y retención de auditd
 
-El instalador verifica e instala la política diaria de auditd en `/etc/cron.daily/orangebox-audit-logrotate`:
+El instalador también verifica y configura la rotación diaria de `/var/log/audit/audit.log`:
 
-- solicita la rotación al propio daemon con `service auditd rotate`;
-- comprime con gzip solo las generaciones cerradas;
-- conserva siete días locales y elimina únicamente los archivos comprimidos identificados como OrangeBox;
-- establece `max_log_file_action = ignore` para que la rotación diaria no se duplique con la rotación automática por tamaño.
+- `auditd` realiza la rotación del archivo activo mediante `service auditd rotate`; el instalador no renombra ni trunca el archivo que el daemon mantiene abierto.
+- `max_log_file_action = ignore` desactiva la rotación automática por tamaño para utilizar la planificación diaria.
+- Los archivos cerrados se renombran con timestamp y se comprimen con `gzip`.
+- Se eliminan únicamente los archivos comprimidos administrados por OrangeBox que superan siete días.
+- La política se instala en `/etc/cron.daily/orangebox-audit-logrotate`, es idempotente y se valida al final.
 
-Antes de escribir, busca reglas logrotate que cubran `/var/log/audit` y cron existentes que soliciten una rotación de auditd. Si detecta una política externa, la conserva y marca el paso como error para revisión; no crea una segunda rotación. También verifica que `crond` esté activo y habilitado; si no lo está, no instala la tarea ni desactiva la rotación por tamaño.
+Antes de instalarla, el instalador busca configuraciones activas de logrotate para `/var/log/audit` y tareas cron que ya soliciten la rotación de auditd. Si encuentra otra política, no la sobrescribe ni crea una segunda rotación: registra el paso como error para revisión. También verifica que `crond` esté activo y habilitado; si el scheduler no está disponible, no instala la tarea ni desactiva la rotación por tamaño.
 
-El helper se mantiene en `tools/agent/auditd-logrotate.sh` y lo despliega el instalador único. No debe ejecutarse como script de instalación independiente.
+Red Hat documenta el uso de rotación por señal/cron y compresión externa para auditd; no se usa un bloque logrotate convencional sobre el archivo activo porque auditd administra su descriptor abierto.
 
 ## auditd
 
@@ -204,16 +205,17 @@ La actualización automática se ejecuta diariamente a las **03:17** y conserva 
 
 El flujo no depende de un script instalado manualmente desde el repositorio.
 
-El Agent recibe la configuración correspondiente desde el Manager y, cuando FIM detecta el evento definido para análisis:
+El Agent recibe la configuración correspondiente desde el Manager y, cuando FIM detecta un archivo nuevo o modificado en `/tmp`, `/var/tmp` o `/dev/shm`:
 
 ```text
 FIM
-  -> regla/Active Response de Wazuh
-  -> orangebox-yara.sh
+  -> regla 10420/10421
+  -> Active Response orangebox-yara.sh
   -> YARA-Rules
-  -> alerta Wazuh
-  -> cuarentena cuando corresponde
+  -> decoder y reglas 10501+
 ```
+
+Los directorios internos `/opt/zimbra/data/tmp` y `/opt/zextras/data/tmp` están excluidos del FIM compartido y no disparan el análisis YARA. Esta exclusión evita analizar blobs/cache efímeros sin trazabilidad de mensaje.
 
 Los ejecutables del Agent son generados por `install.sh`. La configuración que determina **cuándo** se ejecutan las respuestas pertenece al Manager.
 

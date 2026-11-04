@@ -90,7 +90,7 @@ El instalador fija `logcollector.remote_commands=0` en `local_internal_options.c
 El RPM OPT se utiliza únicamente cuando se selecciona cPanel:
 
 ```text
-tools/agent/wazuh-agent_4.14.8-0_x86_64_OPT.rpm
+tools/agent/wazuh-agent_4.14.9-0_x86_64_OPT.rpm
 ```
 
 ## YARA

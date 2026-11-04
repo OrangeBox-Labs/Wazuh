@@ -33,7 +33,8 @@ tools/agent/
 ├── install.sh
 ├── README.md
 ├── INSTALL.md
-└── wazuh-agent_4.14.8-0_x86_64_OPT.rpm
+├── wazuh-agent_4.14.8-0_x86_64_OPT.rpm  # versión usada por defecto por install.sh
+└── wazuh-agent_4.14.9-0_x86_64_OPT.rpm  # build candidato; validar antes de cambiar el default
 ```
 
 ## Fallos y resumen del instalador

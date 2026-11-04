@@ -23,7 +23,7 @@ Construye el RPM oficial del Wazuh Agent para arquitectura `amd64/x86_64`, confi
 
 | Variable | Default | Uso |
 |---|---|---|
-| `WAZUH_VERSION` | `4.14.8` | Tag oficial que se construye. |
+| `WAZUH_VERSION` | `4.14.9` | Tag oficial que se construye. |
 | `JOBS` | `2` | Trabajos paralelos del generador. |
 | `OUTDIR` | `packages/agent/output` | RPM de salida; se limpia al comienzo. |
 | `SOURCE_DIR` | `/tmp/wazuh-<versión>` | Checkout temporal; se elimina antes de clonar. |
@@ -34,4 +34,4 @@ Construye el RPM oficial del Wazuh Agent para arquitectura `amd64/x86_64`, confi
 
 Requiere Git y Docker o Podman. La verificación del contenido del RPM se ejecuta si `rpm` está instalado. El paquete queda en `OUTDIR` y se publica junto al instalador Agent.
 
-La versión por defecto del builder público es 4.14.8 y coincide con el RPM OPT distribuido junto a `tools/agent/install.sh`. Antes de actualizarla, validar el RPM, comprobar el prefijo `/opt/ossec` y confirmar que el instalador consume el mismo artefacto. Para probar otra versión se puede indicar `WAZUH_VERSION=<versión> ./build.sh`; no cambiar el valor por defecto hasta aprobar el despliegue.
+La versión por defecto del builder privado es 4.14.9, pero `tools/agent/install.sh` continúa fijado en 4.14.8 y consume el RPM OPT 4.14.8 incluido junto al instalador. Por ahora 4.14.9 es un candidato de construcción y validación, no la versión aprobada para instalación. Para probar otra versión se puede indicar `WAZUH_VERSION=<versión> ./build.sh`. No cambiar el valor del instalador hasta validar el RPM y aprobar el despliegue.
