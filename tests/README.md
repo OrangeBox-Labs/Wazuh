@@ -12,7 +12,7 @@ Las pruebas protegen contratos funcionales que han causado regresiones antes: po
 | `test_ioc_updater_contract.py` | Contrato | Parser de fuentes IOC, validación de listas, combinación de IP confirmadas, protección de secretos y autorización de la migración inicial. |
 | `test_vulnerability_alerts.py` | Unitarias | Normalización y consolidación CVE/agente, consulta de IP por API, deduplicación, outbox SQLite, `--status` de solo lectura y configuración de severidades. |
 | `test_orangebox_php2shell.py` | Unitarias | Patrones positivos y negativos de PHP2Shell, límites de detección, relación con reglas IOC y política de respuesta. |
-| `test_orangebox_hardening.py` | Regresión estructural | Comprueba perfil CDB, nivel, regla padre y rutas exactas de las excepciones FIM `20059`/`20060`. |
+| `test_orangebox_hardening.py` | Regresión estructural | Comprueba perfil CDB, regla padre y rutas exactas de las excepciones FIM `20057` (DNSOnly/SocialBee/XOVI), `20059`/`20060`, Snap y BitNinja. |
 | `test_agent_audit_rotation.sh` | Funcional | Ejecuta el helper auditd en directorio temporal con un servicio simulado; valida gzip y retención selectiva de siete días. |
 | `test_agent_audit_rotation_contract.sh` | Contrato | Valida que el instalador despliegue y compruebe la política de retención auditd.
 | `test-ioc-active-response.sh` | Integración | Ejecuta la suite Python, consulta la política configurada en el Manager y utiliza `wazuh-logtest` para validar fixtures HTTP sintéticos. |
