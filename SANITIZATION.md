@@ -61,7 +61,7 @@ Los grupos específicos de la implementación privada también se anonimizaron e
 No sincronizar automáticamente todo el árbol privado. Algunos archivos son específicos de clientes o sirven solo para pruebas:
 
 - Cron individuales de reportes por cliente bajo `configuration/manager/etc/cron.d/`. En público se mantiene únicamente el ejemplo genérico.
-- Listas CDB de clientes o proveedores con IPs autorizadas, como `orangebox-sftp-certcoopeuch`. Esta versión pública conserva únicamente la CDB genérica `orangebox-sftp-authorized` y datos de documentación.
+- Listas CDB de clientes o proveedores con IPs autorizadas, como `orangebox-sftp-client-specific`. Esta versión pública conserva únicamente la CDB genérica `orangebox-sftp-authorized` y datos de documentación.
 - Reportes temporales/de prueba, como `configuration/manager/reports/reporte-test.py`.
 - Artículos y capturas de pruebas que contengan nombres de hosts, dominios, alertas o detalles operacionales de clientes.
 - Archivos de estado, caches, logs, volcados, datos exportados o artefactos generados en producción.
@@ -81,3 +81,22 @@ Nunca agregue al repositorio público:
 - logs de producción.
 
 El repositorio privado **Wazuh-OrangeBox** permanece como fuente de la implementación real. Este repositorio público es su versión sanitizada.
+
+
+## CDB de agentes BitNinja
+
+La versión pública incluye la lista genérica orangebox-bitninja-agents para limitar la excepción Who-Data/dpkg 20069. Su entrada example.invalid es solo documentación y debe reemplazarse localmente. Nunca copie al repositorio público el contenido real de esta CDB ni un inventario de hostnames.
+
+## Checklist previo a cada publicación
+
+Antes de sincronizar cambios desde el repositorio privado:
+
+1. Comparar ambos árboles y clasificar cada diferencia como código genérico, configuración parametrizable, dato operacional o artefacto de producción.
+2. Revisar IPs públicas y privadas, dominios/FQDN, correos, nombres de grupos/clientes, IDs de agentes, rutas con nombres propios y datos de inventario.
+3. Buscar credenciales, tokens, claves privadas, certificados, URLs firmadas y valores de autenticación tanto en archivos como en ejemplos, fixtures y documentación.
+4. Mantener la configuración pública existente cuando contenga placeholders o listas genéricas que sustituyen valores reales; no sobrescribirla con la copia privada.
+5. Excluir cron y reportes por cliente, CDB operacionales, logs, capturas de alertas reales, bases de datos, exportaciones, paquetes candidatos no aprobados y pruebas que contengan datos identificables.
+6. Revisar referencias de los archivos nuevos para detectar dependencias a nombres o rutas excluidos.
+7. Ejecutar los tests y validaciones XML/Bash/Python del repositorio público. Para cambios de reglas/CDB, complementar con wazuh-analysisd -t y pruebas positivas/negativas con wazuh-logtest en una instalación compatible.
+
+Una búsqueda automática ayuda, pero no sustituye la revisión contextual. No se deben publicar commits del repositorio privado como un mirror Git ni fusionar su historial: se publican blobs sanitizados y cambios explícitos sobre la rama pública main. Si una credencial real se hubiera publicado previamente, eliminar el archivo en un commit nuevo no invalida la exposición histórica; el secreto debe revocarse/rotarse y, si corresponde, sanearse el historial con un procedimiento separado.

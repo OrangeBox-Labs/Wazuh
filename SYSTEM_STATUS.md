@@ -1,6 +1,6 @@
-# OrangeBox Wazuh — estado del repositorio público
+# OrangeBox Wazuh — estado del repositorio
 
-> Revisión de `main` realizada el 31 de octubre de 2026. Este documento describe lo versionado; **no demuestra por sí solo que un Manager o Agent tenga desplegado el mismo commit**.
+> Revisión de `main` realizada el 4 de noviembre de 2026. Este documento describe lo versionado en Git; **no demuestra por sí solo que un Manager o Agent de producción tenga desplegado el mismo commit**.
 
 ## Resumen de estado
 
@@ -10,20 +10,20 @@
 | Reglas OrangeBox | Activas y documentadas | `configuration/manager/etc/rules/*.xml` + `*.md` |
 | Decoders | Activos | `configuration/manager/etc/decoders/` + documentación junto a cada XML |
 | FIM por perfil | Activo | `configuration/manager/etc/shared/{default,cpanel,zimbra,webserver}/agent.conf` |
-| CDB / allowlists | Activas y con datos de ejemplo | `configuration/manager/etc/lists/` |
+| CDB / allowlists | Activas | `configuration/manager/etc/lists/` y actualizadores de `configuration/manager/bin/` |
 | Active Response | Activo y explícito en ossec.conf | Bloques `firewall-drop`, `orangebox-yara` y `orangebox-quarantine` |
-| Email SOC | Activo, con destinatarios de ejemplo | `configuration/manager/integrations/custom-orangebox-email.py` |
+| Email SOC | Activo | `configuration/manager/integrations/custom-orangebox-email.py` |
 | IOC updater | Activo | `configuration/manager/bin/update-orangebox-ioc-lists.sh` |
 | Vulnerability alerts | Activo | `configuration/manager/vulnerability-alerts/`, reglas 100321–100323 y cron |
 | GeoIP | Activo | `configuration/manager/bin/update-orangebox-geoip.sh` |
-| Agent installer | Activo, Manager configurable | `tools/agent/install.sh` |
+| Agent installer | Activo | `tools/agent/install.sh` |
 | RPM OPT builder | Activo | `packages/agent/build.sh` |
 | Reporte ejecutivo/detallado | Activo | `configuration/manager/reports/orangebox-security-report.py` |
 | Pruebas de regresión | Activas para desarrollo | `tests/` y workflow `.github/workflows/vulnerability-alerts-tests.yml` |
 
 ## Reglas de seguridad
 
-Los archivos XML de reglas tienen documentación Markdown adyacente. Los principales son:
+Los rulesets tienen documentación adyacente. Los principales son:
 
 - `orangebox-auth.xml`: autenticación, SUDO, SSH y excepciones por perfil.
 - `orangebox-hardening.xml`: modificaciones/eliminaciones FIM, persistencia y excepciones operacionales.
@@ -33,15 +33,19 @@ Los archivos XML de reglas tienen documentación Markdown adyacente. Los princip
 - `orangebox-php2shell.xml`: comportamiento PHP2Shell/PEAR.
 - `orangebox-vulnerability-alerts.xml`: eventos JSON consolidados de vulnerabilidades.
 
+Las reglas detectoras siguen siendo la fuente de decisión. Las listas, perfiles y eventos FIM proporcionan contexto; no se deben sustituir por whitelists globales.
+
 ### FIM y excepciones cPanel/CloudLinux
 
 - `10035` detecta cambios de contenido en CRON/ANACRON.
 - `10045` detecta eliminaciones de CRON/ANACRON.
 - `20032` cubre la regeneración exacta de `cpanel_ssl_reissue`.
 - `20059` conserva en nivel 3 la eliminación exacta de `cpanel_php_sessions_cron` en agentes cPanel.
-- `20060` conserva en nivel 3 las modificaciones de `lvemanager-cron`, `lvemanager-selector` y `cloudlinux-cron`; no exceptúa sus eliminaciones.
+- `20060` conserva en nivel 3 las modificaciones de `lvemanager-cron`, `lvemanager-selector` y `cloudlinux-cron`; **no** exceptúa sus eliminaciones.
+- `10710` rebaja a nivel 5 únicamente `Heuristics.Encrypted.PDF FOUND`; las firmas ClamAV restantes y Amavis `INFECTED` mantienen su severidad.
+- `20066` conserva en nivel 5 únicamente el bloque programado exacto que vincula `bitninja.service` con `nftables.service`; otras modificaciones SYSTEMD siguen críticas.
 
-Las excepciones requieren la CDB dinámica `orangebox-cpanel-agents`. No se ignora todo `/etc/cron.d`.
+Las excepciones son específicas por agente, archivo, usuario, proceso y contenido. No se desactiva FIM ni se ignora globalmente `/etc/hosts`.
 
 ## Active Response
 
@@ -51,19 +55,18 @@ La política vigente en `ossec.conf` separa las duraciones según la confianza d
 |---|---:|---|
 | IOC de IP de origen confirmadas y reglas nativas relacionadas | 604800 s (7 días) | `firewall-drop` |
 | Explotación web de alta confianza con IOC/PHP2Shell (99906, 10053) | 2592000 s (30 días) | `firewall-drop` |
-| Grupo `orangebox_web_auto_block` | 86400 s (24 horas) | Bloqueo de origen de reconocimiento web validado |
+| Grupo `orangebox_web_auto_block` | 86400 s (24 horas) | Bloqueo local de reconocimiento web de alta confianza; incluye la regla 10051 para escaneo PHP2Shell repetido tras excluir proxies autorizados |
 | Grupo `orangebox_syn_flood_block` | 3600 s (1 hora) | Bloqueo ante presión SYN-RECV persistente de una sola IP |
 
-El DoS distribuido sin una única IP responsable se detecta, pero no se bloquea de forma indiscriminada. `orangebox-yara` analiza candidatos FIM; `orangebox-quarantine` se reserva para hashes confirmados. El integrador de correo lee la política real de `ossec.conf`; no debe inferir acciones a partir del nivel de alerta.
+El DoS distribuido sin una única IP responsable se detecta, pero no se bloquea de forma indiscriminada. `orangebox-yara` analiza archivos candidatos; `orangebox-quarantine` se reserva para el hash de malware confirmado. La integración de correo lee la política real de `ossec.conf`; no debe inferir una acción a partir del nivel de la alerta.
 
 ## CDB y actualización de datos
 
-- Los sincronizadores cPanel/DNS/Zimbra convierten los grupos Wazuh en CDB dinámicas.
-- BackupPC mantiene separadas la lista estática y la resolución DNS dinámica; los valores públicos usan rangos TEST-NET.
-- GeoIP valida las bases MMDB antes de reemplazarlas.
-- El actualizador IOC separa IP de origen, IP de hosting, dominios y hashes; valida cada fuente antes de reemplazar CDB.
-- La lista pública de IP de origen confirmadas está vacía por diseño. Los IOC confirmados reales se agregan localmente en el Manager. Emerging Threats sigue alimentando el feed automático.
-- Las credenciales abuse.ch se mantienen en un archivo root-only fuera de Git.
+- `update-orangebox-cpanel-agents.sh`, `update-orangebox-dns-agents.sh` y `update-orangebox-zimbra-agents.sh` sincronizan grupos Wazuh a CDB.
+- `update-orangebox-backuppc.sh` resuelve los destinos dinámicos de BackupPC; la lista estática se administra separadamente.
+- `update-orangebox-geoip.sh` valida las bases MMDB antes de reemplazarlas.
+- `update-orangebox-ioc-lists.sh` separa IP de origen, IP de hosting, dominios y hashes; valida cada fuente antes de reemplazar CDB.
+- La primera reclasificación de IOC requiere DRY_RUN y aprobación explícita. La Auth-Key abuse.ch se mantiene en un archivo root-only fuera de Git.
 
 ## Alertas complementarias de vulnerabilidades
 
@@ -77,9 +80,8 @@ Las reglas 100321/100322/100323 cubren Medium/High/Critical. Critical es obligat
 
 ## Agent y telemetría
 
-`tools/agent/install.sh` es el instalador único. Detecta Enterprise Linux, reconcilia el paquete, almacenamiento, firewall/logging, auditd, telemetría local, YARA y el Active Response de cuarentena. SYN-RECV, ksoftirqd, carga y PHP-FPM se crean localmente; no se duplican en los grupos compartidos. El instalador mantiene `logcollector.remote_commands=0`.
+`tools/agent/install.sh` es el instalador único. Detecta Enterprise Linux, reconcilia el paquete, almacenamiento, firewall/logging, auditd, telemetría local, YARA y el Active Response de cuarentena. Las métricas SYN-RECV, ksoftirqd, carga y PHP-FPM se crean localmente; no se duplican en los grupos compartidos. El instalador conserva `logcollector.remote_commands=0`.
 
-Este repo distribuye el RPM OPT 4.14.8. El builder y el instalador públicos se mantienen alineados con esa versión; el hostname de Manager es un placeholder que se debe configurar al desplegar.
 
 ## Hardening web/DoS derivado de incidentes
 
@@ -87,11 +89,11 @@ La guía [`docs/incident-derived-webdos-hardening.md`](docs/incident-derived-web
 
 ## Reportes
 
-`orangebox-security-report.py` utiliza un motor unificado: produce el resumen ejecutivo y el detalle ZIP en la misma ejecución. El motor público conserva el nivel más completo de detalle para MITRE, FIM, autenticación, IOC/bloqueos, vulnerabilidades y GeoIP.
+`orangebox-security-report.py` utiliza un motor de reporte unificado: produce el resumen ejecutivo y el detalle ZIP en la misma ejecución. El detalle incluye MITRE, FIM, autenticación, IOC/bloqueos, vulnerabilidades y GeoIP. El motor detallado del privado se sincronizó con la implementación más completa del repositorio público, conservando los remitentes y recursos propios del privado.
 
 ## Pruebas
 
-El directorio `tests/` es **desarrollo**, no configuración de Manager. Contiene pruebas unitarias/contractuales para Active Response, IOC updater, detector de vulnerabilidades y PHP2Shell, además de fixtures sanitizados. `test_orangebox_hardening.py` verifica el alcance y las condiciones exactas de las excepciones FIM CRON `20059`/`20060`. La CI ejecuta:
+El directorio `tests/` es **desarrollo**, no configuración de Manager. Contiene pruebas unitarias/contractuales para Active Response, IOC updater, detector de vulnerabilidades, PHP2Shell y los límites de las excepciones FIM CRON, además de fixtures de prueba controlados. La fixture de IOC confirmada se conserva solo en este repositorio privado; el repositorio público usa una dirección TEST-NET. La CI ejecuta:
 
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py' -v
@@ -103,17 +105,17 @@ El test `test_vulnerability_alerts.py` vive en `tests/`, no en `configuration/ma
 
 La integración `sudo bash tests/test-ioc-active-response.sh` requiere un Manager real y `wazuh-logtest`; se ejecuta manualmente y no bloquea IPs.
 
-## Limpieza y privacidad
+## Limpieza aplicada
 
-- Se eliminaron los fragments XML redundantes que duplicaban Active Response de `ossec.conf` o telemetría del instalador.
-- Se eliminó la CDB `orangebox-private-networks` porque ninguna regla la consultaba.
-- La antigua workflow IOC fue retirada; la suite útil se conserva dentro de `tests/` y el CI actual.
-- La lista IOC curada pública no publica indicadores reales; las CDB SFTP y BackupPC contienen identificadores/valores de ejemplo.
-- Las direcciones, hosts y correos públicos son valores TEST-NET o `.example.invalid` / `example.com`. No incluir secretos, inventarios de clientes, JSONL, SQLite ni resultados de producción.
+- Eliminado `.github/workflows/ioc-active-response-tests.yml`; la suite útil se conserva y se ejecuta desde el workflow de regresión actual.
+- Eliminado `configuration/manager/reports/reporte-test.py`, copia de prueba obsoleta no referenciada por cron.
+- Eliminado `configuration/manager/reports/world-map.min.svg`, asset legado sin referencias en los motores de reportes.
+- Eliminada la nota histórica de wrapping del correo que referenciaba un patch inexistente y ya aplicado en el código.
+- Las fragmentaciones XML de prueba no forman parte del despliegue; la configuración efectiva vive en `ossec.conf` y en los perfiles compartidos.
 
-## Diferencias intencionales frente al repositorio privado
+## Diferencias privadas intencionales
 
-El repositorio público conserva las mismas capacidades, pero usa CDB SFTP genérica, cron de reporte de ejemplo, lista curada IOC vacía, emails de ejemplo, hostname de Manager configurable y RPM OPT 4.14.8. No incluye los crons de clientes, CDB SFTP de cliente, IOC reales ni el RPM OPT candidato mantenido en el repositorio privado.
+Este repositorio conserva la CDB SFTP de cliente, crons de reportes por cliente, IOC confirmadas y datos de operación privados. No copiar esas listas ni destinatarios al repositorio público. Las credenciales, inventarios, SQLite, JSONL de producción y resultados de reportes permanecen fuera de Git.
 
 ## Validación del código versionado
 
@@ -121,3 +123,14 @@ El repositorio público conserva las mismas capacidades, pero usa CDB SFTP gené
 - Los XML de reglas y decoders tienen documentación Markdown adyacente.
 - El workflow `OrangeBox regression tests` compila todos los Python, valida scripts Bash (incluido `orangebox-log-rotation`, que no usa extensión `.sh`), parsea reglas/decoders XML, `ossec.conf` y perfiles `agent.conf`, y ejecuta la suite Python de `tests/`.
 - La prueba de integración con `wazuh-logtest` queda manual porque requiere un Manager real.
+
+
+## Excepciones FIM genéricas incorporadas al repositorio público
+
+- 20061: elimina ruido de enlaces de activación Snap únicamente en los dos directorios .wants definidos y en modo scheduled.
+- 20066: conserva a nivel de revisión el diff exacto de integración programada BitNinja/nftables.
+- 20069: suprime solo el evento Who-Data exacto de dpkg/root en bitninja.service y exige hostname incluido en la CDB local orangebox-bitninja-agents. El placeholder example.invalid del repositorio no autoriza un endpoint real.
+- 20067 y 10710: suprimen únicamente las heurísticas de PDF cifrado de Amavis/ClamAV.
+- 20068: evita alertas IOC por el archivo temporal exacto del escáner ClamAV; los hashes conocidos en otras rutas permanecen detectables.
+
+Estas reglas reflejan el código versionado, no una confirmación de despliegue. Antes de instalarlas, validar XML, CDB, versión de Wazuh y casos positivos/negativos con wazuh-logtest.
