@@ -31,7 +31,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
             with self.subTest(rule_id=rule_id):
                 self.assertFalse(
                     should_render_firewall_drop_status(
-                        rule_id, 13, "192.168.1.9", "not_configured"
+                        rule_id, 13, "192.0.2.9", "not_configured"
                     )
                 )
 
@@ -41,7 +41,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
             with self.subTest(status=status):
                 self.assertTrue(
                     should_render_firewall_drop_status(
-                        "10001", 13, "192.168.1.9", status
+                        "10001", 13, "192.0.2.9", status
                     )
                 )
 
