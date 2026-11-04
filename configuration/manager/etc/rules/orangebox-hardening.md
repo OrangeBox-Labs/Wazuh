@@ -197,3 +197,34 @@ Estas reglas aprovechan los eventos nativos `550` y `553`. No se crea otro mecan
 - Who-Data para las rutas críticas configuradas en `agent.conf`.
 
 Si cambia el formato de los eventos FIM en una futura versión de Wazuh, estas reglas deben volver a probarse.
+
+
+### 20061 — Eliminación programada de enlaces de activación Snap
+
+La excepción cubre exclusivamente eliminaciones FIM en modo scheduled de enlaces de unidades Snap bajo:
+
+```text
+/etc/systemd/system/multi-user.target.wants/
+/etc/systemd/system/snapd.mounts.target.wants/
+```
+
+El nombre debe corresponder a snap-<paquete>-<revision>.mount; se aceptan guiones escapados como \\x2d. Se conserva nivel 3 para dejar evidencia en Wazuh sin generar correo SOC con el umbral habitual 12. No se exceptúan otras unidades ni eventos Who-Data.
+
+### 20066 — Integración programada BitNinja / nftables
+
+La regla 20066 reclasifica a nivel 5 únicamente el cambio programado en /etc/systemd/system/bitninja.service que añade el bloque exacto de comentarios, After=nftables.service y PartOf=nftables.service.
+
+After= ordena el arranque de BitNinja después de nftables; PartOf= propaga operaciones stop/restart desde nftables a BitNinja. La regla exige modo scheduled, ruta exacta y diff completo. Cambios distintos siguen llegando a la regla crítica 10034.
+
+### 20069 — Actualización Who-Data de BitNinja mediante dpkg
+
+La regla 20069 suprime únicamente el evento Who-Data que cumple todas estas condiciones:
+
+- El hostname del agente está incluido en la CDB local orangebox-bitninja-agents.
+- mode=whodata y archivo exacto /etc/systemd/system/bitninja.service.
+- Proceso modificador /usr/bin/dpkg, usuario root y UID efectivo 0.
+- El diff coincide exactamente con el bloque de integración nftables descrito en 20066.
+
+La CDB pública contiene un hostname de ejemplo bajo example.invalid, que no autoriza ningún agente real. Cada instalación debe reemplazarlo por el FQDN del endpoint validado y mantener esa CDB fuera de plantillas compartidas si los nombres son sensibles. No se debe copiar una lista privada de hostnames al repositorio público.
+
+La regla tiene nivel 0 únicamente para ese evento exacto. Otros procesos, agentes no incluidos, rutas o diffs diferentes mantienen la detección crítica 10034. Antes del despliegue, validar el XML, la CDB y casos positivos/negativos con wazuh-logtest.

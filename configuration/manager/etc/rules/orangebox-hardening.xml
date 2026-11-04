@@ -539,3 +539,41 @@
         <group>orangebox_exception,orangebox_whitelist,cpanel,cloudlinux,cron,</group>
     </rule>
 </group>
+
+<!-- Excepciones genéricas para Snap y BitNinja. Ajustar las CDB de agentes localmente. -->
+<group name="orangebox,hardening,fim,whitelist,snap,systemd,">
+    <!-- 20061: eliminación programada de enlaces Snap en directorios .wants conocidos. -->
+    <rule id="20061" level="3">
+        <if_sid>10044</if_sid>
+        <field name="mode">scheduled</field>
+        <field name="file" type="pcre2">^/etc/systemd/system/(?:multi-user\.target\.wants|snapd\.mounts\.target\.wants)/snap-[a-z0-9](?:[a-z0-9-]|\\x2d)*-[0-9]+\.mount$</field>
+        <description>EXCEPCION OPERACIONAL: Eliminacion de enlace de activacion de montaje Snap en directorio .wants conocido.</description>
+        <group>orangebox_exception,orangebox_whitelist,snap,systemd,</group>
+    </rule>
+</group>
+
+<group name="orangebox,hardening,fim,whitelist,bitninja,systemd,">
+    <!-- 20066: revisión de la integración programada BitNinja/nftables. -->
+    <rule id="20066" level="5">
+        <if_sid>10034</if_sid>
+        <field name="mode">scheduled</field>
+        <field name="file">^/etc/systemd/system/bitninja\.service$</field>
+        <field name="changed_content" type="pcre2">(?s)^(?:[0-9]+[acd][0-9,]*\s*)?&gt;\s+# Restarting nftables\.service flushes the whole nft ruleset,\s+&gt;\s+# including the BitNinja tables\. PartOf= propagates a restart \(and stop\) of\s+&gt;\s+# nftables\.service to BitNinja;\s+&gt;\s+# Ignored when nftables\.service does not exist\.\s+&gt;\s+After=nftables\.service\s+&gt;\s+PartOf=nftables\.service\s*$</field>
+        <description>REVISION OPERACIONAL: BitNinja vincula su unidad systemd al ciclo de nftables para preservar sus tablas del firewall.</description>
+        <group>orangebox_exception,orangebox_review,bitninja,nftables,systemd,</group>
+    </rule>
+
+    <!-- 20069: supresión exacta de dpkg/Who-Data únicamente para agentes autorizados en la CDB. -->
+    <rule id="20069" level="0">
+        <if_sid>10034</if_sid>
+        <list field="hostname" lookup="match_key">etc/lists/orangebox-bitninja-agents</list>
+        <field name="mode">whodata</field>
+        <field name="file">^/etc/systemd/system/bitninja\.service$</field>
+        <field name="process_name">^/usr/bin/dpkg$</field>
+        <field name="user_name">^root$</field>
+        <field name="effective_uid">^0$</field>
+        <field name="changed_content" type="pcre2">(?s)^(?:[0-9]+[acd][0-9,]*\s*)?&gt;\s+# Restarting nftables\.service flushes the whole nft ruleset,\s+&gt;\s+# including the BitNinja tables\. PartOf= propagates a restart \(and stop\) of\s+&gt;\s+# nftables\.service to BitNinja;\s+&gt;\s+# Ignored when nftables\.service does not exist\.\s+&gt;\s+After=nftables\.service\s+&gt;\s+PartOf=nftables\.service\s*$</field>
+        <description>EXCEPCION: dpkg actualizo bitninja.service con el bloque exacto de integracion nftables en un agente BitNinja autorizado.</description>
+        <group>orangebox_exception,orangebox_whitelist,bitninja,nftables,systemd,</group>
+    </rule>
+</group>

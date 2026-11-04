@@ -223,3 +223,18 @@ El verificador `tools/verify-deployed-config.sh` también compara las CDB dinám
 ## IDs de reglas
 
 Agregar una IP o agente a una CDB existente no requiere un nuevo SID. Cuando realmente haga falta una regla nueva, usar un ID libre del rango `20000-29999` y comprobar que no exista en otro XML.
+
+
+### orangebox-bitninja-agents
+
+CDB estática de hostnames autorizados para la excepción de actualización BitNinja mediante dpkg (orangebox-hardening.xml, regla 20069).
+
+Formato:
+
+```text
+hostname-fqdn:
+```
+
+La regla exige además Who-Data, el ejecutable /usr/bin/dpkg, usuario root, UID efectivo 0, la ruta exacta /etc/systemd/system/bitninja.service y el diff completo esperado de integración con nftables. La CDB solo limita los agentes donde se permite esta excepción; no es una whitelist de procesos ni de cambios generales de systemd.
+
+La entrada bitninja01.example.invalid es un placeholder de documentación y debe reemplazarse localmente antes de usar la excepción. Declare la CDB en ossec.conf; valide con wazuh-analysisd -t y un caso positivo/negativo en wazuh-logtest.
