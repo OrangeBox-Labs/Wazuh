@@ -86,5 +86,83 @@ class CloudLinuxCronExceptionTests(unittest.TestCase):
                 )
 
 
+
+
+class DNSOnlySocialBeeXoviExceptionTests(unittest.TestCase):
+    """La limpieza conocida de plugins DNSOnly no debe alertar por el sufijo FIM observado."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = ET.fromstring(
+            "<rules-root>" + RULE_FILE.read_text(encoding="utf-8") + "</rules-root>"
+        )
+        cls.rule = next(
+            rule for rule in cls.root.iter("rule") if rule.get("id") == "20057"
+        )
+        cls.updater = (
+            ROOT / "configuration" / "manager" / "bin" / "update-orangebox-dns-agents.sh"
+        ).read_text(encoding="utf-8")
+        cls.manager = (
+            ROOT / "configuration" / "manager" / "etc" / "ossec.conf"
+        ).read_text(encoding="utf-8")
+
+    def test_20057_accepts_only_the_four_plugin_units_with_optional_hex_suffix(self):
+        self.assertEqual(self.rule.get("level"), "0")
+        self.assertEqual(self.rule.findtext("if_sid"), "10044")
+        field = next(
+            node for node in self.rule.findall("field") if node.get("name") == "file"
+        )
+        pattern = re.compile(field.text or "")
+        paths = (
+            "/etc/systemd/system/initialize_socialbee_plugin.service",
+            "/etc/systemd/system/initialize_socialbee_plugin.timer",
+            "/etc/systemd/system/initialize_xovi_plugin.service",
+            "/etc/systemd/system/initialize_xovi_plugin.timer",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertIsNotNone(pattern.fullmatch(path))
+                self.assertIsNotNone(pattern.fullmatch(path + ";6aebbc7e"))
+        rejected = (
+            "/etc/systemd/system/initialize_socialbee_plugin.service;xyz",
+            "/etc/systemd/system/initialize_socialbee_plugin.service;6aebbc7",
+            "/etc/systemd/system/initialize_socialbee_plugin.service;6aebbc7e.extra",
+            "/etc/systemd/system/initialize_other_plugin.service;6aebbc7e",
+            "/etc/systemd/system/sshd.service;6aebbc7e",
+            "/usr/lib/systemd/system/initialize_socialbee_plugin.service;6aebbc7e",
+        )
+        for path in rejected:
+            with self.subTest(path=path):
+                self.assertIsNone(pattern.fullmatch(path))
+
+    def test_20057_keeps_dns_group_cdb_scope_and_manager_declaration(self):
+        profile = self.rule.find("list")
+        self.assertIsNotNone(profile)
+        self.assertEqual(profile.get("field"), "hostname")
+        self.assertEqual(profile.get("lookup"), "match_key_value")
+        self.assertEqual(profile.get("check_value"), "^dns$")
+        self.assertEqual(
+            (profile.text or "").strip(), "etc/lists/orangebox-dns-agents"
+        )
+        self.assertIn(
+            "<list>etc/lists/orangebox-dns-agents</list>", self.manager
+        )
+
+    def test_dns_updater_queries_lowercase_group_and_generates_lowercase_profile(self):
+        self.assertIn('GROUP="dns"', self.updater)
+        self.assertIn("printf '%s:dns\\n' \"$hostname\"", self.updater)
+        self.assertNotIn('GROUP="DNS"', self.updater)
+        self.assertNotIn("printf '%s:DNS\\n'", self.updater)
+
+    def test_20057_rule_id_is_unique(self):
+        self.assertEqual(
+            sum(
+                1 for rule in self.root.iter("rule")
+                if rule.get("id") == "20057"
+            ),
+            1,
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
