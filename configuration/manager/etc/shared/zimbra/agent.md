@@ -16,16 +16,18 @@ Los archivos sensibles como `shadow`, `gshadow` y claves privadas se monitorizan
 
 ## Rutas específicas del producto
 
-### Temporales
+### Temporales internos de Zimbra/Carbonio (excluidos)
 
-Se vigilan en tiempo real con profundidad limitada:
+No se monitorizan con FIM:
 
 ```text
 /opt/zimbra/data/tmp
 /opt/zextras/data/tmp
 ```
 
-No se guarda diff de todos los temporales. Los eventos permiten que las reglas OrangeBox y la integración YARA analicen candidatos sin almacenar contenido indiscriminadamente.
+Estas rutas contienen blobs, cachés y archivos de procesamiento efímeros. Los eventos FIM de esos archivos no permiten identificar de forma fiable el mensaje, remitente ni conexión SMTP que los originó. Por este motivo, quedan fuera de las reglas 10420/10421 y del análisis YARA genérico.
+
+La exclusión es deliberada y no afecta al monitoreo de configuración, certificados, binarios privilegiados ni webapps.
 
 ### Jetty / webapps
 
@@ -85,3 +87,35 @@ Cualquier otro comando o servidor sigue generando `10005`. La pertenencia al gru
 5. Probar `110100` con un comando permitido, el mismo comando fuera del perfil y un comando no permitido.
 
 No realizar estas pruebas con comandos ejecutables ni archivos de aplicación reales en producción.
+
+## Recolección de correo mediante el agente Wazuh existente
+
+El bloque `localfile` del perfil compartido recoge únicamente el log MTA consolidado de la plataforma:
+
+- Zimbra: `/var/log/maillog` y `/var/log/zimbra.log`; la fuente efectiva depende del enrutamiento syslog del servidor.
+- Carbonio CE: `/var/log/carbonio.log`, fuente syslog que contiene actividad Postfix y veredictos Amavis.
+
+Las tres rutas se declaran porque el grupo funcional agrupa Zimbra y Carbonio; cada host utiliza los archivos que realmente existen. `only-future-events=yes` limita la lectura a eventos nuevos desde la activación y evita importar el histórico.
+
+Además, los wildcards `/opt/z*/log/clamd.log` y `/opt/z*/log/freshclam.log` seleccionan los logs de ClamAV/Freshclam del árbol de producto instalado (`/opt/zimbra` o `/opt/zextras`) y los filtran: `clamd` solo `FOUND`/`ERROR`/`WARNING`; `freshclam` solo errores, instalaciones desactualizadas o fallos finales de actualización. SelfCheck OK y los fallbacks incrementales recuperables quedan fuera.
+
+No se incluyen los logs de mailbox ni el árbol temporal de Amavis: no son necesarios para esta primera etapa de monitoreo SMTP y podrían exponer o indexar datos de usuario sin aportar una identificación fiable del mensaje.
+
+Esta recolección utiliza Logcollector del agente Wazuh ya instalado. No se agregan paquetes, scripts, servicios, comandos remotos ni cambios locales en `ossec.conf`. La configuración se distribuye desde el Manager mediante este perfil centralizado.
+
+Las reglas `10702`–`10710` se basan en patrones observados en logs reales: intento shell codificado en RCPT ya rechazado, veredictos Amavis CLEAN/INFECTED/BANNED/SPAM, detección ClamAV FOUND y errores/estado de Freshclam. La excepción `20067` silencia únicamente el veredicto Amavis `Blocked INFECTED (Heuristics.Encrypted.PDF)`; `10710` silencia la misma heurística en `clamd.log`. La excepción FIM `20068` cubre exclusivamente los temporales `scantem/clamav-*.tmp` del escáner; hashes conocidos fuera de esa ruta siguen alertando. Ninguna instala componentes locales ni activa Active Response. La validación de coincidencia en el motor Wazuh de producción se debe completar con `wazuh-logtest`.
+Las fuentes usan un filtro Logcollector PCRE2 para aceptar procesos concretos de SMTP, cola y entrega de Postfix, además de `amavis`, `spamd`, `clamd` y `freshclam`. No se acepta el nombre genérico `postfix`: se excluyen los volcados de `dkimmilter` y la depuración TLS de Submission (bloques hexadecimales, `read from`, `write to`, `SSL_accept` y session tickets).
+
+### Protección frente a volcados de DKIM
+
+En Carbonio se observó que `postfix/dkimmilter/smtpd` escribe bloques hexadecimales con representación ASCII. Esos registros pueden contener fragmentos del flujo del mensaje y no deben enviarse al Manager.
+
+Por eso el filtro del perfil no acepta el proceso genérico `postfix`: permite únicamente procesos concretos de SMTP, cola, entrega y reinyección. Además, descarta explícitamente `postfix/dkimmilter/`. También excluye líneas de `postfix-script`, que son mensajes de estado y no eventos de tránsito del correo.
+
+La prueba `tests/test_zimbra_mail_log_sources.py` incluye muestras sintéticas de eventos SMTP/cola y de los volcados DKIM para impedir que una ampliación accidental vuelva a recogerlos.
+
+### Exclusión de depuración TLS de Submission
+
+Las líneas de depuración TLS de `postfix/submission/smtpd` y `postfix/smtps/smtpd` pueden incluir volcados hexadecimales, lecturas/escrituras de socket y negociación TLS. El perfil las descarta mediante `ignore`, pero conserva eventos de negocio y autenticación como `client=`, `sasl_username=`, Queue ID y `disconnect`.
+
+No se recopilan volcados DKIM (`postfix/dkimmilter`). Esta exclusión se prueba con muestras del host para evitar almacenar datos de transporte y ruido de depuración.
