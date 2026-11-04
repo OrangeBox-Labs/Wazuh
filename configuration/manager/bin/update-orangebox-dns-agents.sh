@@ -5,10 +5,10 @@
 #
 # PROPOSITO:
 #   Mantener automaticamente la CDB utilizada por las reglas del Manager
-#   para reconocer servidores que pertenecen al grupo Wazuh "DNS".
+#   para reconocer servidores que pertenecen al grupo Wazuh "dns".
 #
 # FUENTE DE VERDAD:
-#   La pertenencia al grupo Wazuh "DNS".
+#   La pertenencia al grupo Wazuh "dns".
 #
 # IMPORTANTE:
 #   - NO mantener una lista manual de agentes.
@@ -28,7 +28,7 @@
 set -euo pipefail
 
 OSSEC_HOME="/var/ossec"
-GROUP="DNS"
+GROUP="dns"
 OUTPUT="${OSSEC_HOME}/etc/lists/orangebox-dns-agents"
 GROUP_OUTPUT="${OUTPUT}.group.tmp.$$"
 TMP="${OUTPUT}.tmp.$$"
@@ -82,11 +82,11 @@ fi
 while IFS= read -r hostname; do
     [[ -z "$hostname" ]] && continue
 
-    printf '%s:DNS\n' "$hostname"
+    printf '%s:dns\n' "$hostname"
 
     if [[ "$hostname" == *.* ]]; then
         short="${hostname%%.*}"
-        [[ -n "$short" ]] && printf '%s:DNS\n' "$short"
+        [[ -n "$short" ]] && printf '%s:dns\n' "$short"
     fi
 done <<< "$HOSTS" |
 sort -fu > "$TMP"
