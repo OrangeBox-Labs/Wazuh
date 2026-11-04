@@ -2438,11 +2438,65 @@ if is_blocked_alert:
                                     border-bottom:1px solid #cbd5e1;
                                     color:#0f172a;font-size:12px;line-height:1.45;
                                     overflow-wrap:anywhere;">
-                                    <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#334155;">Active Response:</strong>
-                                    <span style="display:inline-block;width:58%;vertical-align:top;font-weight:700;">{esc(source_ip or 'IP no disponible en el evento')}</span>
-                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;">{esc(status_detail)}</span>
-                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;">Acción: firewall-drop · Tiempo: {esc(timeout_label)} · Ejecución en: {esc(location_detail)}</span>
-                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;font-size:11px;color:#475569;">Selector: {esc(selector_detail)}</span>
+                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                                           style="width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse;">
+                                        <tr>
+                                            <td style="padding:2px 0 8px;font-size:12px;line-height:1.4;
+                                                       overflow-wrap:anywhere;word-break:break-word;">
+                                                <strong style="color:#334155;">Active Response</strong>
+                                                <div style="padding-top:3px;font-size:14px;line-height:1.45;
+                                                            font-weight:700;overflow-wrap:anywhere;word-break:break-word;">
+                                                    {esc(source_ip or 'IP no disponible en el evento')}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding:7px 0;border-top:1px solid #cbd5e1;
+                                                       line-height:1.45;overflow-wrap:anywhere;word-break:break-word;">
+                                                <strong style="color:#334155;">Estado:</strong>
+                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
+                                                    {esc(status_detail)}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding:7px 0;border-top:1px solid #cbd5e1;
+                                                       line-height:1.45;overflow-wrap:anywhere;word-break:break-word;">
+                                                <strong style="color:#334155;">Acción:</strong>
+                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
+                                                    firewall-drop
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding:7px 0;border-top:1px solid #cbd5e1;
+                                                       line-height:1.45;overflow-wrap:anywhere;word-break:break-word;">
+                                                <strong style="color:#334155;">Tiempo:</strong>
+                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
+                                                    {esc(timeout_label)}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding:7px 0;border-top:1px solid #cbd5e1;
+                                                       line-height:1.45;overflow-wrap:anywhere;word-break:break-word;">
+                                                <strong style="color:#334155;">Ejecución en:</strong>
+                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
+                                                    {esc(location_detail)}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding:7px 0 2px;border-top:1px solid #cbd5e1;
+                                                       color:#475569;font-size:11px;line-height:1.45;
+                                                       overflow-wrap:anywhere;word-break:break-word;">
+                                                <strong>Selector:</strong>
+                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
+                                                    {esc(selector_detail)}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </table>
                                 </td>
                             </tr>
                             """

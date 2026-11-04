@@ -84,9 +84,9 @@ class IOCUpdaterContractTests(unittest.TestCase):
         csv_data = (
             '# URLhaus recent CSV\n'
             '"ID","Dateadded","URL","URL status"\n'
-            '"1","2026-10-30","http://45.61.49.78/payload.bin","online"\n'
+            '"1","2026-10-30","http://203.0.113.50/payload.bin","online"\n'
             '"2","2026-10-30","https://malware.example/payload","online"\n'
-            '"3","2026-10-30","http://8.8.8.8/bad","online"\n'
+            '"3","2026-10-30","http://198.51.100.8/bad","online"\n'
             '"4","2026-10-30","http://192.0.2.10/test","online"\n'
             '"5","2026-10-30","https://[2001:4860:4860::8888]/bad","online"\n'
         )
@@ -104,7 +104,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 out_path.read_text(encoding="ascii"),
-                "8.8.8.8:\n45.61.49.78:\n",
+                "198.51.100.8:\n203.0.113.50:\n",
             )
 
     # Comprueba el encabezado real de exportación URLhaus aunque venga comentado.
@@ -115,9 +115,9 @@ class IOCUpdaterContractTests(unittest.TestCase):
             "# URLhaus recent export\n"
             "# This is descriptive metadata\n"
             "# id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter\n"
-            '"1","2026-10-30","http://45.61.49.78/payload.bin","online","","malware_download","","https://urlhaus.abuse.ch/url/1/","analyst"\n'
+            '"1","2026-10-30","http://203.0.113.50/payload.bin","online","","malware_download","","https://urlhaus.abuse.ch/url/1/","analyst"\n'
             '"2","2026-10-30","https://malware.example/payload","online","","malware_download","","https://urlhaus.abuse.ch/url/2/","analyst"\n'
-            '"3","2026-10-30","http://8.8.8.8/bad","online","","malware_download","","https://urlhaus.abuse.ch/url/3/","analyst"\n'
+            '"3","2026-10-30","http://198.51.100.8/bad","online","","malware_download","","https://urlhaus.abuse.ch/url/3/","analyst"\n'
         )
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = Path(tmp) / "recent.csv"
@@ -133,7 +133,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 out_path.read_text(encoding="ascii"),
-                "8.8.8.8:\n45.61.49.78:\n",
+                "198.51.100.8:\n203.0.113.50:\n",
             )
 
     # Evita publicar una CDB si cambia inesperadamente el formato del CSV.
@@ -144,7 +144,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
             csv_path = Path(tmp) / "recent.csv"
             out_path = Path(tmp) / "malware-host-ip"
             csv_path.write_text(
-                '"ID","Dateadded","URL address"\n"1","2026-10-30","http://45.61.49.78/a"\n',
+                '"ID","Dateadded","URL address"\n"1","2026-10-30","http://203.0.113.50/a"\n',
                 encoding="utf-8",
             )
             result = subprocess.run(
@@ -157,16 +157,15 @@ class IOCUpdaterContractTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("no contiene una cabecera CSV reconocible", result.stderr)
 
-    # Comprueba que la lista curada privada mantenga la IOC documentada.
-    def test_confirmed_source_list_contains_the_incident_ip(self):
-        """Verifica que la lista curada local corresponda a la política de IOC de este repositorio."""
+    def test_public_confirmed_source_seed_contains_no_live_indicators(self):
+        """Confirma que el seed público no publique indicadores reales."""
         # Construye el conjunto de entradas reales de la CDB curada, ignorando comentarios.
         entries = {
             line.strip()
             for line in CONFIRMED_SOURCE_LIST.read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.lstrip().startswith("#")
         }
-        self.assertIn("165.154.218.226:", entries)
+        self.assertEqual(entries, set())
 
     # Valida normalización, orden y deduplicación de IPv4 en formato CDB.
     def test_confirmed_source_parser_normalizes_ipv4_cdb_entries(self):
@@ -176,7 +175,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
             source = Path(tmp) / "confirmed-source-ip"
             output = Path(tmp) / "normalized"
             source.write_text(
-                "# locally confirmed sources\n165.154.218.226:\n8.8.8.8:\n",
+                "# locally confirmed sources\n203.0.113.11:\n198.51.100.8:\n",
                 encoding="utf-8",
             )
             result = subprocess.run(
@@ -189,7 +188,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 output.read_text(encoding="ascii"),
-                "8.8.8.8:\n165.154.218.226:\n",
+                "198.51.100.8:\n203.0.113.11:\n",
             )
 
     # Rechaza entradas sin dos puntos, direcciones inválidas e IPv6.
@@ -215,7 +214,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
         """Rechaza direcciones inválidas, IPv6 y entradas fuera del formato CDB."""
         parser = self.embedded_confirmed_source_parser()
         # Prueba cada formato inválido para comprobar que el parser lo rechace.
-        for invalid in ("165.154.218.226", "not-an-ip:", "2001:4860:4860::8888:"):
+        for invalid in ("203.0.113.11", "not-an-ip:", "2001:4860:4860::8888:"):
             with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as tmp:
                 source = Path(tmp) / "confirmed-source-ip"
                 output = Path(tmp) / "normalized"
@@ -257,7 +256,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
             seed = Path(tmp) / "seed"
             live = Path(tmp) / "live"
             output = Path(tmp) / "merged"
-            seed.write_text("165.154.218.226:\n", encoding="utf-8")
+            seed.write_text("203.0.113.11:\n", encoding="utf-8")
             live.write_text("# local manual IOC\n203.0.113.10:\n", encoding="utf-8")
             result = subprocess.run(
                 [sys.executable, "-", str(seed), str(live), str(output)],
@@ -269,7 +268,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 output.read_text(encoding="ascii"),
-                "165.154.218.226:\n203.0.113.10:\n",
+                "203.0.113.11:\n203.0.113.10:\n",
             )
 
     # Impide que cron reclasifique fuentes de IOC sin DRY_RUN y aprobación inicial.
