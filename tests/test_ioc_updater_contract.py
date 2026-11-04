@@ -84,9 +84,9 @@ class IOCUpdaterContractTests(unittest.TestCase):
         csv_data = (
             '# URLhaus recent CSV\n'
             '"ID","Dateadded","URL","URL status"\n'
-            '"1","2026-10-30","http://203.0.113.50/payload.bin","online"\n'
+            '"1","2026-10-30","http://8.8.8.8/payload.bin","online"\n'
             '"2","2026-10-30","https://malware.example/payload","online"\n'
-            '"3","2026-10-30","http://198.51.100.8/bad","online"\n'
+            '"3","2026-10-30","http://1.1.1.1/bad","online"\n'
             '"4","2026-10-30","http://192.0.2.10/test","online"\n'
             '"5","2026-10-30","https://[2001:4860:4860::8888]/bad","online"\n'
         )
@@ -104,7 +104,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 out_path.read_text(encoding="ascii"),
-                "198.51.100.8:\n203.0.113.50:\n",
+                "1.1.1.1:\n8.8.8.8:\n",
             )
 
     # Comprueba el encabezado real de exportación URLhaus aunque venga comentado.
@@ -115,9 +115,9 @@ class IOCUpdaterContractTests(unittest.TestCase):
             "# URLhaus recent export\n"
             "# This is descriptive metadata\n"
             "# id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter\n"
-            '"1","2026-10-30","http://203.0.113.50/payload.bin","online","","malware_download","","https://urlhaus.abuse.ch/url/1/","analyst"\n'
+            '"1","2026-10-30","http://8.8.8.8/payload.bin","online","","malware_download","","https://urlhaus.abuse.ch/url/1/","analyst"\n'
             '"2","2026-10-30","https://malware.example/payload","online","","malware_download","","https://urlhaus.abuse.ch/url/2/","analyst"\n'
-            '"3","2026-10-30","http://198.51.100.8/bad","online","","malware_download","","https://urlhaus.abuse.ch/url/3/","analyst"\n'
+            '"3","2026-10-30","http://1.1.1.1/bad","online","","malware_download","","https://urlhaus.abuse.ch/url/3/","analyst"\n'
         )
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = Path(tmp) / "recent.csv"
@@ -133,7 +133,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 out_path.read_text(encoding="ascii"),
-                "198.51.100.8:\n203.0.113.50:\n",
+                "1.1.1.1:\n8.8.8.8:\n",
             )
 
     # Evita publicar una CDB si cambia inesperadamente el formato del CSV.
@@ -144,7 +144,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
             csv_path = Path(tmp) / "recent.csv"
             out_path = Path(tmp) / "malware-host-ip"
             csv_path.write_text(
-                '"ID","Dateadded","URL address"\n"1","2026-10-30","http://203.0.113.50/a"\n',
+                '"ID","Dateadded","URL address"\n"1","2026-10-30","http://8.8.8.8/a"\n',
                 encoding="utf-8",
             )
             result = subprocess.run(
@@ -175,7 +175,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
             source = Path(tmp) / "confirmed-source-ip"
             output = Path(tmp) / "normalized"
             source.write_text(
-                "# locally confirmed sources\n203.0.113.11:\n198.51.100.8:\n",
+                "# locally confirmed sources\n203.0.113.11:\n1.1.1.1:\n",
                 encoding="utf-8",
             )
             result = subprocess.run(
@@ -188,7 +188,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 output.read_text(encoding="ascii"),
-                "198.51.100.8:\n203.0.113.11:\n",
+                "1.1.1.1:\n203.0.113.11:\n",
             )
 
     # Rechaza entradas sin dos puntos, direcciones inválidas e IPv6.
@@ -268,7 +268,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 output.read_text(encoding="ascii"),
-                "203.0.113.11:\n203.0.113.10:\n",
+                "203.0.113.10:\n203.0.113.11:\n",
             )
 
     # Impide que cron reclasifique fuentes de IOC sin DRY_RUN y aprobación inicial.
