@@ -152,7 +152,7 @@ initialize_xovi_plugin.service
 initialize_xovi_plugin.timer
 ```
 
-Debe cumplirse además que el agente pertenezca al grupo Wazuh `DNS`, verificado mediante la CDB dinámica `orangebox-dns-agents`. No se exceptúa el directorio completo ni otros servicios; las eliminaciones de otras unidades siguen generando la alerta crítica `10044`. La validación operacional inicial debe confirmar que estos cuatro archivos corresponden a la limpieza esperada de DNSOnly antes de desplegar la regla.
+Debe cumplirse además que el agente pertenezca al grupo Wazuh `dns` (minúsculas), verificado mediante la CDB dinámica `orangebox-dns-agents`. El actualizador consulta ese mismo grupo y genera valores `dns` en la CDB; la regla valida exactamente ese valor. Los eventos observados pueden presentar el nombre del archivo con el sufijo `;` más ocho caracteres hexadecimales (por ejemplo, `initialize_socialbee_plugin.service;6aebbc7e`); la expresión acepta el sufijo únicamente en los cuatro nombres permitidos. No se exceptúa el directorio completo ni otros servicios; las eliminaciones de otras unidades siguen generando la alerta crítica `10044`.
 
 ### 20058 — Limpieza de unidades de montaje Snap
 
