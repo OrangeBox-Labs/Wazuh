@@ -124,7 +124,7 @@ Ejemplo:
 
 ```text
 cpanel01.example.invalid:cpanel
-cpanel01.example.invalid:cpanel
+cpanel02.example.invalid:cpanel
 ```
 
 `20031` contiene comandos directos conocidos de WP Toolkit/cPanel.
@@ -164,7 +164,7 @@ Hosts actualmente registrados en la CDB:
 mail01.example.invalid:zimbra
 zimbra02.example.invalid:zimbra
 mail03.example.invalid:zimbra
-mail.appnexit.cl:zimbra
+mail04.example.invalid:zimbra
 ```
 
 ### 110100 — Comandos Zimbra/Carbonio autorizados
