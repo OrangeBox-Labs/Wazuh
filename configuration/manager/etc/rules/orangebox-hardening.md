@@ -228,3 +228,16 @@ La regla 20069 suprime únicamente el evento Who-Data que cumple todas estas con
 La CDB pública contiene un hostname de ejemplo bajo example.invalid, que no autoriza ningún agente real. Cada instalación debe reemplazarlo por el FQDN del endpoint validado y mantener esa CDB fuera de plantillas compartidas si los nombres son sensibles. No se debe copiar una lista privada de hostnames al repositorio público.
 
 La regla tiene nivel 0 únicamente para ese evento exacto. Otros procesos, agentes no incluidos, rutas o diffs diferentes mantienen la detección crítica 10034. Antes del despliegue, validar el XML, la CDB y casos positivos/negativos con wazuh-logtest.
+
+### 20070 — Limpieza de temporales \`.dpkg-new\` en SYSTEMD
+
+Los archivos \`*.dpkg-new\` son objetos temporales que dpkg utiliza durante la fase de unpack de paquetes. La regla 20070 cubre la limpieza observada de cuatro temporales SocialBee/XOVI bajo \`/etc/systemd/system/\`, no la eliminación de las unidades definitivas.
+
+La excepción requiere simultáneamente:
+
+- Hostname incluido explícitamente en la CDB local \`orangebox-bitninja-agents\`.
+- \`mode=whodata\` y una de las cuatro rutas exactas \`initialize_{socialbee,xovi}_plugin.{service,timer}.dpkg-new\`.
+- Proceso \`/usr/bin/dpkg\`, proceso padre \`/usr/bin/apt-get\`, usuario root y UID efectivo 0.
+
+La regla conserva nivel 3 para mantener evidencia en Wazuh sin generar correo con el umbral 12. No cubre unidades definitivas, otros nombres, \`.dpkg-old\`, \`.dpkg-tmp\`, otros procesos ni eventos sin Who-Data. Las demás eliminaciones SYSTEMD siguen llegando a la regla crítica \`10044\`. La CDB pública usa solamente datos de ejemplo; cada entorno debe autorizar localmente los agentes correspondientes sin publicar hostnames privados.
+
