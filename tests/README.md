@@ -76,3 +76,5 @@ La prueba `test_public_rule_exceptions.py` valida que las excepciones sanitizada
 - BitNinja: 20066 conserva la revisión del cambio programado; 20069 exige el agente en la CDB, Who-Data, dpkg/root y el archivo exacto.
 
 El hostname de ejemplo de orangebox-bitninja-agents no autoriza endpoints reales. La CDB debe personalizarse localmente. Los tests estáticos no sustituyen la validación con `wazuh-logtest` en una versión y configuración reales de Wazuh.
+
+- **SYSTEMD/dpkg:** `20070` valida las cuatro rutas temporales `.dpkg-new` observadas y exige Who-Data, `dpkg`, padre `apt-get`, root y alcance local/allowlist BitNinja.
