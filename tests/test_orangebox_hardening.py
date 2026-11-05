@@ -164,5 +164,84 @@ class DNSOnlySocialBeeXoviExceptionTests(unittest.TestCase):
         )
 
 
+
+
+class DpkgSystemdTemporaryDeletionTests(unittest.TestCase):
+    """La limpieza dpkg de cuatro archivos staging no debe convertirse en alerta critica."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = ET.fromstring(
+            "<rules-root>" + RULE_FILE.read_text(encoding="utf-8") + "</rules-root>"
+        )
+        cls.rules = {rule.get("id"): rule for rule in cls.root.iter("rule")}
+        cls.rule = cls.rules["20070"]
+
+    def test_20070_only_matches_the_four_observed_dpkg_new_paths(self):
+        rule = self.rule
+        self.assertEqual(rule.get("level"), "3")
+        self.assertEqual(rule.findtext("if_sid"), "10044")
+        self.assertEqual(rule.findtext("field[@name='mode']"), "whodata")
+        fields = {field.get("name"): field.text for field in rule.findall("field")}
+        self.assertEqual(
+            fields["file"],
+            r"^/etc/systemd/system/initialize_(?:socialbee|xovi)_plugin\.(?:service|timer)\.dpkg-new$",
+        )
+        pattern = re.compile(fields["file"] or "")
+        allowed = (
+            "/etc/systemd/system/initialize_socialbee_plugin.service.dpkg-new",
+            "/etc/systemd/system/initialize_socialbee_plugin.timer.dpkg-new",
+            "/etc/systemd/system/initialize_xovi_plugin.service.dpkg-new",
+            "/etc/systemd/system/initialize_xovi_plugin.timer.dpkg-new",
+        )
+        for path in allowed:
+            with self.subTest(path=path):
+                self.assertIsNotNone(pattern.fullmatch(path))
+
+        rejected = (
+            "/etc/systemd/system/initialize_socialbee_plugin.service",
+            "/etc/systemd/system/initialize_socialbee_plugin.service.dpkg-old",
+            "/etc/systemd/system/initialize_socialbee_plugin.service.dpkg-tmp",
+            "/etc/systemd/system/initialize_socialbee_plugin.service.dpkg-new.extra",
+            "/etc/systemd/system/initialize_other_plugin.service.dpkg-new",
+            "/etc/systemd/system/sshd.service.dpkg-new",
+            "/usr/lib/systemd/system/initialize_socialbee_plugin.service.dpkg-new",
+        )
+        for path in rejected:
+            with self.subTest(path=path):
+                self.assertIsNone(pattern.fullmatch(path))
+
+    def test_20070_requires_dpkg_parent_apt_get_and_root_context(self):
+        fields = {field.get("name"): field.text for field in self.rule.findall("field")}
+        self.assertEqual(fields["process_name"], r"^/usr/bin/dpkg$")
+        self.assertEqual(fields["parent_name"], r"^/usr/bin/apt-get$")
+        self.assertEqual(fields["user_name"], r"^root$")
+        self.assertEqual(fields["effective_uid"], r"^0$")
+        self.assertEqual(sum(1 for field in self.rule.findall("field")
+                             if field.get("name") == "parent_name"), 1)
+
+    def test_20070_scope_is_private_hostname_or_public_bitninja_cdb(self):
+        hostname = self.rule.find("hostname")
+        profile = self.rule.find("list")
+        self.assertNotEqual(hostname is not None, profile is not None)
+        if hostname is not None:
+            self.assertEqual(hostname.get("type"), "pcre2")
+            self.assertEqual(hostname.text, r"^webserver\.rioserrano\.com$")
+        else:
+            self.assertEqual(profile.get("field"), "hostname")
+            self.assertEqual(profile.get("lookup"), "match_key")
+            self.assertEqual((profile.text or "").strip(),
+                             "etc/lists/orangebox-bitninja-agents")
+
+    def test_10044_remains_critical_and_rule_id_is_unique(self):
+        self.assertEqual(self.rules["10044"].get("level"), "15")
+        self.assertEqual(self.rules["10044"].findtext("if_sid"), "553")
+        self.assertEqual(
+            sum(1 for rule in self.root.iter("rule")
+                if rule.get("id") == "20070"),
+            1,
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
