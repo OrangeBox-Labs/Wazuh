@@ -313,7 +313,7 @@
         <hostname type="pcre2">^mail\.example\.invalid$</hostname>
         <srcip>192.0.2.19</srcip>
         <user type="pcre2">^zimbra$</user>
-        <match type="pcre2">Accepted publickey for zimbra from 192\.168\.1\.9 port [0-9]+ ssh2:</match>
+        <match type="pcre2">Accepted publickey for zimbra from 192\.0\.2\.19 port [0-9]+ ssh2:</match>
         <description>EXCEPCION OPERACIONAL: SSH de Zimbra hacia la propia IP LAN de mail.example.invalid.</description>
         <group>authentication_success,orangebox_exception,orangebox_whitelist,zimbra,</group>
     </rule>
