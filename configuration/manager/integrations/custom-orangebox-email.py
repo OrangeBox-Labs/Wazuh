@@ -18,6 +18,99 @@ from orangebox_active_response import (
     should_render_firewall_drop_status,
 )
 
+import re
+
+
+def _is_expected_google_hosts_rewrite(alert_json):
+    """Identifica una reescritura GCP idempotente; solo suprime este correo.
+
+    Se exige regla 10036, /etc/hosts y un diff completo con una única
+    eliminación/adición de la misma entrada administrada por Google.
+    En Who-Data también se valida root, UID efectivo 0 y el ejecutable.
+    Cualquier dato incompleto o transformación distinta opera fail-open.
+    """
+    if not isinstance(alert_json, dict):
+        return False
+
+    rule = alert_json.get("rule", {})
+    if not isinstance(rule, dict) or str(rule.get("id", "")) != "10036":
+        return False
+
+    syscheck = alert_json.get("syscheck", {})
+    if not isinstance(syscheck, dict) or syscheck.get("path") != "/etc/hosts":
+        return False
+
+    diff = syscheck.get("diff")
+    if not isinstance(diff, str) or not diff:
+        return False
+    diff = diff.rstrip("\r\n")
+
+    match = re.fullmatch(
+        r"(?:\d+(?:,\d+)?d\d+(?:,\d+)?)\n"
+        r"<[ \t]*(?P<old>[^\r\n]+)\n"
+        r"\d+(?:,\d+)?a\d+(?:,\d+)?\n"
+        r">[ \t]*(?P<new>[^\r\n]+)",
+        diff,
+    )
+    if not match:
+        return False
+
+    def google_line_identity(line):
+        line = line.strip()
+        if re.fullmatch(
+            r"169\.254\.169\.254[ \t]+metadata\.google\.internal"
+            r"[ \t]+# Added by Google(?: - MDS)?",
+            line,
+        ):
+            return ("mds", "169.254.169.254", "metadata.google.internal")
+
+        hostname = re.fullmatch(
+            r"(?P<ip>(?:\d{1,3}\.){3}\d{1,3})[ \t]+"
+            r"(?P<hostname>[A-Za-z0-9][A-Za-z0-9.-]*)[ \t]+"
+            r"(?P<alias>[A-Za-z0-9][A-Za-z0-9._-]*)[ \t]+"
+            r"# Added by Google(?: - Hostname)?",
+            line,
+        )
+        if hostname:
+            return (
+                "hostname",
+                hostname.group("ip"),
+                hostname.group("hostname"),
+                hostname.group("alias"),
+            )
+        return None
+
+    old_identity = google_line_identity(match.group("old"))
+    new_identity = google_line_identity(match.group("new"))
+    if old_identity is None or old_identity != new_identity:
+        return False
+
+    mode = str(syscheck.get("mode", "")).lower()
+    if mode in ("scheduled", "realtime"):
+        return True
+    if mode != "whodata":
+        return False
+
+    audit = syscheck.get("audit", {})
+    if not isinstance(audit, dict):
+        return False
+    user = audit.get("user", {})
+    process = audit.get("process", {})
+    effective_user = audit.get("effective_user", {})
+    if not all(isinstance(item, dict) for item in (user, process, effective_user)):
+        return False
+    if user.get("name") != "root" or str(effective_user.get("id", "")) != "0":
+        return False
+
+    process_name = str(process.get("name", ""))
+    return (
+        process_name == "/usr/bin/sed"
+        or process_name in (
+            "/var/ossec/bin/wazuh-syscheckd",
+            "/opt/ossec/bin/wazuh-syscheckd",
+        )
+    )
+
 
 # ============================================================
 # CONFIGURACION
@@ -50,7 +143,7 @@ VULNERABILITY_DETAILS_DIR = "/var/ossec/logs/vulnerability-alerts/details"
 # Estas opciones solamente controlan destinatarios adicionales.
 #
 # La comparacion de grupos es CASE-INSENSITIVE:
-#   CLIENTE_REDACTADO == CLIENTE_REDACTADO == CLIENTE_REDACTADO
+#   CLIENTE_01 == CLIENTE_01 == cliente_01
 #
 # Para agregar un cliente nuevo solamente hay que agregar una entrada
 # aqui. No es necesario modificar ninguna otra parte del script.
@@ -60,53 +153,13 @@ VULNERABILITY_DETAILS_DIR = "/var/ossec/logs/vulnerability-alerts/details"
 # ============================================================
 
 CLIENT_GROUPS = {
-    "CLIENTE_02": {
-        "enabled": 0,
-        "emails": [
-            "security@example.com",
-        ],
-    },
-
-    "CLIENTE_03": {
-        "enabled": 0,
-        "emails": [
-            "security@example.com",
-            "security@example.com",
-        ],
-    },
-
-    "CLIENTE_01": {
-        "enabled": 0,
-        "emails": [
-            "security@example.com",
-        ],
-    },
-
-    "CLIENTE_04": {
-        "enabled": 1,
-        "emails": [
-            "security@example.com",
-        ],
-    },
-
-    "CLIENTE_05": {
-        "enabled": 0,
-        "emails": [
-            "security@example.com",
-        ],
-    },
-
-    "CLIENTE_06": {
-        "enabled": 0,
-        "emails": [
-            "security@example.com",
-        ],
-    },
-
-    "ORANGEBOX": {
-        "enabled": 0,
-        "emails": [],
-    },
+    "CLIENTE_01": {"enabled": 0, "emails": ["cliente01@example.com"]},
+    "CLIENTE_02": {"enabled": 0, "emails": ["cliente02@example.com"]},
+    "CLIENTE_03": {"enabled": 0, "emails": ["cliente03@example.com"]},
+    "CLIENTE_04": {"enabled": 0, "emails": ["cliente04@example.com"]},
+    "CLIENTE_05": {"enabled": 0, "emails": ["cliente05@example.com"]},
+    "CLIENTE_06": {"enabled": 0, "emails": ["cliente06@example.com"]},
+    "ORANGEBOX": {"enabled": 0, "emails": []},
 }
 
 
@@ -304,9 +357,9 @@ def get_agent_groups_from_manager(agent_id):
     output = result.stdout or ""
 
     # Formato habitual:
-    #   has the group: '[u'CLIENTE_REDACTADO', u'default']'
+    #   has the group: '[u'CLIENTE_04', u'default']'
     # y versiones:
-    #   belongs to groups: default, CLIENTE_REDACTADO
+    #   belongs to groups: default, CLIENTE_04
     import re
 
     match = re.search(r"\[([^\]]*)\]", output)
@@ -317,7 +370,7 @@ def get_agent_groups_from_manager(agent_id):
             match.group(1)
         )
         # Algunas versiones muestran el nombre del grupo con puntuación
-        # de cierre (por ejemplo, "CLIENTE_REDACTADO." o "default.").
+        # de cierre (por ejemplo, "CLIENTE_05." o "default.").
         return normalize_group_list(
             [group.strip().rstrip(".,;:") for group in raw_groups]
         )
@@ -1241,6 +1294,27 @@ rule_id = str(
 rule_level = safe_int(
     alert_json.get("rule", {}).get("level", 0)
 )
+
+# Barrera de correo independiente de la prioridad de las reglas:
+# solo suprime reescrituras GCP de /etc/hosts con diff completo e identidad
+# semantica intacta. La alerta sigue en alerts.json y en el indexer.
+# Los datos incompletos o cualquier cambio real operan fail-open.
+if _is_expected_google_hosts_rewrite(alert_json):
+    _syscheck = alert_json.get("syscheck", {})
+    _audit = _syscheck.get("audit", {}) if isinstance(_syscheck, dict) else {}
+    _process = _audit.get("process", {}) if isinstance(_audit, dict) else {}
+    _agent = alert_json.get("agent", {})
+    try:
+        with open("/var/ossec/logs/integrations.log", "a", encoding="utf-8") as logf:
+            logf.write(
+                "INFO custom-orangebox-email: GCP /etc/hosts rewrite; "
+                "mail suppressed, Wazuh alert retained "
+                f"agent={_agent.get('name', 'unknown')} "
+                f"process={_process.get('name', 'unknown')}\n"
+            )
+    except OSError:
+        pass
+    sys.exit(0)
 
 description = alert_json.get(
     "rule", {}
@@ -2438,65 +2512,11 @@ if is_blocked_alert:
                                     border-bottom:1px solid #cbd5e1;
                                     color:#0f172a;font-size:12px;line-height:1.45;
                                     overflow-wrap:anywhere;">
-                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
-                                           style="width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse;">
-                                        <tr>
-                                            <td style="padding:2px 0 8px;font-size:12px;line-height:1.4;
-                                                       overflow-wrap:anywhere;word-break:break-word;">
-                                                <strong style="color:#334155;">Active Response</strong>
-                                                <div style="padding-top:3px;font-size:14px;line-height:1.45;
-                                                            font-weight:700;overflow-wrap:anywhere;word-break:break-word;">
-                                                    {esc(source_ip or 'IP no disponible en el evento')}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding:7px 0;border-top:1px solid #cbd5e1;
-                                                       line-height:1.45;overflow-wrap:anywhere;word-break:break-word;">
-                                                <strong style="color:#334155;">Estado:</strong>
-                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
-                                                    {esc(status_detail)}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding:7px 0;border-top:1px solid #cbd5e1;
-                                                       line-height:1.45;overflow-wrap:anywhere;word-break:break-word;">
-                                                <strong style="color:#334155;">Acción:</strong>
-                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
-                                                    firewall-drop
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding:7px 0;border-top:1px solid #cbd5e1;
-                                                       line-height:1.45;overflow-wrap:anywhere;word-break:break-word;">
-                                                <strong style="color:#334155;">Tiempo:</strong>
-                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
-                                                    {esc(timeout_label)}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding:7px 0;border-top:1px solid #cbd5e1;
-                                                       line-height:1.45;overflow-wrap:anywhere;word-break:break-word;">
-                                                <strong style="color:#334155;">Ejecución en:</strong>
-                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
-                                                    {esc(location_detail)}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding:7px 0 2px;border-top:1px solid #cbd5e1;
-                                                       color:#475569;font-size:11px;line-height:1.45;
-                                                       overflow-wrap:anywhere;word-break:break-word;">
-                                                <strong>Selector:</strong>
-                                                <div style="padding-top:2px;overflow-wrap:anywhere;word-break:break-word;">
-                                                    {esc(selector_detail)}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    </table>
+                                    <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#334155;">Active Response:</strong>
+                                    <span style="display:inline-block;width:58%;vertical-align:top;font-weight:700;">{esc(source_ip or 'IP no disponible en el evento')}</span>
+                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;">{esc(status_detail)}</span>
+                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;">Acción: firewall-drop · Tiempo: {esc(timeout_label)} · Ejecución en: {esc(location_detail)}</span>
+                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;font-size:11px;color:#475569;">Selector: {esc(selector_detail)}</span>
                                 </td>
                             </tr>
                             """

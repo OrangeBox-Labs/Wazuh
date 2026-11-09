@@ -24,6 +24,19 @@ Estas reglas cubren modificaciones en:
 
 Parten del evento FIM `550` (archivo modificado), pero solo generan la alerta OrangeBox cuando `changed_fields` contiene evidencia de cambio de contenido (size/md5/sha1/sha256). Cambios exclusivos de inode, mtime o permisos no generan estas alertas.
 
+### 20062, 20064, 20080 y 20082 — Normalización GCP de `/etc/hosts`
+
+Estas excepciones no dependen de una CDB de perfil ni de la extracción del hostname del evento FIM. La reducción de severidad exige que el evento corresponda a `/etc/hosts` y que el diff completo demuestre una transformación sin cambio funcional:
+
+- `20062`: reescritura exacta de entradas MDS/hostname por `/usr/bin/sed`, como root y UID efectivo 0; nivel 3.
+- `20064`: evento Who-Data atribuido a `wazuh-syscheckd`, root y UID efectivo 0; nivel 5 para revisión.
+- `20080`: evento Who-Data que declara explícitamente `No content changes`, con proceso reconocido y usuario root; nivel 3.
+- `20082`: evento `scheduled/realtime` sin Who-Data; solo se rebaja cuando el diff GCP completo coincide; nivel 3.
+
+El diff validado contempla reemplazo de la entrada MDS conservando `169.254.169.254 metadata.google.internal`, reemplazo de hostname conservando IP/FQDN/alias, hunks `c` y reordenamiento conjunto MDS/hostname. No se acepta cambio de IP, FQDN o alias, línea agregada/eliminada sin contraparte, diff adicional ni evento sin evidencia verificable. En esos casos sigue activa la alerta crítica `10036`.
+
+Los niveles 3 y 5 conservan evidencia en Wazuh por debajo del umbral de correo 12 cuando la regla hija coincide. Como segunda barrera, `custom-orangebox-email.py` aplica `orangebox_fim_email_filter.py` exclusivamente al envío de correo: si el evento sigue llegando como `10036`, solo se silencia el correo cuando el diff completo demuestra que Google retiró y reinsertó la misma línea MDS/hostname, sin cambiar IP, FQDN ni alias. En Who-Data exige `root`, UID efectivo 0 y proceso `/usr/bin/sed` o `wazuh-syscheckd`; en `scheduled/realtime` exige el diff exacto completo. La alerta original permanece en `alerts.json` y en el indexer. Cualquier dato faltante, actor desconocido, otro archivo o modificación funcional sigue el flujo normal de correo.
+
 ### 10037 — Firewall
 
 Detecta cambios en configuraciones de Shorewall, firewalld, UFW, CSF, nftables e Imunify360.
@@ -152,18 +165,39 @@ initialize_xovi_plugin.service
 initialize_xovi_plugin.timer
 ```
 
-Debe cumplirse además que el agente pertenezca al grupo Wazuh `dns` (minúsculas), verificado mediante la CDB dinámica `orangebox-dns-agents`. El actualizador consulta ese mismo grupo y genera valores `dns` en la CDB; la regla valida exactamente ese valor. Los eventos observados pueden presentar el nombre del archivo con el sufijo `;` más ocho caracteres hexadecimales (por ejemplo, `initialize_socialbee_plugin.service;6aebbc7e`); la expresión acepta el sufijo únicamente en los cuatro nombres permitidos. No se exceptúa el directorio completo ni otros servicios; las eliminaciones de otras unidades siguen generando la alerta crítica `10044`.
+Debe cumplirse además que el agente pertenezca al grupo Wazuh `DNS` (mayúsculas), verificado mediante la CDB dinámica `orangebox-dns-agents`. El actualizador consulta ese mismo grupo y genera valores `DNS` en la CDB; la regla valida exactamente ese valor. Los eventos observados pueden presentar el nombre del archivo con el sufijo `;` más ocho caracteres hexadecimales (por ejemplo, `initialize_socialbee_plugin.service;6aebbc7e`); la expresión acepta el sufijo únicamente en los cuatro nombres permitidos. No se exceptúa el directorio completo ni otros servicios; las eliminaciones de otras unidades siguen generando la alerta crítica `10044`.
 
-### 20058 — Limpieza de unidades de montaje Snap
+### 20058 — Limpieza de unidades de montaje Snap atribuida a snapd
 
-La excepción cubre únicamente eventos de eliminación atribuidos al proceso `snapd` y archivos/unidades que coincidan con:
+La excepción cubre únicamente eventos de eliminación atribuidos al ejecutable `snapd` y archivos/unidades que coincidan con:
 
 ```text
 /etc/systemd/system/snap-*.mount
 /etc/systemd/system/snap-*.mount.<n>~
 ```
 
-La regla exige el actor `process_name=snapd` y el patrón exacto de archivo, y solo rebaja la eliminación a nivel 0. No autoriza cambios de contenido, otras unidades de systemd ni eliminaciones realizadas por otros procesos. El campo de proceso proviene de la auditoría Who-Data; confirma que el agente tenga Who-Data habilitado para las rutas relevantes y valida el evento con `wazuh-logtest` antes de desplegarlo ampliamente.
+Who-Data puede entregar el nombre corto `snapd` o la ruta absoluta del ejecutable de una revisión activa, por ejemplo:
+
+```text
+/snap/snapd/28254/usr/lib/snapd/snapd
+```
+
+La regla acepta ambos formatos, pero sigue exigiendo el actor y el patrón de archivo. Solo rebaja la eliminación a nivel 0 cuando Who-Data confirma que el responsable es Snap. No autoriza cambios de contenido, otras unidades de systemd ni eliminaciones realizadas por otros procesos.
+
+### 20061 — Eliminación de enlaces de activación Snap sin Who-Data
+
+Snap también mantiene enlaces de activación de unidades de montaje en estos directorios:
+
+```text
+/etc/systemd/system/multi-user.target.wants/snap-<paquete>-<revision>.mount
+/etc/systemd/system/snapd.mounts.target.wants/snap-<paquete>-<revision>.mount
+```
+
+Systemd escapa los guiones que forman parte del nombre del paquete como `\x2d`. Por eso Google Cloud CLI puede aparecer como `snap-google\x2dcloud\x2dcli-513.mount`, en lugar de `snap-google-cloud-cli-513.mount`.
+
+Algunos eventos FIM de estos enlaces llegan en modo `scheduled`, sin datos de auditoría del proceso. La regla `20061` exige además que el evento sea `mode=scheduled`; se limita a esos dos directorios, a nombres Snap con revisión numérica y acepta tanto guiones literales como guiones escapados `\x2d`. Las eliminaciones siguen heredando de `10044`.
+
+Se conserva nivel 3: el evento permanece disponible en Wazuh, pero no alcanza el umbral 12 de la integración de correo. No se infiere ni se inventa un proceso responsable. Las eliminaciones de otras rutas, unidades o directorios .wants siguen generando la alerta crítica.
 
 ### Criterio para mantener estas excepciones
 
@@ -189,6 +223,14 @@ Who-Data se utiliza justamente para **observar y atribuir**, no para convertir e
 
 Estas reglas aprovechan los eventos nativos `550` y `553`. No se crea otro mecanismo paralelo para vigilar los mismos archivos.
 
+
+
+### 20069 — Actualización Whodata BitNinja mediante dpkg
+
+La excepción `20069` suprime el evento Who-Data observado en `webserver.example.invalid` cuando `/usr/bin/dpkg` ejecutado como root añade exactamente el mismo bloque de integración con nftables a `/etc/systemd/system/bitninja.service`.
+
+El evento puede llegar como `mode=whodata` cuando la instalación se realiza mediante `apt-get`/`dpkg`, por lo que no coincide con la excepción `20066`, que cubre el escaneo programado. La regla nueva tiene nivel 0 y evita que este cambio operacional genere una alerta. Exige agente, modo, proceso, usuario, UID, ruta y diff exactos. No filtra otras unidades, otros procesos ni cambios de `ExecStart` u otras directivas; estos siguen protegidos por la regla crítica `10034`.
+
 ## Dependencias
 
 - Wazuh FIM/syscheck.
@@ -198,46 +240,37 @@ Estas reglas aprovechan los eventos nativos `550` y `553`. No se crea otro mecan
 
 Si cambia el formato de los eventos FIM en una futura versión de Wazuh, estas reglas deben volver a probarse.
 
-
-### 20061 — Eliminación programada de enlaces de activación Snap
-
-La excepción cubre exclusivamente eliminaciones FIM en modo scheduled de enlaces de unidades Snap bajo:
-
-```text
-/etc/systemd/system/multi-user.target.wants/
-/etc/systemd/system/snapd.mounts.target.wants/
-```
-
-El nombre debe corresponder a snap-<paquete>-<revision>.mount; se aceptan guiones escapados como \\x2d. Se conserva nivel 3 para dejar evidencia en Wazuh sin generar correo SOC con el umbral habitual 12. No se exceptúan otras unidades ni eventos Who-Data.
-
 ### 20066 — Integración programada BitNinja / nftables
 
-La regla 20066 reclasifica a nivel 5 únicamente el cambio programado en /etc/systemd/system/bitninja.service que añade el bloque exacto de comentarios, After=nftables.service y PartOf=nftables.service.
+La regla `20066` reclasifica a nivel 5 únicamente la modificación programada observada en `/etc/systemd/system/bitninja.service` que añade el bloque completo de comentarios, `After=nftables.service` y `PartOf=nftables.service`.
 
-After= ordena el arranque de BitNinja después de nftables; PartOf= propaga operaciones stop/restart desde nftables a BitNinja. La regla exige modo scheduled, ruta exacta y diff completo. Cambios distintos siguen llegando a la regla crítica 10034.
+La relación tiene sentido operacional: `After=` ordena el arranque de BitNinja después de nftables y `PartOf=` propaga las operaciones stop/restart desde nftables hacia BitNinja. Esto permite que BitNinja vuelva a cargar sus tablas cuando nftables reconstruye el ruleset. BitNinja documenta su integración de firewall mediante nftables y una tabla propia; la semántica de `PartOf=` hace que las operaciones stop/restart se propaguen a la unidad relacionada.
 
-### 20069 — Actualización Who-Data de BitNinja mediante dpkg
-
-La regla 20069 suprime únicamente el evento Who-Data que cumple todas estas condiciones:
-
-- El hostname del agente está incluido en la CDB local orangebox-bitninja-agents.
-- mode=whodata y archivo exacto /etc/systemd/system/bitninja.service.
-- Proceso modificador /usr/bin/dpkg, usuario root y UID efectivo 0.
-- El diff coincide exactamente con el bloque de integración nftables descrito en 20066.
-
-La CDB pública contiene un hostname de ejemplo bajo example.invalid, que no autoriza ningún agente real. Cada instalación debe reemplazarlo por el FQDN del endpoint validado y mantener esa CDB fuera de plantillas compartidas si los nombres son sensibles. No se debe copiar una lista privada de hostnames al repositorio público.
-
-La regla tiene nivel 0 únicamente para ese evento exacto. Otros procesos, agentes no incluidos, rutas o diffs diferentes mantienen la detección crítica 10034. Antes del despliegue, validar el XML, la CDB y casos positivos/negativos con wazuh-logtest.
+La excepción exige `mode=scheduled`, el archivo exacto y el diff completo de las seis líneas añadidas, incluidos sus comentarios. No silencia cambios de `ExecStart`, otras directivas, otras unidades ni modificaciones parciales del bloque. Es un evento de revisión nivel 5: permanece en Wazuh y no genera correo con el umbral actual 12.
 
 ### 20070 — Limpieza de temporales \`.dpkg-new\` en SYSTEMD
 
-Los archivos \`*.dpkg-new\` son objetos temporales que dpkg utiliza durante la fase de unpack de paquetes. La regla 20070 cubre la limpieza observada de cuatro temporales SocialBee/XOVI bajo \`/etc/systemd/system/\`, no la eliminación de las unidades definitivas.
+La alerta observada en \`webserver.example.invalid\` no correspondía a la eliminación de unidades activas. Los cuatro eventos eran archivos de staging terminados en \`.dpkg-new\`, eliminados por \`/usr/bin/dpkg\` cuyo proceso padre era \`/usr/bin/apt-get\`, ambos ejecutados como root.
 
-La excepción requiere simultáneamente:
+La regla 20070 hereda de \`10044\`, pero solo rebaja a nivel 3 cuando coinciden el agente exacto, \`mode=whodata\`, las cuatro rutas SocialBee/XOVI con sufijo \`.dpkg-new\`, \`process_name=/usr/bin/dpkg\`, \`parent_name=/usr/bin/apt-get\`, usuario root y UID efectivo 0. El nivel 3 conserva el evento para auditoría, pero queda bajo el umbral de correo.
 
-- Hostname incluido explícitamente en la CDB local \`orangebox-bitninja-agents\`.
-- \`mode=whodata\` y una de las cuatro rutas exactas \`initialize_{socialbee,xovi}_plugin.{service,timer}.dpkg-new\`.
-- Proceso \`/usr/bin/dpkg\`, proceso padre \`/usr/bin/apt-get\`, usuario root y UID efectivo 0.
+No cubre los archivos definitivos \`.service\`/\`.timer\`, otras unidades, \`.dpkg-old\`, \`.dpkg-tmp\`, otros procesos ni eventos sin Who-Data. Las eliminaciones reales de unidades SYSTEMD siguen siendo críticas bajo \`10044\`.
 
-La regla conserva nivel 3 para mantener evidencia en Wazuh sin generar correo con el umbral 12. No cubre unidades definitivas, otros nombres, \`.dpkg-old\`, \`.dpkg-tmp\`, otros procesos ni eventos sin Who-Data. Las demás eliminaciones SYSTEMD siguen llegando a la regla crítica \`10044\`. La CDB pública usa solamente datos de ejemplo; cada entorno debe autorizar localmente los agentes correspondientes sin publicar hostnames privados.
+### 20071 — Limpieza del temporal WP Toolkit en CRON
 
+La alerta observada en `cpanel.example.invalid` correspondía a la eliminación de
+`/etc/cron.d/wp-toolkit-update.dpkg-new`, un archivo temporal de staging de
+`dpkg`, no al cron activo `/etc/cron.d/wp-toolkit-update`. Who-Data atribuyó
+la operación a `/usr/bin/dpkg`, con padre `/usr/bin/apt-get`, ejecutados como
+root.
+
+La regla `20071` hereda de `10045` y rebaja el evento a nivel 3 únicamente
+cuando coinciden el agente exacto, `mode=whodata`, la ruta temporal exacta,
+`process_name=/usr/bin/dpkg`, `parent_name=/usr/bin/apt-get`, usuario root y
+UID efectivo 0. El nivel 3 conserva la evidencia en Wazuh, pero queda bajo el
+umbral 12 de la integración de correo.
+
+No se exceptúa `/etc/cron.d/wp-toolkit-update`, otros archivos `.dpkg-new`,
+otros sufijos temporales, otros agentes, otros procesos ni eventos sin
+Who-Data. Las eliminaciones reales de tareas CRON siguen siendo críticas bajo
+`10045`.

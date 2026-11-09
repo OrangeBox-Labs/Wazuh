@@ -18,12 +18,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 # CONFIGURACION - EDITAR SOLO ESTA SECCION
 # ---------------------------------------------------------------------------
 IS_CPANEL=''
-# Versión alineada con el RPM OPT distribuido en este repositorio.
+# Versión aprobada para instalación; 4.14.9 sigue como candidato hasta completar pruebas de compatibilidad.
 WAZUH_VERSION='4.14.8'
 WAZUH_MANAGER='TU_HOSTNAME'
 WAZUH_AGENT_GROUP='default'
 WAZUH_AGENT_NAME=''
-WAZUH_REGISTRATION_PASSWORD='tu_pass'
+WAZUH_REGISTRATION_PASSWORD=''
 WAZUH_AGENT_RPM=''
 WAZUH_OSSEC_SIZE='1G'
 WAZUH_OSSEC_LV='wazuh'
@@ -2365,7 +2365,6 @@ run_step "Firewall" configure_firewall
 run_step "Logging" configure_logging
 # El agente se activa una sola vez al final, si alguna etapa lo requiere.
 
-# ---------------------------------------------------------------------------
 # Verifica que el scheduler de cron esté activo y habilitado antes de desactivar
 # la rotación automática por tamaño de auditd. No habilita ni inicia servicios por sí solo.
 orangebox_cron_scheduler_ready() {
@@ -2479,6 +2478,7 @@ configure_audit_log_rotation() {
     ok "auditd validado: rotación diaria, gzip y retención local de siete días."
 }
 
+# ---------------------------------------------------------------------------
 # 7. Componentes OrangeBox integrados: auditd + YARA
 # ---------------------------------------------------------------------------
 # Genera y carga reglas auditd de ejecución y prepara la atribución Who-Data que usa FIM.
@@ -4135,7 +4135,6 @@ final_verification() {
         grep -Fq '<location>/var/log/audit/audit.log</location>' "$WAZUH_HOME/etc/ossec.conf" &&
             ok "Verificación: lectura local de audit.log presente." ||
             { echo "ERROR: Verificación final: no se configura lectura de audit.log." >&2; failed=1; }
-
         if orangebox_cron_scheduler_ready &&
            [[ -x /etc/cron.daily/orangebox-audit-logrotate ]] &&
            grep -Fq '# ORANGEBOX_AUDIT_LOG_ROTATION' /etc/cron.daily/orangebox-audit-logrotate &&

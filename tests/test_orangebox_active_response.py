@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import re
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -31,7 +32,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
             with self.subTest(rule_id=rule_id):
                 self.assertFalse(
                     should_render_firewall_drop_status(
-                        rule_id, 13, "192.0.2.9", "not_configured"
+                        rule_id, 13, "192.0.2.19", "not_configured"
                     )
                 )
 
@@ -41,7 +42,7 @@ class FirewallDropPolicyTests(unittest.TestCase):
             with self.subTest(status=status):
                 self.assertTrue(
                     should_render_firewall_drop_status(
-                        "10001", 13, "192.0.2.9", status
+                        "10001", 13, "192.0.2.19", status
                     )
                 )
 
@@ -72,18 +73,18 @@ class FirewallDropPolicyTests(unittest.TestCase):
             "10460": 604800, "10461": 604800, "10462": 604800, "10463": 604800,
             "99903": 604800, "99904": 604800, "99905": 604800, "99907": 604800,
             "99908": 604800, "99911": 604800, "99912": 604800, "99913": 604800,
-            "99914": 604800, "99906": 2592000, "10053": 2592000, "10051": 86400,
+            "99914": 604800, "99906": 2592000, "10053": 2592000, "10051": 86400, "10055": 86400,
         }
         # La regla 10051 selecciona Active Response mediante el grupo exacto de web auto-block.
         for rule_id, timeout in expected.items():
             with self.subTest(rule_id=rule_id):
-                groups = ["orangebox_web_auto_block"] if rule_id == "10051" else []
+                groups = ["orangebox_web_auto_block"] if rule_id in ("10051", "10055") else []
                 level = 12 if rule_id == "10051" else 14
                 result = firewall_drop_policy_for_alert(rule_id, level, groups, str(MANAGER_CONF))
                 self.assertEqual(result["status"], "configured")
                 self.assertEqual(result["timeout_seconds"], timeout)
                 self.assertEqual(result["location"], "local")
-                if rule_id == "10051":
+                if rule_id in ("10051", "10055"):
                     self.assertEqual(result["matched_by"], ["rules_group:orangebox_web_auto_block,"])
         # Sin el grupo de contención, el SID 10051 no debe seleccionar firewall-drop.
         no_group = firewall_drop_policy_for_alert("10051", 12, [], str(MANAGER_CONF))
@@ -265,6 +266,48 @@ class FirewallDropPolicyTests(unittest.TestCase):
             self.assertEqual(result["status"], "configured")
             self.assertEqual(result["timeout_seconds"], 2592000)
             self.assertEqual(result["matched_by"], [f"rules_id:{rule_id}"])
+
+
+
+class LongUnixOastUrlDetectionTests(unittest.TestCase):
+    """La regla hija de 31115 bloquea el patrón unix: + callback OAST, no URLs largas genéricas."""
+
+    @classmethod
+    def setUpClass(cls):
+        path = REPO_ROOT / "configuration" / "manager" / "etc" / "rules" / "orangebox-web.xml"
+        root = ET.fromstring("<rules-root>" + path.read_text(encoding="utf-8") + "</rules-root>")
+        cls.rules = {rule.get("id"): rule for rule in root.iter("rule")}
+
+    def test_rule_is_specific_child_of_native_31115(self):
+        rule = self.rules["10055"]
+        self.assertEqual(rule.get("level"), "14")
+        self.assertEqual(rule.findtext("if_sid"), "31115")
+        url = rule.find("url")
+        self.assertEqual(url.get("type"), "pcre2")
+        pattern = re.compile(url.text or "")
+        sample = "/?unix:" + ("A" * 8000) + "|http://dbn6jkvepiejmmgatd50c11g5wc1uzxcz.oast.online/"
+        self.assertRegex(sample, pattern)
+        self.assertNotRegex("/?unix:" + ("A" * 8000), pattern)
+        self.assertNotRegex("/?q=" + ("A" * 8000) + "|http://probe.oast.online/", pattern)
+        self.assertNotRegex("/?unix:short|http://probe.oast.online/", pattern)
+
+    def test_rule_excludes_validated_proxies_and_uses_shared_auto_block_group(self):
+        rule = self.rules["10055"]
+        proxy = rule.find("list")
+        self.assertEqual(proxy.get("field"), "srcip")
+        self.assertEqual(proxy.get("lookup"), "not_address_match_key")
+        self.assertEqual(proxy.text, "etc/lists/orangebox-web-discovery-proxies")
+        self.assertIn("orangebox_web_auto_block", rule.findtext("group") or "")
+        self.assertIn("orangebox_immediate", rule.findtext("group") or "")
+
+    def test_rule_id_is_unique(self):
+        count = 0
+        for path in (REPO_ROOT / "configuration" / "manager" / "etc" / "rules").glob("*.xml"):
+            root = ET.fromstring("<rules-root>" + path.read_text(encoding="utf-8") + "</rules-root>")
+            count += sum(1 for rule in root.iter("rule") if rule.get("id") == "10055")
+        self.assertEqual(count, 1)
+
+
 
 
 if __name__ == "__main__":

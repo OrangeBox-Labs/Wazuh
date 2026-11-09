@@ -117,3 +117,21 @@ La regla 10039 es hija de la regla nativa 31115 (URL excesivamente larga) y exig
 - Notificación: el grupo `orangebox_immediate` hace que el correo se envíe sin esperar el buffer de 10 minutos.
 
 La coincidencia indica un intento sospechoso, no demuestra por sí sola que la aplicación haya accedido al servicio de metadatos ni que se hayan obtenido credenciales. Validar el cuerpo HTTP y los registros de la aplicación si el evento ocurrió en producción.
+
+
+## 10055 — URL larga con wrapper `unix:` y callback OAST
+
+La alerta observada en el access log de `example.invalid` coincidió con la regla nativa `31115` por superar el límite de longitud. El payload no es una URL larga normal: contiene el esquema `unix:`, una secuencia extensa de datos y un callback HTTP hacia un subdominio `oast.online`.
+
+La regla hija `10055` exige simultáneamente:
+
+- regla padre nativa `31115`;
+- parámetro `unix:` con al menos 256 caracteres de payload;
+- callback HTTP/HTTPS hacia `oast.online`;
+- IP de origen fuera de la CDB de reverse proxies autorizados.
+
+Tiene nivel 14 y pertenece al grupo `orangebox_web_auto_block`. Por lo tanto, reutiliza la respuesta activa ya definida en `ossec.conf`: `firewall-drop` local por 24 horas. También pertenece a `orangebox_immediate` para notificación inmediata.
+
+No se configura Active Response directamente sobre `31115`: esa regla nativa detecta cualquier URL excesivamente larga y hacerlo bloquearía solicitudes sin la señal de explotación observada. `10055` contiene el patrón de alta confianza y permite mantener esa distinción.
+
+La coincidencia identifica un intento de explotación/sondeo fuera de banda; no demuestra por sí sola que el servidor haya ejecutado el payload ni que el callback haya tenido éxito.

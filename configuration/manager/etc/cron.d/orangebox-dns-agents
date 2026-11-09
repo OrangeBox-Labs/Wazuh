@@ -2,7 +2,7 @@
 # ===============================================================
 #
 # Mantiene actualizada la CDB orangebox-dns-agents a partir del grupo
-# Wazuh "dns". No requiere una lista manual de agentes.
+# Wazuh "DNS". No requiere una lista manual de agentes.
 #
 # Los errores se conservan para poder detectar fallos de sincronizacion;
 # la salida normal permanece silenciosa.

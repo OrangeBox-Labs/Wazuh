@@ -304,6 +304,21 @@
     </rule>
 
     <!--
+        Zimbra abre SSH hacia la propia IP LAN del servidor para la cuenta
+        zimbra. Se exige agente, usuario, IP y mensaje publickey exactos.
+        Se conserva nivel 3 en Wazuh sin alcanzar el umbral de correo.
+    -->
+    <rule id="20011" level="3">
+        <if_sid>10001</if_sid>
+        <hostname type="pcre2">^mail\.example\.invalid$</hostname>
+        <srcip>192.0.2.19</srcip>
+        <user type="pcre2">^zimbra$</user>
+        <match type="pcre2">Accepted publickey for zimbra from 192\.168\.1\.9 port [0-9]+ ssh2:</match>
+        <description>EXCEPCION OPERACIONAL: SSH de Zimbra hacia la propia IP LAN de mail.example.invalid.</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,zimbra,</group>
+    </rule>
+
+    <!--
         OpenSSH emite "Accepted key ... found at ..." al validar
         authorized_keys. Es un mensaje auxiliar y no significa que
         la autenticacion haya terminado.

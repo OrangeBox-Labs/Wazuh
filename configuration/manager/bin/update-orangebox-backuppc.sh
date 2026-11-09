@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-HOSTNAME="backup.example.invalid"
+HOSTNAME="${BACKUPPC_HOSTNAME:-backuppc.example.invalid}"
 CDB="/var/ossec/etc/lists/orangebox-backuppc-dynamic"
 LOCK="/var/run/orangebox-update-backuppc.lock"
 
@@ -53,7 +53,7 @@ if ! [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
     exit 1
 fi
 
-# Convierte la IPv4 validada al formato clave:valor que espera la CDB.
+# Convierte la IP validada al formato clave:valor que espera una CDB.
 printf '%s:\n' "$ip" > "$TMP"
 
 if [ -f "$CDB" ] && cmp -s "$TMP" "$CDB"; then

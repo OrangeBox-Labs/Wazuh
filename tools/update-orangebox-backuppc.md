@@ -14,9 +14,9 @@ Contiene las IP autorizadas manualmente. **El updater nunca modifica esta lista.
 
 `/var/ossec/etc/lists/orangebox-backuppc-dynamic`
 
-Contiene la IP actual obtenida desde DNS para `backup.example.invalid`.
+Contiene la IP obtenida desde DNS para el hostname definido en `BACKUPPC_HOSTNAME` (ejemplo: `backuppc.example.invalid`).
 
-Cuando DNS cambia, el script reemplaza completamente esta lista por la nueva IP. No conserva IPs dinamicas historicas.
+Cuando DNS cambia, el script reemplaza completamente esta lista por la nueva IP. Configure `BACKUPPC_HOSTNAME` en el entorno del cron o ajuste el valor predeterminado del script. No conserva IPs dinamicas historicas.
 
 ## Comportamiento
 
@@ -53,4 +53,4 @@ Cada 5 minutos:
 Ambas CDB deben estar declaradas en `ossec.conf`.
 
 
-La CDB dinámica del repositorio contiene una IP de documentación. En una implementación real, el updater la reemplaza con la única IPv4 resuelta desde el hostname configurado en el script. La lista estática permanece administrada manualmente.
+El repositorio privado mantiene la entrada dinámica actualmente conocida; el updater puede reemplazarla cuando DNS cambie. La lista estática permanece administrada manualmente.

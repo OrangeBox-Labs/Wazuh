@@ -1,6 +1,6 @@
 # OrangeBox Wazuh — estado del repositorio
 
-> Revisión de `main` realizada el 4 de noviembre de 2026. Este documento describe lo versionado en Git; **no demuestra por sí solo que un Manager o Agent de producción tenga desplegado el mismo commit**.
+> Revisión de `main` realizada el 31 de octubre de 2026. Este documento describe lo versionado en Git; **no demuestra por sí solo que un Manager o Agent de producción tenga desplegado el mismo commit**.
 
 ## Resumen de estado
 
@@ -42,10 +42,12 @@ Las reglas detectoras siguen siendo la fuente de decisión. Las listas, perfiles
 - `20032` cubre la regeneración exacta de `cpanel_ssl_reissue`.
 - `20059` conserva en nivel 3 la eliminación exacta de `cpanel_php_sessions_cron` en agentes cPanel.
 - `20060` conserva en nivel 3 las modificaciones de `lvemanager-cron`, `lvemanager-selector` y `cloudlinux-cron`; **no** exceptúa sus eliminaciones.
+- `20062`, `20064`, `20080` y `20082` son las excepciones GCP de `/etc/hosts`. Son hijas inmediatas de `10036` y se limitan al diff exacto, al modo FIM y, cuando existe Who-Data, al proceso y usuario observados. No dependen de CDB/hostname.
+- `20011` conserva en nivel 3 el SSH local de `zimbra` desde la propia IP de `mail.example.invalid`.
 - `10710` rebaja a nivel 5 únicamente `Heuristics.Encrypted.PDF FOUND`; las firmas ClamAV restantes y Amavis `INFECTED` mantienen su severidad.
 - `20066` conserva en nivel 5 únicamente el bloque programado exacto que vincula `bitninja.service` con `nftables.service`; otras modificaciones SYSTEMD siguen críticas.
 
-Las excepciones son específicas por agente, archivo, usuario, proceso y contenido. No se desactiva FIM ni se ignora globalmente `/etc/hosts`.
+Las excepciones de `/etc/hosts` son globales, pero siguen limitadas por ruta exacta y diff GCP completo; las variantes Who-Data exigen además proceso reconocido, `root` y UID efectivo 0. Como segunda barrera de notificación, `custom-orangebox-email.py` contiene la validación inline para silenciar únicamente el correo de los diffs GCP idempotentes exactos que todavía lleguen como `10036`; no depende de un helper externo. La alerta original permanece en Wazuh, y todo dato incompleto o cambio funcional sigue enviando correo. No se desactiva FIM ni se ignora globalmente `/etc/hosts`.
 
 ## Active Response
 
@@ -82,6 +84,7 @@ Las reglas 100321/100322/100323 cubren Medium/High/Critical. Critical es obligat
 
 `tools/agent/install.sh` es el instalador único. Detecta Enterprise Linux, reconcilia el paquete, almacenamiento, firewall/logging, auditd, telemetría local, YARA y el Active Response de cuarentena. Las métricas SYN-RECV, ksoftirqd, carga y PHP-FPM se crean localmente; no se duplican en los grupos compartidos. El instalador conserva `logcollector.remote_commands=0`.
 
+El builder privado genera por defecto el Agent OPT 4.14.9, y existe un RPM privado 4.14.9. El instalador `tools/agent/install.sh` todavía mantiene `WAZUH_VERSION='4.14.8'`; por tanto, 4.14.9 debe tratarse como candidato de build y no como versión desplegada por defecto hasta validar el RPM, actualizar el instalador y aprobar el cambio de despliegue. Se conserva también el RPM OPT 4.14.8 como versión de compatibilidad/rollback.
 
 ## Hardening web/DoS derivado de incidentes
 
@@ -123,14 +126,3 @@ Este repositorio conserva la CDB SFTP de cliente, crons de reportes por cliente,
 - Los XML de reglas y decoders tienen documentación Markdown adyacente.
 - El workflow `OrangeBox regression tests` compila todos los Python, valida scripts Bash (incluido `orangebox-log-rotation`, que no usa extensión `.sh`), parsea reglas/decoders XML, `ossec.conf` y perfiles `agent.conf`, y ejecuta la suite Python de `tests/`.
 - La prueba de integración con `wazuh-logtest` queda manual porque requiere un Manager real.
-
-
-## Excepciones FIM genéricas incorporadas al repositorio público
-
-- 20061: elimina ruido de enlaces de activación Snap únicamente en los dos directorios .wants definidos y en modo scheduled.
-- 20066: conserva a nivel de revisión el diff exacto de integración programada BitNinja/nftables.
-- 20069: suprime solo el evento Who-Data exacto de dpkg/root en bitninja.service y exige hostname incluido en la CDB local orangebox-bitninja-agents. El placeholder example.invalid del repositorio no autoriza un endpoint real.
-- 20067 y 10710: suprimen únicamente las heurísticas de PDF cifrado de Amavis/ClamAV.
-- 20068: evita alertas IOC por el archivo temporal exacto del escáner ClamAV; los hashes conocidos en otras rutas permanecen detectables.
-
-Estas reglas reflejan el código versionado, no una confirmación de despliegue. Antes de instalarlas, validar XML, CDB, versión de Wazuh y casos positivos/negativos con wazuh-logtest.

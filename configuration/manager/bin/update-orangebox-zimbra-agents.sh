@@ -49,7 +49,7 @@ if ! "$AGENT_GROUPS" -l -g "$GROUP" >"$GROUP_OUTPUT" 2>&1; then
 fi
 
 # agent_groups devuelve lineas similares a:
-#   ID: 001  Name: zimbra01.example.invalid.
+#   ID: 003  Name: mail.example.invalid.
 #
 # Extraemos solo el campo Name, sin depender de extensiones no portables
 # de awk ni de un formato exacto de la cabecera. Se toleran diferencias

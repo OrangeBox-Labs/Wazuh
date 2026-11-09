@@ -15,6 +15,17 @@ Wazuh entrega la alerta en JSON y este script decide si:
 
 La razón de tener un script propio es que el correo nativo de Wazuh no entrega el formato ni el comportamiento de agrupación que necesitamos.
 
+## Supresión exacta de ruido FIM de Google Cloud
+
+La validación vive directamente en `custom-orangebox-email.py`; no utiliza un helper ni un módulo externo. Es una segunda barrera de correo para la alerta FIM `10036` cuando un agente de Google Cloud elimina y vuelve a insertar exactamente la misma entrada administrada en `/etc/hosts`.
+
+La condición exige la regla `10036`, la ruta exacta `/etc/hosts`, un solo hunk de eliminación/adición y la misma identidad semántica de la línea MDS o hostname. Para Who-Data también exige usuario `root`, UID efectivo `0` y proceso `/usr/bin/sed`, `/var/ossec/bin/wazuh-syscheckd` o `/opt/ossec/bin/wazuh-syscheckd`. Para `scheduled/realtime` exige el diff completo exacto.
+
+Esta barrera solo suprime el mensaje de correo de la integración. No elimina ni reduce la alerta Wazuh, no cambia `alerts.json`, Indexer o Active Response. Los datos incompletos o cualquier cambio de IP, FQDN, alias, archivo, proceso o usuario no autorizado quedan en modalidad fail-open y siguen enviando correo.
+
+Cada supresión válida queda registrada en `/var/ossec/logs/integrations.log`. La lógica y sus pruebas se mantienen dentro del script existente y del conjunto de pruebas del repositorio; no se agrega otro archivo de producción.
+
+
 ## Envío inmediato
 
 La integración utiliza una marca funcional de regla:

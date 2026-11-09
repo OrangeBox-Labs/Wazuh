@@ -63,6 +63,8 @@ Accepted publickey for root from 127.0.0.1
 
 No modifica `10001` ni afecta logins exitosos desde otras IP, otros usuarios o otros métodos de autenticación.
 
+La excepción `20011` conserva en nivel 3 el SSH automatizado de `zimbra` desde `192.0.2.19` hacia el propio agente `mail.example.invalid`. Exige el mensaje `Accepted publickey` y el usuario exactos. El evento sigue en Wazuh, pero no alcanza el umbral 12 de correo; no autoriza otras IP, usuarios ni accesos externos.
+
 La excepción `20008` se mantiene para el mensaje auxiliar `Accepted key ... found at ...`, que no representa una sesión autenticada completa.
 
 
@@ -123,8 +125,8 @@ El perfil se resuelve mediante `configuration/manager/etc/lists/orangebox-agent-
 Ejemplo:
 
 ```text
+srv27:cpanel
 cpanel01.example.invalid:cpanel
-cpanel02.example.invalid:cpanel
 ```
 
 `20031` contiene comandos directos conocidos de WP Toolkit/cPanel.
@@ -161,10 +163,10 @@ Los árboles reconocidos son:
 Hosts actualmente registrados en la CDB:
 
 ```text
-mail01.example.invalid:zimbra
+zimbra01.example.invalid:zimbra
 zimbra02.example.invalid:zimbra
-mail03.example.invalid:zimbra
-mail04.example.invalid:zimbra
+zimbra03.example.invalid:zimbra
+zimbra04.example.invalid:zimbra
 ```
 
 ### 110100 — Comandos Zimbra/Carbonio autorizados

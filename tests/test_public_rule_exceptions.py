@@ -92,15 +92,16 @@ class PublicRuleExceptionTests(unittest.TestCase):
             r"^/etc/systemd/system/bitninja\.service$",
         )
 
-    def test_bitninja_whodata_exception_requires_authorized_cdb_and_exact_actor(self):
+    def test_bitninja_whodata_exception_is_scoped_to_sanitized_example_host(self):
         exception = get_rule(self.hardening, 20069)
         self.assertEqual(exception.get("level"), "0")
         self.assertEqual(exception.findtext("if_sid"), "10034")
         self.assertEqual(exception.findtext("field[@name='mode']"), "whodata")
         self.assertEqual(
-            exception.findtext("list[@field='hostname']"),
-            "etc/lists/orangebox-bitninja-agents",
+            exception.findtext("hostname"),
+            r"^webserver\.example\.invalid$",
         )
+        self.assertIsNone(exception.find("list"))
         self.assertEqual(
             exception.findtext("field[@name='file']"),
             r"^/etc/systemd/system/bitninja\.service$",
@@ -108,8 +109,6 @@ class PublicRuleExceptionTests(unittest.TestCase):
         self.assertEqual(exception.findtext("field[@name='process_name']"), "^/usr/bin/dpkg$")
         self.assertEqual(exception.findtext("field[@name='user_name']"), "^root$")
         self.assertEqual(exception.findtext("field[@name='effective_uid']"), "^0$")
-        cdb = ROOT / "configuration" / "manager" / "etc" / "lists" / "orangebox-bitninja-agents"
-        self.assertIn("bitninja01.example.invalid:", cdb.read_text(encoding="utf-8"))
 
     def test_exception_rule_ids_are_unique(self):
         all_ids = []

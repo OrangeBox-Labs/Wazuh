@@ -218,6 +218,25 @@
         </mitre>
         <group>web,ssrf,cloud_metadata,credential_access,attack,orangebox_web,orangebox_cloud_metadata,orangebox_immediate,</group>
     </rule>
+
+    <!--
+        10055: hija de la regla nativa 31115 (URL > 7900 bytes).
+        No bloquea cualquier URL larga: exige el wrapper unix:, un payload
+        largo y una URL de callback OAST oast.online. Se excluyen proxies
+        web validados. El grupo orangebox_web_auto_block selecciona la
+        politica firewall-drop existente de 24 horas.
+    -->
+    <rule id="10055" level="14">
+        <if_sid>31115</if_sid>
+        <url type="pcre2">(?i)(?:^|[?&amp;])unix:[A-Za-z0-9+/=_-]{256,}\|https?://[A-Za-z0-9.-]*oast\.online(?:/|$)</url>
+        <list field="srcip" lookup="not_address_match_key">etc/lists/orangebox-web-discovery-proxies</list>
+        <description>ALERTA CRITICA: URL excesivamente larga con payload unix y callback OAST; posible intento de explotacion/SSRF desde $(srcip).</description>
+        <mitre>
+            <id>T1190</id>
+            <id>T1595.002</id>
+        </mitre>
+        <group>orangebox,web,ssrf,exploitation,attack,orangebox_web_auto_block,orangebox_immediate,</group>
+    </rule>
 </group>
 
 <!-- =================================================================

@@ -155,7 +155,7 @@ Las reglas de autenticación usan esta CDB para reconocer el contexto Zimbra/Car
 
 ### `orangebox-dns-agents`
 
-Representa el grupo Wazuh `dns` y se utiliza para restringir excepciones FIM de DNSOnly.
+Representa el grupo Wazuh `DNS` y se utiliza para restringir la excepción FIM DNSOnly `20057`.
 
 El sincronizador es:
 
@@ -169,7 +169,7 @@ y su cron:
 configuration/manager/etc/cron.d/orangebox-dns-agents
 ```
 
-Consulta `agent_groups -l -g dns`, genera hostname FQDN y hostname corto con el valor `dns`, y actualiza la CDB solo cuando cambia. Si el comando falla o no devuelve agentes reconocibles, conserva la CDB actual para evitar una lista vacía accidental. Para un despliegue controlado, `ORANGEBOX_NO_RESTART=1` permite regenerar la CDB sin reiniciar; después se puede validar `wazuh-analysisd -t` y reiniciar manualmente. El cron no define esa variable y mantiene el reinicio automático cuando cambia la lista.
+Consulta `agent_groups -l -g DNS`, genera hostname FQDN y hostname corto con el valor `DNS`, y actualiza la CDB solo cuando cambia. Si el comando falla o no devuelve agentes reconocibles, conserva la CDB actual para evitar una lista vacía accidental. Para un despliegue controlado, `ORANGEBOX_NO_RESTART=1` permite regenerar la CDB sin reiniciar; después se puede validar `wazuh-analysisd -t` y reiniciar manualmente. El cron no define esa variable y mantiene el reinicio automático cuando cambia la lista.
 
 Las CDB dinámicas no deben editarse manualmente.
 
@@ -223,18 +223,3 @@ El verificador `tools/verify-deployed-config.sh` también compara las CDB dinám
 ## IDs de reglas
 
 Agregar una IP o agente a una CDB existente no requiere un nuevo SID. Cuando realmente haga falta una regla nueva, usar un ID libre del rango `20000-29999` y comprobar que no exista en otro XML.
-
-
-### orangebox-bitninja-agents
-
-CDB estática de hostnames autorizados para la excepción de actualización BitNinja mediante dpkg (orangebox-hardening.xml, regla 20069).
-
-Formato:
-
-```text
-hostname-fqdn:
-```
-
-La regla exige además Who-Data, el ejecutable /usr/bin/dpkg, usuario root, UID efectivo 0, la ruta exacta /etc/systemd/system/bitninja.service y el diff completo esperado de integración con nftables. La CDB solo limita los agentes donde se permite esta excepción; no es una whitelist de procesos ni de cambios generales de systemd.
-
-La entrada bitninja01.example.invalid es un placeholder de documentación y debe reemplazarse localmente antes de usar la excepción. Declare la CDB en ossec.conf; valide con wazuh-analysisd -t y un caso positivo/negativo en wazuh-logtest.

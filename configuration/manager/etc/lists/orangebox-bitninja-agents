@@ -1,4 +1,0 @@
-# Agentes autorizados para la excepción exacta BitNinja/dpkg (regla 20069).
-# Reemplace o amplíe esta entrada con hostnames FQDN reales de su entorno.
-# No agregue dominios de clientes de terceros ni use esta lista como whitelist general.
-bitninja01.example.invalid:

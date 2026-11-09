@@ -1,6 +1,6 @@
-# Incident-derived detection matrix
+# Incident-derived detection matrix: srv19
 
-This document records the detection coverage added after a production web-server availability incident.
+This document records the detection coverage added after the `host.example.invalid` load incident.
 
 ## Web attack / abuse
 

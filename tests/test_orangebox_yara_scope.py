@@ -24,9 +24,7 @@ class OrangeBoxYaraScopeTests(unittest.TestCase):
         )
         cls.rules = {rule.get("id"): rule for rule in cls.rules_root.iter("rule")}
         cls.profile_root = ET.parse(PROFILE_FILE).getroot()
-        manager_source = MANAGER_FILE.read_text(encoding="utf-8")
-        manager_source = re.sub(r"^\s*<\?xml[^>]*\?>", "", manager_source, count=1)
-        cls.manager_root = ET.fromstring("<manager-fragments>" + manager_source + "</manager-fragments>")
+        cls.manager_root = ET.parse(MANAGER_FILE).getroot()
 
     def test_yara_candidate_rules_are_limited_to_general_system_temp_paths(self):
         """10420/10421 solo disparan por archivos nuevos/modificados en temporales generales."""

@@ -84,11 +84,42 @@ La configuración contempla perfiles para servidores Linux Enterprise y cargas c
 
 ## Deploy
 
-Wazuh Manager:
+**GitHub Actions valida el repositorio, pero no despliega cambios al Wazuh Manager.** Para aplicar la corrección FIM GCP hay que instalar la regla y la validación de correo integrada en el propio script, validar y reiniciar:
 
 ```bash
-rsync -a configuration/manager/ /var/ossec/
+install -o root -g wazuh -m 0640 \
+  configuration/manager/etc/rules/orangebox-hardening.xml \
+  /var/ossec/etc/rules/orangebox-hardening.xml
+
+install -o root -g wazuh -m 0640 \
+  configuration/manager/etc/rules/orangebox-web.xml \
+  /var/ossec/etc/rules/orangebox-web.xml
+
+install -o root -g wazuh -m 0750 \
+  configuration/manager/integrations/custom-orangebox-email.py \
+  /var/ossec/integrations/custom-orangebox-email.py
+
+python3 - <<'PY'
+import ast
+from pathlib import Path
+
+path = Path("/var/ossec/integrations/custom-orangebox-email.py")
+ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+print(f"Python OK: {path}")
+PY
+
+/var/ossec/bin/wazuh-analysisd -t &&
+systemctl restart wazuh-manager &&
+cmp -s configuration/manager/etc/rules/orangebox-hardening.xml \
+  /var/ossec/etc/rules/orangebox-hardening.xml &&
+cmp -s configuration/manager/etc/rules/orangebox-web.xml \
+  /var/ossec/etc/rules/orangebox-web.xml &&
+cmp -s configuration/manager/integrations/custom-orangebox-email.py \
+  /var/ossec/integrations/custom-orangebox-email.py
 ```
+
+El reinicio ocurre solo después de que Python y `wazuh-analysisd -t` validen. El filtro es fail-open: cualquier evento incompleto o que no sea la reescritura GCP exacta sigue enviando correo. La alerta válida permanece visible en Wazuh.
+
 
 Wazuh Agent:
 
@@ -134,11 +165,3 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
 La prueba `tests/test-ioc-active-response.sh` requiere un Wazuh Manager real y `wazuh-logtest`; es una integración manual de solo lectura. El workflow `OrangeBox regression tests` valida automáticamente sintaxis Python, Bash, XML y las suites unitarias.
-
-
-## Documentación técnica
-
-- [Wazuh OrangeBox: arquitectura, reglas y operación](articles/wazuh-orangebox-security.md)
-- [Estado del repositorio público](SYSTEM_STATUS.md)
-- [Política de sanitización y publicación](SANITIZATION.md)
-- [Documentación de reglas](configuration/manager/etc/rules/README.md)

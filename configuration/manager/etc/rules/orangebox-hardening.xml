@@ -146,6 +146,23 @@
         <group>network,dns,</group>
     </rule>
 
+    
+
+    
+
+    
+
+    
+
+    <!--
+        Fallback exacto para la normalizacion de Google Cloud en /etc/hosts.
+        Whodata puede atribuir la escritura a sed o al propio wazuh-syscheckd
+        segun el agente; por eso este hijo no depende del proceso/usuario.
+        Solo acepta el diff completo MDS/hostname, no cambios adicionales.
+    -->
+    
+
+
     <!--
         Configuracion de firewall, excepto /etc/sysconfig/iptables.
         iptables tiene una regla especifica debajo porque puede ser
@@ -347,10 +364,22 @@
          20060 = modificacion de cron de CloudLinux LVE Manager
                     (requiere perfil CDB cpanel y tres rutas exactas; conserva nivel 3)
          20057 = eliminacion esperada de unidades SocialBee/XOVI en DNSOnly
-                    (requiere perfil CDB dns y ruta exacta)
+                    (requiere perfil CDB DNS y ruta exacta)
          20058 = limpieza de unidades de montaje Snap por snapd
-                    (global, limitada al proceso y al patron de archivo)
+                    (global, limitada al ejecutable y patron de archivo)
+         20061 = eliminacion de enlaces Snap en dos directorios .wants exactos
+                    (conserva nivel 3 porque los eventos programados no tienen Who-Data)
 
+         20072 = mantenimiento de /etc/hosts por cPanel fixetchosts (perfil cpanel; nivel 3)
+         20073 = regeneracion de cpanel-analytics por Perl de cPanel (perfil cpanel; nivel 3)
+         20074 = limpieza de cpanel-analytics y su lock (perfil cpanel; nivel 3)
+         20075 = eliminacion del cron Imunify360 durante mantenimiento (perfil cpanel; nivel 3)
+         20076 = limpieza de unidades SocialBee/XOVI por cPanel (perfil cpanel; nivel 3)
+         20077 = reconstruccion temporal de csf.allow por Imunify360 (perfil cpanel, marcadores csf_tool, nivel 3)
+         20062 = reescritura GCP exacta de /etc/hosts por sed/root (nivel 3)
+         20064 = rearme Who-Data de /etc/hosts atribuido a syscheckd/root (nivel 5)
+         20080 = /etc/hosts reescrito por proceso root sin cambios de contenido (nivel 3)
+         20082 = FIM scheduled/realtime con diff GCP completo y exacto (nivel 3)
      IMPORTANTE SOBRE FIM:
          Las reglas de modificacion 10030-10037, 10046 y 10048 solo generan
          alerta cuando Wazuh reporta evidencia de cambio de contenido en
@@ -451,7 +480,7 @@
     <!-- Regla 20057: Silencia la eliminación de unidades SocialBee/XOVI no utilizadas, solo en agentes DNSOnly autorizados. -->
     <rule id="20057" level="0">
         <if_sid>10044</if_sid>
-        <list field="hostname" lookup="match_key_value" check_value="^dns$">etc/lists/orangebox-dns-agents</list>
+        <list field="hostname" lookup="match_key_value" check_value="^DNS$">etc/lists/orangebox-dns-agents</list>
         <field name="file" type="pcre2">^/etc/systemd/system/initialize_(?:socialbee|xovi)_plugin\.(?:service|timer)(?:;[0-9A-Fa-f]{8})?$</field>
         <description>EXCEPCION: Limpieza de plugins SocialBee/XOVI no utilizados en DNSOnly.</description>
         <group>orangebox_exception,orangebox_whitelist,dns,systemd,</group>
@@ -463,8 +492,14 @@
         - cpanel_ssl_reissue, condicionada al perfil CDB cpanel
         - limpieza de SocialBee/XOVI en DNSOnly, condicionada al grupo CDB dns
           y limitada a los cuatro archivos exactos dentro de /etc/systemd/system/
-        - unidades de montaje Snap eliminadas por snapd, limitada al proceso
+        - unidades de montaje Snap eliminadas por snapd, limitada al ejecutable
           y al patron de nombre de unidad o archivo temporal
+        - enlaces de activacion Snap eliminados en dos directorios .wants exactos,
+          conservando nivel 3 cuando no existe atribucion Who-Data
+        - mantenimiento de /etc/hosts por fixetchosts, solo en agentes cPanel
+        - regeneracion/eliminacion de los cron cpanel-analytics y lock exactos
+        - eliminacion del cron Imunify360 exacto en mantenimiento de cPanel
+        - limpieza de unidades y enlaces SocialBee/XOVI por procesos cPanel
 
     NOTA:
         Los archivos internos generados por Imunify360 bajo
@@ -487,17 +522,36 @@
 <!--
     Snap crea, reemplaza y retira unidades de montaje bajo
     /etc/systemd/system/ durante el mantenimiento de revisiones.
-    La excepcion es global: no depende del hostname ni de la distribucion.
-    Se limita a eventos de eliminacion atribuidos a snapd y a unidades
-    snap-*.mount o sus temporales de reemplazo.
+    La excepcion 20058 solo se aplica cuando Who-Data atribuye la eliminacion
+    al ejecutable snapd y la ruta corresponde a una unidad snap-*.mount.
+    Se aceptan tanto el nombre corto como la ruta absoluta del ejecutable,
+    porque Who-Data puede reportar /snap/<revision>/.../snapd.
+
+    Los enlaces de activacion que Snap mantiene en los dos directorios
+    .wants indicados mas abajo se tratan por separado mediante 20061.
 -->
 <group name="orangebox,hardening,fim,whitelist,snap,systemd,">
-    <!-- Regla 20058: Silencia la limpieza de unidades snap-*.mount cuando la eliminación la realiza snapd. -->
+    <!-- Regla 20058: Silencia la unidad Snap solo cuando Who-Data confirma que el actor es snapd. -->
     <rule id="20058" level="0">
         <if_sid>10044</if_sid>
-        <field name="process_name" type="pcre2">^snapd$</field>
+        <field name="process_name" type="pcre2">(?:^|/)snapd$</field>
         <field name="file" type="pcre2">^/etc/systemd/system/snap-.*\.mount(?:\.[0-9]+~)?$</field>
         <description>EXCEPCION: snapd retira una unidad de montaje Snap o su temporal durante mantenimiento de revisiones.</description>
+        <group>orangebox_exception,orangebox_whitelist,snap,systemd,</group>
+    </rule>
+
+    <!--
+        Regla 20061: Snap tambien elimina enlaces simbolicos de activacion
+        dentro de estos dos directorios .wants durante el mantenimiento de
+        revisiones. Algunos eventos llegan en modo scheduled y no incluyen
+        Who-Data; por eso la excepcion se limita a rutas y nombres de unidad
+        Snap exactos, y conserva nivel 3 para mantener evidencia en Wazuh.
+    -->
+    <rule id="20061" level="3">
+        <if_sid>10044</if_sid>
+        <field name="mode">scheduled</field>
+        <field name="file" type="pcre2">^/etc/systemd/system/(?:multi-user\.target\.wants|snapd\.mounts\.target\.wants)/snap-[a-z0-9](?:[a-z0-9-]|\\x2d)*-[0-9]+\.mount$</field>
+        <description>EXCEPCION OPERACIONAL: Eliminacion de enlace de activacion de montaje Snap en directorio .wants conocido.</description>
         <group>orangebox_exception,orangebox_whitelist,snap,systemd,</group>
     </rule>
 </group>
@@ -540,20 +594,16 @@
     </rule>
 </group>
 
-<!-- Excepciones genéricas para Snap y BitNinja. Ajustar las CDB de agentes localmente. -->
-<group name="orangebox,hardening,fim,whitelist,snap,systemd,">
-    <!-- 20061: eliminación programada de enlaces Snap en directorios .wants conocidos. -->
-    <rule id="20061" level="3">
-        <if_sid>10044</if_sid>
-        <field name="mode">scheduled</field>
-        <field name="file" type="pcre2">^/etc/systemd/system/(?:multi-user\.target\.wants|snapd\.mounts\.target\.wants)/snap-[a-z0-9](?:[a-z0-9-]|\\x2d)*-[0-9]+\.mount$</field>
-        <description>EXCEPCION OPERACIONAL: Eliminacion de enlace de activacion de montaje Snap en directorio .wants conocido.</description>
-        <group>orangebox_exception,orangebox_whitelist,snap,systemd,</group>
-    </rule>
-</group>
 
+
+<!--
+    BitNinja agrega estas dependencias para que su servicio se inicie despues
+    de nftables y siga sus operaciones de stop/restart. Solo se reclasifica
+    el bloque programado exacto observado; cualquier otra edicion de la
+    unidad bitninja.service permanece como evento critico 10034.
+-->
 <group name="orangebox,hardening,fim,whitelist,bitninja,systemd,">
-    <!-- 20066: revisión de la integración programada BitNinja/nftables. -->
+    <!-- Regla 20066: Conserva a nivel 5 solo la integración nftables exacta añadida a bitninja.service. -->
     <rule id="20066" level="5">
         <if_sid>10034</if_sid>
         <field name="mode">scheduled</field>
@@ -563,38 +613,227 @@
         <group>orangebox_exception,orangebox_review,bitninja,nftables,systemd,</group>
     </rule>
 
-    <!-- 20069: supresión exacta de dpkg/Who-Data únicamente para agentes autorizados en la CDB. -->
+    <!--
+        El mismo bloque exacto puede instalarse mediante dpkg y llegar como
+        evento Who-Data en lugar de scheduled. Se suprime solo en el agente
+        observado, con dpkg/root, archivo y diff exactos. Otras modificaciones
+        de bitninja.service siguen disparando 10034.
+    -->
     <rule id="20069" level="0">
         <if_sid>10034</if_sid>
-        <list field="hostname" lookup="match_key">etc/lists/orangebox-bitninja-agents</list>
+        <hostname type="pcre2">^webserver\.example\.invalid$</hostname>
         <field name="mode">whodata</field>
         <field name="file">^/etc/systemd/system/bitninja\.service$</field>
         <field name="process_name">^/usr/bin/dpkg$</field>
         <field name="user_name">^root$</field>
         <field name="effective_uid">^0$</field>
         <field name="changed_content" type="pcre2">(?s)^(?:[0-9]+[acd][0-9,]*\s*)?&gt;\s+# Restarting nftables\.service flushes the whole nft ruleset,\s+&gt;\s+# including the BitNinja tables\. PartOf= propagates a restart \(and stop\) of\s+&gt;\s+# nftables\.service to BitNinja;\s+&gt;\s+# Ignored when nftables\.service does not exist\.\s+&gt;\s+After=nftables\.service\s+&gt;\s+PartOf=nftables\.service\s*$</field>
-        <description>EXCEPCION: dpkg actualizo bitninja.service con el bloque exacto de integracion nftables en un agente BitNinja autorizado.</description>
+        <description>EXCEPCION: dpkg actualizo bitninja.service con el bloque exacto de integracion nftables en webserver.example.invalid.</description>
         <group>orangebox_exception,orangebox_whitelist,bitninja,nftables,systemd,</group>
     </rule>
 </group>
 
 <!--
     dpkg crea archivos *.dpkg-new durante el unpack de paquetes y los elimina
-    o reemplaza al completar la instalación. La excepción exige un agente
-    autorizado en la CDB BitNinja, Who-Data, cuatro rutas temporales exactas,
-    dpkg ejecutado por apt-get y UID efectivo root. Conserva nivel 3.
+    o reemplaza al completar la instalación. Esta excepción solo reconoce la
+    limpieza observada de las cuatro unidades temporales SocialBee/XOVI en
+    este agente, cuando Who-Data atribuye la operación a dpkg lanzado por
+    apt-get como root. Se conserva nivel 3 para mantener evidencia sin correo.
 -->
 <group name="orangebox,hardening,fim,whitelist,dpkg,systemd,">
     <rule id="20070" level="3">
         <if_sid>10044</if_sid>
-        <list field="hostname" lookup="match_key">etc/lists/orangebox-bitninja-agents</list>
+        <hostname type="pcre2">^webserver\.example\.invalid$</hostname>
         <field name="mode">whodata</field>
         <field name="file" type="pcre2">^/etc/systemd/system/initialize_(?:socialbee|xovi)_plugin\.(?:service|timer)\.dpkg-new$</field>
         <field name="process_name">^/usr/bin/dpkg$</field>
         <field name="parent_name">^/usr/bin/apt-get$</field>
         <field name="user_name">^root$</field>
         <field name="effective_uid">^0$</field>
-        <description>REVISION OPERACIONAL: dpkg limpio archivos temporales SocialBee/XOVI durante una operacion apt-get en un agente BitNinja autorizado.</description>
+        <description>REVISION OPERACIONAL: dpkg limpio archivos temporales SocialBee/XOVI durante una operacion apt-get.</description>
         <group>orangebox_exception,orangebox_review,dpkg,systemd,</group>
     </rule>
+</group>
+
+<!--
+    dpkg limpia el archivo temporal wp-toolkit-update.dpkg-new durante una
+    operacion apt-get observada en cpanel.example.invalid. No es el cron activo:
+    el nombre termina en .dpkg-new y Who-Data atribuye la eliminacion a
+    /usr/bin/dpkg, ejecutado por /usr/bin/apt-get como root.
+    Se conserva nivel 3 para mantener evidencia sin generar correo critico.
+-->
+<group name="orangebox,hardening,fim,whitelist,cron,dpkg,">
+    <rule id="20071" level="3">
+        <if_sid>10045</if_sid>
+        <hostname type="pcre2">^cpanel\.example\.invalid$</hostname>
+        <field name="mode">whodata</field>
+        <field name="file" type="pcre2">^/etc/cron\.d/wp-toolkit-update\.dpkg-new$</field>
+        <field name="process_name">^/usr/bin/dpkg$</field>
+        <field name="parent_name">^/usr/bin/apt-get$</field>
+        <field name="user_name">^root$</field>
+        <field name="effective_uid">^0$</field>
+        <description>REVISION OPERACIONAL: dpkg limpio el temporal wp-toolkit-update.dpkg-new durante apt-get en cpanel.example.invalid.</description>
+        <group>orangebox_exception,orangebox_review,dpkg,cron,</group>
+    </rule>
+</group>
+
+
+<!--
+    Mantenimiento automatico de cPanel en agentes identificados por el perfil
+    funcional CDB "cpanel".
+
+    Los eventos se conservan en nivel 3 para mantener trazabilidad en Wazuh,
+    pero dejan de generar correo critico. Las excepciones se limitan a los
+    procesos/rutas observados y no alteran las reglas de deteccion generales.
+-->
+<group name="orangebox,hardening,fim,whitelist,cpanel,maintenance,">
+
+    <!--
+        cPanel ejecuta scripts/fixetchosts durante el mantenimiento.
+        Who-Data identifica el interprete Perl empaquetado por cPanel;
+        /etc/hosts es la unica ruta exceptuada.
+    -->
+    <rule id="20072" level="3">
+        <if_sid>10036</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
+        <field name="file">^/etc/hosts$</field>
+        <field name="process_name" type="pcre2">^/usr/local/cpanel/3rdparty/perl/[0-9]+/bin/perl$</field>
+        <field name="user_name">^root$</field>
+        <field name="effective_uid">^0$</field>
+        <description>EXCEPCION OPERACIONAL: cPanel fixetchosts actualiza /etc/hosts durante mantenimiento programado.</description>
+        <group>orangebox_exception,orangebox_whitelist,cpanel,maintenance,network,dns,</group>
+    </rule>
+
+    <!-- Regeneracion del cron de analiticas de cPanel por su Perl empaquetado. -->
+    <rule id="20073" level="3">
+        <if_sid>10035</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
+        <field name="file" type="pcre2">^/etc/cron\.d/cpanel-analytics(?:\.lock)?$</field>
+        <field name="process_name" type="pcre2">^/usr/local/cpanel/3rdparty/perl/[0-9]+/bin/perl$</field>
+        <field name="user_name">^root$</field>
+        <field name="effective_uid">^0$</field>
+        <description>EXCEPCION OPERACIONAL: cPanel regenera su cron de analiticas o archivo lock durante mantenimiento.</description>
+        <group>orangebox_exception,orangebox_whitelist,cpanel,maintenance,cron,</group>
+    </rule>
+
+    <!-- Eliminacion del cron de analiticas/lock durante limpieza de cPanel. -->
+    <rule id="20074" level="3">
+        <if_sid>10045</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
+        <field name="file" type="pcre2">^/etc/cron\.d/cpanel-analytics(?:\.lock)?$</field>
+        <field name="user_name">^root$</field>
+        <field name="effective_uid">^0$</field>
+        <description>EXCEPCION OPERACIONAL: cPanel elimina su cron de analiticas o archivo lock durante mantenimiento.</description>
+        <group>orangebox_exception,orangebox_whitelist,cpanel,maintenance,cron,</group>
+    </rule>
+
+    <!-- Imunify360 retira su cron de limpieza durante una actualizacion. -->
+    <rule id="20075" level="3">
+        <if_sid>10045</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
+        <field name="file">^/etc/cron\.d/imunify360-purge-clamav$</field>
+        <field name="process_name">^/usr/bin/rm$</field>
+        <field name="user_name">^root$</field>
+        <field name="effective_uid">^0$</field>
+        <description>EXCEPCION OPERACIONAL: Imunify360 retira su cron purge-clamav durante mantenimiento de paquetes.</description>
+        <group>orangebox_exception,orangebox_whitelist,cpanel,imunify360,maintenance,cron,</group>
+    </rule>
+
+    <!--
+        cPanel limpia unidades SocialBee/XOVI y enlaces de activacion
+        durante el mantenimiento de plugins. Se exige perfil cPanel,
+        ruta exacta y proceso padre Perl empaquetado por cPanel.
+    -->
+    <rule id="20076" level="3">
+        <if_sid>10044</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
+        <field name="mode">whodata</field>
+        <field name="file" type="pcre2">^/etc/systemd/system/(?:initialize_(?:socialbee|xovi)_plugin\.(?:service|timer)|timers\.target\.wants/initialize_(?:socialbee|xovi)_plugin\.timer)$</field>
+        <field name="parent_name" type="pcre2">^/usr/local/cpanel/3rdparty/perl/[0-9]+/bin/perl$</field>
+        <field name="user_name">^root$</field>
+        <field name="effective_uid">^0$</field>
+        <description>EXCEPCION OPERACIONAL: cPanel limpia unidades o enlaces de activacion SocialBee/XOVI durante mantenimiento de plugins.</description>
+        <group>orangebox_exception,orangebox_whitelist,cpanel,maintenance,systemd,</group>
+    </rule>
+
+</group>
+
+<!--
+    Imunify360 reconstruye la lista de allow de CSF en un archivo temporal
+    /etc/csf/csf.allow.<suffix>, elimina/actualiza las IP de sus servidores
+    y luego el flujo de shell publica el resultado. Los eventos observados
+    en el temporal fueron ejecutados por cp/chown/sed bajo bash y sus diffs
+    contienen los marcadores csf_tool de Imunify360.
+    
+    Se conserva nivel 3 para auditoria. La excepcion NO cubre el archivo
+    final /etc/csf/csf.allow, csf.pignore, csf.deny ni otras configuraciones
+    CSF: sus cambios siguen siendo alertados por 10037.
+-->
+<group name="orangebox,hardening,fim,whitelist,cpanel,imunify360,firewall,">
+    <rule id="20077" level="3">
+        <if_sid>10037</if_sid>
+        <list field="hostname" lookup="match_key_value" check_value="^cpanel$">etc/lists/orangebox-cpanel-agents</list>
+        <field name="mode">whodata</field>
+        <field name="file" type="pcre2">^/etc/csf/csf\.allow\.[A-Za-z0-9_-]+$</field>
+        <field name="process_name" type="pcre2">^/usr/bin/(?:cp|chown|sed)$</field>
+        <field name="parent_name">^/usr/bin/bash$</field>
+        <field name="user_name">^root$</field>
+        <field name="effective_uid">^0$</field>
+        <field name="changed_content" type="pcre2">(?s)(?:csf_tool: imunify360 server|csf_tool: files\.imunify360\.com server|Include /var/imunify360/files/whitelist/v2/imunify360\.txt)</field>
+        <description>EXCEPCION OPERACIONAL: Imunify360 reconstruye su lista temporal csf.allow mediante csf_tool.</description>
+        <group>orangebox_exception,orangebox_whitelist,cpanel,imunify360,firewall,</group>
+    </rule>
+</group>
+
+<!--
+    Excepciones GCP de FIM. Se mantienen en el bloque de whitelist al final
+    del archivo, separadas de las reglas de deteccion. Su padre 10036 ya fue
+    cargado arriba; Wazuh vincula estas hijas mediante if_sid=10036.
+    Solo se rebajan reescrituras exactas de entradas MDS/hostname.
+-->
+<group name="orangebox,hardening,fim,whitelist,google_cloud,network,dns,">
+    <rule id="20062" level="3">
+            <if_sid>10036</if_sid>
+            <field name="mode">whodata</field>
+            <field name="file">^/etc/hosts$</field>
+            <field name="process_name">^/usr/bin/sed$</field>
+            <field name="user_name">^root$</field>
+            <field name="effective_uid">^0$</field>
+            <field name="changed_content" type="pcre2">(?s)^(?:\d+(?:,\d+)?d\d+(?:,\d+)?\n&lt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google(?: - MDS)?[ \t]*\n\d+(?:,\d+)?a\d+(?:,\d+)?\n&gt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google(?: - MDS)?[ \t]*|\d+(?:,\d+)?c\d+(?:,\d+)?\n&lt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google[ \t]*\n---\n&gt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google - MDS[ \t]*|\d+(?:,\d+)?d\d+(?:,\d+)?\n&lt;[ \t]*(\d{1,3}(?:\.\d{1,3}){3})[ \t]+([A-Za-z0-9][A-Za-z0-9.-]*)[ \t]+([A-Za-z0-9][A-Za-z0-9._-]*)[ \t]+# Added by Google(?: - Hostname)?[ \t]*\n\d+(?:,\d+)?a\d+(?:,\d+)?\n&gt;[ \t]*\1[ \t]+\2[ \t]+\3[ \t]+# Added by Google(?: - Hostname)?[ \t]*|\d+(?:,\d+)?c\d+(?:,\d+)?\n&lt;[ \t]*(\d{1,3}(?:\.\d{1,3}){3})[ \t]+([A-Za-z0-9][A-Za-z0-9.-]*)[ \t]+([A-Za-z0-9][A-Za-z0-9._-]*)[ \t]+# Added by Google(?: - Hostname)?[ \t]*\n---\n&gt;[ \t]*\4[ \t]+\5[ \t]+\6[ \t]+# Added by Google - Hostname[ \t]*|\d+,\d+c\d+,\d+\n&lt;[ \t]*(\d{1,3}(?:\.\d{1,3}){3})[ \t]+([A-Za-z0-9][A-Za-z0-9.-]*)[ \t]+([A-Za-z0-9][A-Za-z0-9._-]*)[ \t]+# Added by Google[ \t]*\n&lt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google[ \t]*\n---\n&gt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google - MDS[ \t]*\n&gt;[ \t]*\7[ \t]+\8[ \t]+\9[ \t]+# Added by Google - Hostname[ \t]*)[ \t]*(?:\n)?$</field>
+            <description>EXCEPCION OPERACIONAL: Google Cloud normaliza entradas MDS/hostname de /etc/hosts mediante sed/root.</description>
+            <group>orangebox_exception,orangebox_whitelist,google_cloud,network,dns,</group>
+        </rule>
+
+    <rule id="20064" level="5">
+            <if_sid>10036</if_sid>
+            <field name="mode">whodata</field>
+            <field name="file">^/etc/hosts$</field>
+            <field name="process_name" type="pcre2">(?:^|/)wazuh-syscheckd$</field>
+            <field name="user_name">^root$</field>
+            <field name="effective_uid">^0$</field>
+            <field name="changed_content" type="pcre2">(?s)^(?:\d+(?:,\d+)?d\d+(?:,\d+)?\n&lt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google(?: - MDS)?[ \t]*\n\d+(?:,\d+)?a\d+(?:,\d+)?\n&gt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google(?: - MDS)?[ \t]*|\d+(?:,\d+)?c\d+(?:,\d+)?\n&lt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google[ \t]*\n---\n&gt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google - MDS[ \t]*|\d+(?:,\d+)?d\d+(?:,\d+)?\n&lt;[ \t]*(\d{1,3}(?:\.\d{1,3}){3})[ \t]+([A-Za-z0-9][A-Za-z0-9.-]*)[ \t]+([A-Za-z0-9][A-Za-z0-9._-]*)[ \t]+# Added by Google(?: - Hostname)?[ \t]*\n\d+(?:,\d+)?a\d+(?:,\d+)?\n&gt;[ \t]*\1[ \t]+\2[ \t]+\3[ \t]+# Added by Google(?: - Hostname)?[ \t]*|\d+(?:,\d+)?c\d+(?:,\d+)?\n&lt;[ \t]*(\d{1,3}(?:\.\d{1,3}){3})[ \t]+([A-Za-z0-9][A-Za-z0-9.-]*)[ \t]+([A-Za-z0-9][A-Za-z0-9._-]*)[ \t]+# Added by Google(?: - Hostname)?[ \t]*\n---\n&gt;[ \t]*\4[ \t]+\5[ \t]+\6[ \t]+# Added by Google - Hostname[ \t]*|\d+,\d+c\d+,\d+\n&lt;[ \t]*(\d{1,3}(?:\.\d{1,3}){3})[ \t]+([A-Za-z0-9][A-Za-z0-9.-]*)[ \t]+([A-Za-z0-9][A-Za-z0-9._-]*)[ \t]+# Added by Google[ \t]*\n&lt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google[ \t]*\n---\n&gt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google - MDS[ \t]*\n&gt;[ \t]*\7[ \t]+\8[ \t]+\9[ \t]+# Added by Google - Hostname[ \t]*)[ \t]*(?:\n)?$</field>
+            <description>REVISION OPERACIONAL: Who-Data atribuye a wazuh-syscheckd una normalizacion GCP de /etc/hosts.</description>
+            <group>orangebox_exception,orangebox_review,google_cloud,network,dns,</group>
+        </rule>
+
+    <rule id="20080" level="3">
+            <if_sid>10036</if_sid>
+            <field name="mode">whodata</field>
+            <field name="file">^/etc/hosts$</field>
+            <field name="process_name" type="pcre2">^(?:/usr/bin/sed|/var/ossec/bin/wazuh-syscheckd|/opt/ossec/bin/wazuh-syscheckd)$</field>
+            <field name="user_name">^root$</field>
+            <field name="effective_uid">^0$</field>
+            <field name="changed_content" type="pcre2">^No content changes were found for this file\.$</field>
+            <description>EXCEPCION OPERACIONAL: /etc/hosts fue reescrito por proceso root sin cambios de contenido.</description>
+            <group>orangebox_exception,orangebox_whitelist,google_cloud,network,dns,</group>
+        </rule>
+
+    <rule id="20082" level="3">
+            <if_sid>10036</if_sid>
+            <field name="mode" type="pcre2">^(?:scheduled|realtime)$</field>
+            <field name="file">^/etc/hosts$</field>
+            <field name="changed_content" type="pcre2">(?s)^(?:\d+(?:,\d+)?d\d+(?:,\d+)?\n&lt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google(?: - MDS)?[ \t]*\n\d+(?:,\d+)?a\d+(?:,\d+)?\n&gt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google(?: - MDS)?[ \t]*|\d+(?:,\d+)?c\d+(?:,\d+)?\n&lt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google[ \t]*\n---\n&gt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google - MDS[ \t]*|\d+(?:,\d+)?d\d+(?:,\d+)?\n&lt;[ \t]*(\d{1,3}(?:\.\d{1,3}){3})[ \t]+([A-Za-z0-9][A-Za-z0-9.-]*)[ \t]+([A-Za-z0-9][A-Za-z0-9._-]*)[ \t]+# Added by Google(?: - Hostname)?[ \t]*\n\d+(?:,\d+)?a\d+(?:,\d+)?\n&gt;[ \t]*\1[ \t]+\2[ \t]+\3[ \t]+# Added by Google(?: - Hostname)?[ \t]*|\d+(?:,\d+)?c\d+(?:,\d+)?\n&lt;[ \t]*(\d{1,3}(?:\.\d{1,3}){3})[ \t]+([A-Za-z0-9][A-Za-z0-9.-]*)[ \t]+([A-Za-z0-9][A-Za-z0-9._-]*)[ \t]+# Added by Google(?: - Hostname)?[ \t]*\n---\n&gt;[ \t]*\4[ \t]+\5[ \t]+\6[ \t]+# Added by Google - Hostname[ \t]*|\d+,\d+c\d+,\d+\n&lt;[ \t]*(\d{1,3}(?:\.\d{1,3}){3})[ \t]+([A-Za-z0-9][A-Za-z0-9.-]*)[ \t]+([A-Za-z0-9][A-Za-z0-9._-]*)[ \t]+# Added by Google[ \t]*\n&lt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google[ \t]*\n---\n&gt;[ \t]*169\.254\.169\.254[ \t]+metadata\.google\.internal[ \t]+# Added by Google - MDS[ \t]*\n&gt;[ \t]*\7[ \t]+\8[ \t]+\9[ \t]+# Added by Google - Hostname[ \t]*)[ \t]*(?:\n)?$</field>
+            <description>EXCEPCION OPERACIONAL: FIM scheduled/realtime confirmo una normalizacion GCP exacta de /etc/hosts.</description>
+            <group>orangebox_exception,orangebox_whitelist,google_cloud,network,dns,</group>
+        </rule>
 </group>

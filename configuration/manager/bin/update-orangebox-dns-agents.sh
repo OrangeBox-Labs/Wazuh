@@ -5,10 +5,10 @@
 #
 # PROPOSITO:
 #   Mantener automaticamente la CDB utilizada por las reglas del Manager
-#   para reconocer servidores que pertenecen al grupo Wazuh "dns".
+#   para reconocer servidores que pertenecen al grupo Wazuh "DNS".
 #
 # FUENTE DE VERDAD:
-#   La pertenencia al grupo Wazuh "dns".
+#   La pertenencia al grupo Wazuh "DNS".
 #
 # IMPORTANTE:
 #   - NO mantener una lista manual de agentes.
@@ -28,7 +28,7 @@
 set -euo pipefail
 
 OSSEC_HOME="/var/ossec"
-GROUP="dns"
+GROUP="DNS"
 OUTPUT="${OSSEC_HOME}/etc/lists/orangebox-dns-agents"
 GROUP_OUTPUT="${OUTPUT}.group.tmp.$$"
 TMP="${OUTPUT}.tmp.$$"
@@ -56,7 +56,7 @@ if ! "$AGENT_GROUPS" -l -g "$GROUP" >"$GROUP_OUTPUT" 2>&1; then
 fi
 
 # agent_groups devuelve lineas similares a:
-#   ID: 001  Name: server.example.invalid.
+#   ID: 012  Name: server.example.invalid.
 #
 # Extraemos solo el campo Name. Toleramos diferencias de mayusculas/minusculas
 # en "Name" y no dependemos del texto de la cabecera.
@@ -78,15 +78,15 @@ if [[ "$ACTUAL_AGENTS" -eq 0 ]]; then
     exit 1
 fi
 
-# Emite el FQDN y, cuando existe, el nombre corto con el perfil dns.
+# Emite el FQDN y, cuando existe, el nombre corto con el perfil DNS.
 while IFS= read -r hostname; do
     [[ -z "$hostname" ]] && continue
 
-    printf '%s:dns\n' "$hostname"
+    printf '%s:DNS\n' "$hostname"
 
     if [[ "$hostname" == *.* ]]; then
         short="${hostname%%.*}"
-        [[ -n "$short" ]] && printf '%s:dns\n' "$short"
+        [[ -n "$short" ]] && printf '%s:DNS\n' "$short"
     fi
 done <<< "$HOSTS" |
 sort -fu > "$TMP"

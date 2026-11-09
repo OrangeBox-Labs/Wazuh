@@ -31,7 +31,7 @@ La organización es deliberadamente simple:
 - `orangebox-ioc` — actualiza las listas IOC.
 - `orangebox-log-rotation` — comprime y elimina los logs internos de Wazuh y firewall, conservando los últimos 7 días.
 - `orangebox-reports-<cliente>` — contiene los reportes diarios, semanales y mensuales de cada cliente.
-- `orangebox-reports-orangebox` — contiene los reportes consolidados enviados a soporte@example.com.
+- `orangebox-reports-example` — contiene los reportes consolidados enviados a soporte@example.com.
 
 Esto evita un `crontab -l` gigantesco y permite revisar, desplegar y mantener cada tarea de forma independiente. Los archivos de `cron.d` deben conservar el usuario `root` explícito en la línea de ejecución.
 

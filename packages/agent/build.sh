@@ -8,14 +8,14 @@ set -euo pipefail
 # Official procedure:
 #   git clone https://github.com/wazuh/wazuh
 #   cd wazuh/packages
-#   git checkout v4.14.8
+#   git checkout v4.14.9
 #   ./generate_package.sh -t agent -a amd64 -p /opt/ossec --system rpm
 #
 # Requirements: Docker and Git
 # Output: one official Wazuh RPM for x86_64, installed under /opt/ossec.
 
-# Mantener la versión por defecto alineada con el RPM OPT incluido y el instalador unificado.
-WAZUH_VERSION="${WAZUH_VERSION:-4.14.8}"
+# Build candidate: el instalador sigue fijado en 4.14.8 hasta validar este RPM y aprobar el cambio.
+WAZUH_VERSION="${WAZUH_VERSION:-4.14.9}"
 JOBS="${JOBS:-2}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 OUTDIR="${OUTDIR:-${SCRIPT_DIR}/output}"
@@ -44,7 +44,7 @@ fi
 # Limpia el directorio de salida administrado por el builder para no mezclar RPM antiguos.
 rm -rf "${OUTDIR}"
 mkdir -p "${OUTDIR}"
-# Descarta el checkout temporal anterior para compilar una fuente limpia.
+# Descarta el checkout temporal anterior para evitar compilar una fuente equivocada.
 rm -rf "${SOURCE_DIR}"
 
 echo "==> Wazuh Agent RPM ${WAZUH_VERSION}"
