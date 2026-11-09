@@ -213,11 +213,11 @@ class ZimbraSelfSshExceptionTests(unittest.TestCase):
         cls.root = load_rules(AUTH_FILE)
         cls.rules = {rule.get("id"): rule for rule in cls.root.iter("rule")}
 
-    def test_exception_is_specific_to_mail_jhg_self_connection(self):
+    def test_exception_is_specific_to_zimbra_self_connection(self):
         rule = self.rules["20011"]
         self.assertEqual(rule.get("level"), "3")
         self.assertEqual(rule.findtext("if_sid"), "10001")
-        self.assertEqual(rule.findtext("hostname"), r"^mail\.jhg\.cl$")
+        self.assertEqual(rule.findtext("hostname"), r"^mail\.example\.invalid$")
         self.assertEqual(rule.findtext("srcip"), "192.0.2.19")
         self.assertEqual(rule.findtext("user"), "^zimbra$")
         pattern = re.compile(rule.findtext("match") or "")

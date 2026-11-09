@@ -268,7 +268,7 @@ class IOCUpdaterContractTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 output.read_text(encoding="ascii"),
-                "203.0.113.66:\n203.0.113.10:\n",
+                "203.0.113.10:\n203.0.113.66:\n",
             )
 
     # Impide que cron reclasifique fuentes de IOC sin DRY_RUN y aprobación inicial.
