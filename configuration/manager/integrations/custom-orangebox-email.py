@@ -112,6 +112,41 @@ def _is_expected_google_hosts_rewrite(alert_json):
     )
 
 
+def _is_expected_lvestats_enablement_link_deletion(alert_json):
+    """Identifica exclusivamente la baja FIM del enlace de habilitacion lvestats.
+
+    En CloudLinux, lvestats.service es el servicio de estadisticas LVE y
+    multi-user.target.wants/lvestats.service es su enlace de habilitacion
+    dentro del target multi-user. Las operaciones de mantenimiento/paquetes
+    pueden retirar y recrear este enlace.
+
+    La excepcion es deliberadamente estrecha: exige la regla OrangeBox 10044,
+    la ruta exacta, evento deleted y modo scheduled. No excluye el archivo
+    unitario lvestats.service, otros enlaces systemd, modificaciones,
+    eliminaciones detectadas en realtime/whodata ni otras reglas.
+
+    El evento original permanece en Wazuh (alerts.json e indexer); solo se
+    suprime el correo. Si falta cualquier dato de identificacion, opera
+    fail-open y el correo se envia normalmente.
+    """
+    if not isinstance(alert_json, dict):
+        return False
+
+    rule = alert_json.get("rule", {})
+    syscheck = alert_json.get("syscheck", {})
+    if not isinstance(rule, dict) or not isinstance(syscheck, dict):
+        return False
+
+    return (
+        str(rule.get("id", "")) == "10044"
+        and syscheck.get("path") == (
+            "/etc/systemd/system/multi-user.target.wants/lvestats.service"
+        )
+        and str(syscheck.get("event", "")).lower() == "deleted"
+        and str(syscheck.get("mode", "")).lower() == "scheduled"
+    )
+
+
 # ============================================================
 # CONFIGURACION
 # ============================================================
@@ -1311,6 +1346,25 @@ if _is_expected_google_hosts_rewrite(alert_json):
                 "mail suppressed, Wazuh alert retained "
                 f"agent={_agent.get('name', 'unknown')} "
                 f"process={_process.get('name', 'unknown')}\n"
+            )
+    except OSError:
+        pass
+    sys.exit(0)
+
+# EXCEPCION FIM: enlace de habilitacion de lvestats en CloudLinux.
+# Solo coincide con 10044 + ruta exacta + deleted + scheduled.
+# Se conserva el evento en Wazuh; esta excepcion afecta unicamente al correo.
+if _is_expected_lvestats_enablement_link_deletion(alert_json):
+    _agent = alert_json.get("agent", {})
+    _syscheck = alert_json.get("syscheck", {})
+    try:
+        with open("/var/ossec/logs/integrations.log", "a", encoding="utf-8") as logf:
+            logf.write(
+                "INFO custom-orangebox-email: CloudLinux lvestats enablement "
+                "symlink deletion; mail suppressed, Wazuh alert retained "
+                f"agent={_agent.get('name', 'unknown')} "
+                f"path={_syscheck.get('path', 'unknown')} "
+                f"mode={_syscheck.get('mode', 'unknown')}\n"
             )
     except OSError:
         pass
