@@ -147,6 +147,59 @@ def _is_expected_lvestats_enablement_link_deletion(alert_json):
     )
 
 
+def _is_expected_dpkg_bitninja_tempfile_cleanup(alert_json):
+    """Identifica la limpieza de temporales dpkg durante una actualizacion BitNinja.
+
+    Solo suprime correo para la regla 10044 cuando se elimina uno de los dos
+    temporales exactos de bitninja-policier.service (.dpkg-new/.dpkg-tmp),
+    bajo /etc/systemd/system, mediante FIM whodata y con auditoria que confirma
+    root -> /usr/bin/apt-get -> /usr/bin/dpkg.
+
+    No excluye bitninja-policier.service, otros archivos .dpkg-*, otros
+    ejecutables, otros procesos padre, eventos scheduled/realtime ni cambios
+    de contenido. Ante cualquier dato ausente o distinto, opera fail-open.
+    El evento permanece en Wazuh; solo se suprime el correo.
+    """
+    if not isinstance(alert_json, dict):
+        return False
+
+    rule = alert_json.get("rule", {})
+    syscheck = alert_json.get("syscheck", {})
+    if not isinstance(rule, dict) or not isinstance(syscheck, dict):
+        return False
+
+    expected_paths = {
+        "/etc/systemd/system/bitninja-policier.service.dpkg-new",
+        "/etc/systemd/system/bitninja-policier.service.dpkg-tmp",
+    }
+    if (
+        str(rule.get("id", "")) != "10044"
+        or syscheck.get("path") not in expected_paths
+        or str(syscheck.get("event", "")).lower() != "deleted"
+        or str(syscheck.get("mode", "")).lower() != "whodata"
+    ):
+        return False
+
+    audit = syscheck.get("audit", {})
+    if not isinstance(audit, dict):
+        return False
+
+    user = audit.get("user", {})
+    process = audit.get("process", {})
+    effective_user = audit.get("effective_user", {})
+    if not all(isinstance(item, dict) for item in (user, process, effective_user)):
+        return False
+
+    return (
+        user.get("name") == "root"
+        and str(user.get("id", "")) == "0"
+        and effective_user.get("name") == "root"
+        and str(effective_user.get("id", "")) == "0"
+        and process.get("name") == "/usr/bin/dpkg"
+        and process.get("parent_name") == "/usr/bin/apt-get"
+    )
+
+
 # ============================================================
 # CONFIGURACION
 # ============================================================
@@ -1365,6 +1418,28 @@ if _is_expected_lvestats_enablement_link_deletion(alert_json):
                 f"agent={_agent.get('name', 'unknown')} "
                 f"path={_syscheck.get('path', 'unknown')} "
                 f"mode={_syscheck.get('mode', 'unknown')}\n"
+            )
+    except OSError:
+        pass
+    sys.exit(0)
+
+# EXCEPCION FIM: limpieza de temporales dpkg de BitNinja.
+# Requiere regla/ruta/evento/modo y cadena auditada root -> apt-get -> dpkg.
+# Solo suprime el correo; la alerta original permanece en Wazuh.
+if _is_expected_dpkg_bitninja_tempfile_cleanup(alert_json):
+    _agent = alert_json.get("agent", {})
+    _syscheck = alert_json.get("syscheck", {})
+    _audit = _syscheck.get("audit", {})
+    _process = _audit.get("process", {}) if isinstance(_audit, dict) else {}
+    try:
+        with open("/var/ossec/logs/integrations.log", "a", encoding="utf-8") as logf:
+            logf.write(
+                "INFO custom-orangebox-email: BitNinja dpkg temporary-file "
+                "cleanup; mail suppressed, Wazuh alert retained "
+                f"agent={_agent.get('name', 'unknown')} "
+                f"path={_syscheck.get('path', 'unknown')} "
+                f"process={_process.get('name', 'unknown')} "
+                f"parent={_process.get('parent_name', 'unknown')}\\n"
             )
     except OSError:
         pass
