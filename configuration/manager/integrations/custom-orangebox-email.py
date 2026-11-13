@@ -2642,10 +2642,10 @@ if is_blocked_alert:
                                     color:#0f172a;font-size:12px;line-height:1.45;
                                     overflow-wrap:anywhere;">
                                     <strong style="display:inline-block;width:170px;max-width:40%;box-sizing:border-box;vertical-align:top;padding-right:12px;color:#334155;">Active Response:</strong>
-                                    <span style="display:inline-block;width:58%;vertical-align:top;font-weight:700;">{esc(source_ip or 'IP no disponible en el evento')}</span>
-                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;">{esc(status_detail)}</span>
-                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;">Acción: firewall-drop · Tiempo: {esc(timeout_label)} · Ejecución en: {esc(location_detail)}</span>
-                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;font-size:11px;color:#475569;">Selector: {esc(selector_detail)}</span>
+                                    <span style="display:inline-block;width:58%;vertical-align:top;font-weight:700;overflow-wrap:anywhere;">{esc(source_ip or 'IP no disponible en el evento')}</span>
+                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;overflow-wrap:anywhere;">{esc(status_detail)}</span>
+                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;overflow-wrap:anywhere;">Acción: firewall-drop<br>Tiempo: {esc(timeout_label)}<br>Ejecución en: {esc(location_detail)}</span>
+                                    <span style="display:inline-block;width:58%;margin-left:170px;vertical-align:top;font-size:11px;color:#475569;overflow-wrap:anywhere;">Selector: {esc(selector_detail)}</span>
                                 </td>
                             </tr>
                             """
@@ -2662,13 +2662,46 @@ html_template = f"""<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="x-apple-disable-message-reformatting">
     <style>
-        /* ORANGEBOX MOBILE EMAIL FIX */
-        @media only screen and (max-width:480px) {{
+        /* ORANGEBOX RESPONSIVE EMAIL LAYOUT
+           Gmail Android can retain inline-block widths from desktop layouts.
+           On narrow screens, stack every label/value and remove fixed offsets. */
+        .ob-card, .ob-details-table {{
+            width:100% !important;
+            max-width:100% !important;
+        }}
+        .ob-details-table {{
+            table-layout:fixed !important;
+        }}
+        .ob-detail-row td {{
+            max-width:100% !important;
+            overflow-wrap:anywhere !important;
+            word-wrap:break-word !important;
+        }}
+        @media only screen and (max-width:600px) {{
+            body {{ padding:6px !important; }}
             .ob-card {{ width:100% !important; max-width:100% !important; }}
-            .ob-content {{ padding-left:8px !important; padding-right:8px !important; }}
+            .ob-content {{ padding-left:4px !important; padding-right:4px !important; }}
             .ob-details-table {{ width:100% !important; max-width:100% !important; table-layout:fixed !important; }}
-            /* Each detail field spans the full table width; no mobile-only
-               table-cell transformation is required. */
+            .ob-detail-row td {{ padding-left:9px !important; padding-right:9px !important; }}
+            .ob-detail-row strong {{
+                display:block !important;
+                width:100% !important;
+                max-width:100% !important;
+                margin:0 0 3px 0 !important;
+                padding-right:0 !important;
+                box-sizing:border-box !important;
+            }}
+            .ob-detail-row span {{
+                display:block !important;
+                width:100% !important;
+                max-width:100% !important;
+                margin-left:0 !important;
+                box-sizing:border-box !important;
+                overflow-wrap:anywhere !important;
+                word-wrap:break-word !important;
+                word-break:break-word !important;
+            }}
+            .ob-detail-row img {{ max-width:100% !important; height:auto !important; }}
         }}
     </style>
     <title>Alerta Wazuh: Nivel {highest_level} en {esc(final_data['agent_name'])}</title>
